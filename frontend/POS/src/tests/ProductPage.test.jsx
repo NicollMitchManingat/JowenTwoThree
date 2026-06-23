@@ -7,7 +7,7 @@ describe("ProductPage", () => {
     render(<ProductPage />);
 
     expect(
-      screen.getByText("Products")
+      screen.getByRole("heading", { name: "Products" })
     ).toBeInTheDocument();
   });
 
@@ -16,7 +16,7 @@ describe("ProductPage", () => {
 
     const products = screen.getAllByTestId("product-card");
 
-    expect(products.length).toBe(3);
+    expect(products).toHaveLength(3);
   });
 
   it("should display product names", () => {

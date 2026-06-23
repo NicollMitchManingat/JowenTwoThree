@@ -1,4 +1,5 @@
 import React from "react";
+import ProductPage from "./ProductPage";
 
 const POSLayout = () => {
   return (
@@ -9,8 +10,7 @@ const POSLayout = () => {
 
       <main>
         <section>
-          <h2>Products</h2>
-          <p>Product display area</p>
+          <ProductPage />
         </section>
 
         <section>

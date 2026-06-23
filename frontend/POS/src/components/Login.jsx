@@ -4,9 +4,30 @@ function Login({ onLogin }) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [role, setRole] = useState("cashier");
+  const [error, setError] = useState("");
 
   const handleSubmit = (e) => {
     e.preventDefault();
+
+    if (!username.trim() || !password.trim()) {
+      setError("Username and password are required.");
+      return;
+    }
+
+    const validCredentials = {
+      username: "admin",
+      password: "123456",
+    };
+
+    if (
+      username !== validCredentials.username ||
+      password !== validCredentials.password
+    ) {
+      setError("Invalid username or password.");
+      return;
+    }
+
+    setError("");
 
     const credentials = {
       username,
@@ -16,8 +37,6 @@ function Login({ onLogin }) {
 
     if (onLogin) {
       onLogin(credentials);
-    } else {
-      console.log("Login data:", credentials);
     }
   };
 
@@ -57,6 +76,12 @@ function Login({ onLogin }) {
             <option value="admin">Admin</option>
           </select>
         </div>
+
+        {error && (
+          <p data-testid="error-message" style={{ color: "red" }}>
+            {error}
+          </p>
+        )}
 
         <button data-testid="login-button" type="submit">
           Login

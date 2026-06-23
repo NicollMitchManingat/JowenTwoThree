@@ -10,7 +10,7 @@ describe("OrderSummary", () => {
       screen.getByText("Order Summary")
     ).toBeInTheDocument();
   });
-
+  //
   it("should display cart items", () => {
     render(<OrderSummary />);
 
@@ -18,13 +18,18 @@ describe("OrderSummary", () => {
 
     expect(items.length).toBe(2);
   });
-
+// mock data
   it("should display item names", () => {
-    render(<OrderSummary />);
+  const mockItems = [
+    { id: 1, name: "Burger" },
+    { id: 2, name: "Fries" },
+  ];
 
-    expect(screen.getByText("Burger")).toBeInTheDocument();
-    expect(screen.getByText("Fries")).toBeInTheDocument();
-  });
+  render(<OrderSummary items={mockItems} />);
+
+  expect(screen.getByText("Burger")).toBeInTheDocument();
+  expect(screen.getByText("Fries")).toBeInTheDocument();
+});
 
   it("should display item quantities", () => {
     render(<OrderSummary />);

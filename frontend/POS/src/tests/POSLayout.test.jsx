@@ -15,7 +15,7 @@ describe("POSLayout", () => {
     render(<POSLayout />);
 
     expect(
-      screen.getByText("Products")
+      screen.getByRole("heading", { name: "Products" })
     ).toBeInTheDocument();
   });
 
@@ -25,5 +25,13 @@ describe("POSLayout", () => {
     expect(
       screen.getByText("Order Summary")
     ).toBeInTheDocument();
+  });
+
+  it("renders ProductPage inside POSLayout", () => {
+    render(<POSLayout />);
+
+    expect(screen.getByText("Burger")).toBeInTheDocument();
+    expect(screen.getByText("Pizza")).toBeInTheDocument();
+    expect(screen.getByText("Fries")).toBeInTheDocument();
   });
 });

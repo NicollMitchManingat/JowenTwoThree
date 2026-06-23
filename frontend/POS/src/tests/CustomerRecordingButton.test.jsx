@@ -38,18 +38,22 @@ describe("CustomerRecordingButton", () => {
       screen.getByTestId("customer-count")
     ).toHaveTextContent("1");
   });
-
+  
   it("should not decrease customer count below 1", () => {
-    render(<CustomerRecordingButton />);
+  render(<CustomerRecordingButton />);
 
-    fireEvent.click(
-      screen.getByLabelText("Decrease Customer Count")
-    );
+  expect(
+    screen.getByTestId("customer-count")
+  ).toHaveTextContent("1");
 
-    expect(
-      screen.getByTestId("customer-count")
-    ).toHaveTextContent("1");
-  });
+  fireEvent.click(
+    screen.getByLabelText("Decrease Customer Count")
+  );
+
+  expect(
+    screen.getByTestId("customer-count")
+  ).toHaveTextContent("1");
+});
 
   it("should render the customer count title", () => {
     render(<CustomerRecordingButton />);

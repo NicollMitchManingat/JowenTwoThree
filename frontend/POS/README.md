@@ -1,16 +1,68 @@
-# React + Vite
+# Point-of-Sale (POS) System
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+## Project Overview
+This project is a Point-of-Sale (POS) system frontend built using modern web technologies such as React, Vite, and testing tools like Vitest and React Testing Library. The goal is to create an efficient and user-friendly interface for handling sales transactions, managing products, and recording customer orders.
 
-Currently, two official plugins are available:
+---
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## Week 1 - Day 1: POS Layout Design 
 
-## React Compiler
+### Objective
+Design and implement the basic structure of the POS system including navigation, login, product display, and order summary.
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+---
 
-## Expanding the ESLint configuration
+## Tasks Breakdown
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+### 1. Login Page
+- Create login page UI
+- Accept user credentials
+
+### 2. Main POS Layout
+- Create POS Page
+
+### 3. Sidebar Navigation
+- Add navigation menu:
+  - POS
+  - Inventory
+  - Orders
+  - Reports
+  - Settings
+
+### 4. Customer Recording Button
+- Create a button to select number of customers
+- Allow increment/decrement functionality
+
+### 5. Product Display Section
+- Display list of products
+- Each product shows:
+  - Image
+  - Name
+  - Price
+
+### 6. Order Summary / Cart Panel
+- Display  cart panel 
+
+---
+
+## Deliverables
+
+- Login Page
+- POS Layout Component
+- Sidebar Component
+- Customer Recording Button Component
+- Product Display Page/Section
+- Order Summary/Cart Panel Component
+
+---
+
+## Test Suite / PR Acceptance Criteria
+
+- User can access the login page and enter credentials
+- User can view POS dashboard after login
+- User can navigate through sidebar menu 
+- Customer count starts at **1** and can be increased/decreased
+- Product list correctly displays image, name, and price
+- User can view Cart Panel for Order Summary.
+
+---

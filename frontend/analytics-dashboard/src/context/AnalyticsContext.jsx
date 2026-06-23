@@ -1,6 +1,9 @@
 import React, { createContext, useState } from "react";
 
-export const AnalyticsContext = createContext(null);
+export const AnalyticsContext = createContext({
+  dateFilter: "Today",
+  setDateFilter: () => {},
+});
 
 export function AnalyticsProvider({ children }) {
   const [dateFilter, setDateFilter] = useState("Today");

@@ -1,27 +1,45 @@
 import { render, screen } from "@testing-library/react";
 import DashboardContent from "../components/DashboardContent";
 import { AnalyticsContext } from "../context/AnalyticsContext";
-
-function renderWithContext(ui, { dateFilter = "Today" } = {}) {
-  return render(
-    <AnalyticsContext.Provider value={{ dateFilter }}>
-      {ui}
-    </AnalyticsContext.Provider>
-  );
-}
+import { vi } from "vitest";
 
 describe("DashboardContent", () => {
-  test("renders active tab title", () => {
-    renderWithContext(<DashboardContent activeTab="Sales" />);
+  test("renders Sales analytics with Today filter", () => {
+    render(
+      <AnalyticsContext.Provider
+        value={{ dateFilter: "Today", setDateFilter: vi.fn() }}
+      >
+        <DashboardContent activeTab="Sales" />
+      </AnalyticsContext.Provider>
+    );
 
     expect(screen.getByText("Sales Analytics")).toBeInTheDocument();
+    expect(screen.getByText(/Date Filter: Today/i)).toBeInTheDocument();
   });
 
-  test("shows date filter from context", () => {
-    renderWithContext(<DashboardContent activeTab="Inventory" />, {
-      dateFilter: "This Week",
-    });
+  test("renders Inventory analytics with This Week filter", () => {
+    render(
+      <AnalyticsContext.Provider
+        value={{ dateFilter: "This Week", setDateFilter: vi.fn() }}
+      >
+        <DashboardContent activeTab="Inventory" />
+      </AnalyticsContext.Provider>
+    );
 
+    expect(screen.getByText("Inventory Analytics")).toBeInTheDocument();
     expect(screen.getByText(/Date Filter: This Week/i)).toBeInTheDocument();
+  });
+
+  test("renders Customers analytics with This Month filter", () => {
+    render(
+      <AnalyticsContext.Provider
+        value={{ dateFilter: "This Month", setDateFilter: vi.fn() }}
+      >
+        <DashboardContent activeTab="Customers" />
+      </AnalyticsContext.Provider>
+    );
+
+    expect(screen.getByText("Customers Analytics")).toBeInTheDocument();
+    expect(screen.getByText(/Date Filter: This Month/i)).toBeInTheDocument();
   });
 });

@@ -1,33 +1,32 @@
-import Sidebar from "./components/Sidebar";
-import POSLayout from "./components/POSLayout";
-import ProductPage from "./components/ProductPage";
-import OrderSummary from "./components/OrderSummary";
-import CustomerRecordingButton from "./components/CustomerRecordingButton";
-import Login from "./components/Login";
+import { useState } from 'react'
+import LoginPage from './pages/LoginPage'
+import MainPOS from './pages/MainPOS'
+import './App.css'
 
-function App() {
+export default function App() {
+  const [isLoggedIn, setIsLoggedIn] = useState(false)
+  const [user, setUser] = useState(null)
+
+  const handleLogin = (credentials) => {
+    setUser({
+      username: credentials.username,
+      email: credentials.email
+    })
+    setIsLoggedIn(true)
+  }
+
+  const handleLogout = () => {
+    setIsLoggedIn(false)
+    setUser(null)
+  }
+
   return (
-    <div className="app-container">
-      {/* Sidebar Navigation */}
-      <Sidebar />
-
-      {/* Main Content */}
-      <main className="main-content">
-        <POSLayout />
-
-        <section className="pos-features">
-          <ProductPage />
-          <OrderSummary />
-          <CustomerRecordingButton />
-        </section>
-
-        {/* Optional Login section (if needed for auth page view) */}
-        <section className="login-section">
-          <Login />
-        </section>
-      </main>
+    <div className="app">
+      {isLoggedIn ? (
+        <MainPOS user={user} onLogout={handleLogout} />
+      ) : (
+        <LoginPage onLogin={handleLogin} />
+      )}
     </div>
-  );
+  )
 }
-
-export default App;

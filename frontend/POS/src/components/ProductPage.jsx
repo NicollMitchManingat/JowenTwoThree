@@ -1,51 +1,21 @@
-function ProductPage() {
-  const products = [
-    {
-      id: 1,
-      name: "Burger",
-      price: 120,
-      image: "https://via.placeholder.com/150",
-    },
-    {
-      id: 2,
-      name: "Pizza",
-      price: 250,
-      image: "https://via.placeholder.com/150",
-    },
-    {
-      id: 3,
-      name: "Fries",
-      price: 80,
-      image: "https://via.placeholder.com/150",
-    },
-  ];
+import { mockProducts } from '../data/mockProducts'
+import '../styles/ProductPage.css'
 
+export default function ProductPage({ onAddToCart }) {
   return (
-    <div className="product-page">
+    <div className="product-page" data-testid="product-page">
       <h2>Products</h2>
-
-      <div className="product-list">
-        {products.map((product) => (
-          <div
-            key={product.id}
-            data-testid="product-card"
-            className="product-card"
-          >
-            <img
-              src={product.image}
-              alt={product.name}
-              width="150"
-              height="150"
-            />
-
-            <h3>{product.name}</h3>
-
-            <p>₱{product.price}</p>
+      <div className="products-grid" data-testid="products-grid">
+        {mockProducts.map(product => (
+          <div key={product.id} className="product-card" data-testid={`product-${product.id}`}>
+            <div className="product-info">
+              <h3 className="product-name" data-testid={`product-name-${product.id}`}>{product.name}</h3>
+              <p className="product-price" data-testid={`product-price-${product.id}`}>₱{product.price}</p>
+            </div>
+            
           </div>
         ))}
       </div>
     </div>
-  );
+  )
 }
-
-export default ProductPage;

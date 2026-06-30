@@ -14,7 +14,6 @@ export default function OrderDetails({
 
   return (
     <div className="order-details" data-testid="order-details">
-      {/* Order Stats */}
       <div className="order-stats">
         <div className="stat">
           <span className="stat-label">Items:</span>
@@ -26,7 +25,6 @@ export default function OrderDetails({
         </div>
       </div>
 
-      {/* Cart Items */}
       <div className="cart-items">
         {cart.length === 0 ? (
           <div className="empty-cart" data-testid="empty-cart">
@@ -80,7 +78,6 @@ export default function OrderDetails({
         )}
       </div>
 
-      {/* Special Instructions */}
       <div className="special-instructions">
         <label htmlFor="special-instructions-input" className="special-instructions-label">
           Special Instructions
@@ -95,7 +92,6 @@ export default function OrderDetails({
         />
       </div>
 
-      {/* Order Actions */}
       <div className="order-actions">
         <button
           className="clear-btn"

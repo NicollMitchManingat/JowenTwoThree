@@ -1,0 +1,9 @@
+.app-root{display:flex;min-height:100vh;font-family:system-ui,Segoe UI,Roboto,Arial}
+.sidebar{width:220px;background:#0f172a;color:#fff;padding:16px}
+.sidebar ul{list-style:none;padding:0;margin:0}
+.sidebar a{color:#cbd5e1;text-decoration:none}
+.main-area{flex:1;padding:24px;background:#f8fafc}
+.dashboard{max-width:1200px;margin:0 auto}
+.table-wrapper{overflow:auto;background:#fff;padding:12px;border-radius:6px}
+table{width:100%;border-collapse:collapse}
+th,td{padding:8px;border-bottom:1px solid #e2e8f0;text-align:left}

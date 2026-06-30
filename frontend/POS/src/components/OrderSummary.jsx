@@ -1,6 +1,6 @@
 import '../styles/OrderSummary.css'
 
-export default function OrderSummary({ cart, customerCount, onRemoveItem, onUpdateQuantity, onClearCart, onCheckout }) {
+export default function OrderSummary({ cart, customerCount, onRemoveItem, onUpdateQuantity, onClearCart, onCheckout, specialInstructions, onSpecialInstructionsChange }) {
   const totalItems = cart.reduce((sum, item) => sum + item.quantity, 0)
   const totalPrice = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0)
   const pricePerCustomer = customerCount > 0 ? totalPrice / customerCount : 0
@@ -73,19 +73,18 @@ export default function OrderSummary({ cart, customerCount, onRemoveItem, onUpda
         )}
       </div>
 
-      <div className="order-totals">
-        <div className="total-row">
-          <span>Subtotal:</span>
-          <span data-testid="subtotal">₱{totalPrice}</span>
-        </div>
-        <div className="total-row per-customer">
-          <span>Per Customer:</span>
-          <span data-testid="per-customer">₱{pricePerCustomer.toFixed(2)}</span>
-        </div>
-        <div className="total-row grand-total">
-          <span>Total:</span>
-          <span data-testid="grand-total">₱{totalPrice}</span>
-        </div>
+      <div className="special-instructions">
+        <label htmlFor="special-instructions-input" className="special-instructions-label">
+          Special Instructions
+        </label>
+        <textarea
+          id="special-instructions-input"
+          className="special-instructions-input"
+          data-testid="special-instructions"
+          placeholder="e.g. no sugar, allergies..."
+          value={specialInstructions}
+          onChange={(e) => onSpecialInstructionsChange(e.target.value)}
+        />
       </div>
 
       <div className="order-actions">
@@ -103,7 +102,7 @@ export default function OrderSummary({ cart, customerCount, onRemoveItem, onUpda
           disabled={cart.length === 0}
           data-testid="checkout-btn"
         >
-          Checkout
+          Confirm
         </button>
       </div>
     </div>

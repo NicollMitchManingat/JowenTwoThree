@@ -30,7 +30,7 @@
 - User can enter special instructions for a product.
 - User can view selected products in the order summary.
 - User can increase or decrease item quantity.
-- User can clear the current order using the order button.
+- User can see Confirm and Clear button UI.
 
 ### Instructor Notes
 

@@ -30,8 +30,43 @@ describe('OrderSummary', () => {
     expect(screen.getByTestId('cart-item-3')).toBeInTheDocument()
   })
 
+  it('should display the special instructions textarea', () => {
+    render(
+      <OrderSummary
+        cart={mockCart}
+        customerCount={1}
+        onRemoveItem={mockOnRemoveItem}
+        onUpdateQuantity={mockOnUpdateQuantity}
+        onClearCart={mockOnClearCart}
+        onCheckout={mockOnCheckout}
+        specialInstructions=""
+        onSpecialInstructionsChange={vi.fn()}
+      />
+    )
 
+    expect(screen.getByTestId('special-instructions')).toBeInTheDocument()
+  })
 
+  it('should call onSpecialInstructionsChange when typing', async () => {
+    const user = userEvent.setup()
+    const mockOnChange = vi.fn()
 
-  
+    render(
+      <OrderSummary
+        cart={mockCart}
+        customerCount={1}
+        onRemoveItem={mockOnRemoveItem}
+        onUpdateQuantity={mockOnUpdateQuantity}
+        onClearCart={mockOnClearCart}
+        onCheckout={mockOnCheckout}
+        specialInstructions=""
+        onSpecialInstructionsChange={mockOnChange}
+      />
+    )
+
+    const textarea = screen.getByTestId('special-instructions')
+    await user.type(textarea, 'No sugar please')
+
+    expect(mockOnChange).toHaveBeenCalled()
+  })
 })

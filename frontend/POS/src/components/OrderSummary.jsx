@@ -102,7 +102,7 @@ export default function OrderSummary({ cart, customerCount, onRemoveItem, onUpda
           disabled={cart.length === 0}
           data-testid="checkout-btn"
         >
-          Confirm
+          Checkout
         </button>
       </div>
     </div>

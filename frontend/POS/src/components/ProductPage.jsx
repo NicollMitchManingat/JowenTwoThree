@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react'
 import { mockProducts } from '../data/mockProducts'
 import ProductCard from './ProductCard'
+import CategoryFilter from './CategoryFilter'
 import '../styles/ProductPage.css'
 
 export default function ProductPage({ onAddToCart }) {
@@ -20,18 +21,11 @@ export default function ProductPage({ onAddToCart }) {
     <div className="product-page" data-testid="product-page">
       <h2>Products</h2>
 
-      <div className="category-filters" data-testid="category-filters">
-        {categories.map(category => (
-          <button
-            key={category}
-            className={`category-btn ${selectedCategory === category ? 'active' : ''}`}
-            onClick={() => setSelectedCategory(category)}
-            data-testid={`category-filter-${category}`}
-          >
-            {category}
-          </button>
-        ))}
-      </div>
+      <CategoryFilter
+        categories={categories}
+        selectedCategory={selectedCategory}
+        onSelectCategory={setSelectedCategory}
+      />
 
       <div className="products-grid" data-testid="products-grid">
         {filteredProducts.map(product => (

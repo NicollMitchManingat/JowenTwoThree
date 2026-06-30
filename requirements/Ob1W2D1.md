@@ -6,7 +6,7 @@
 
 **Week:** 2 | **Day:** 1
 
-## Task: Design Cart UI (Front-End)
+## Task: Design Order Summary UI (Front-End)
 
 ### Sub-Tasks (Breakdown)
 - Create product category filter buttons.

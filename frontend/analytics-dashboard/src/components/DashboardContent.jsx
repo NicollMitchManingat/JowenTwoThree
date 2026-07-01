@@ -1,90 +1,69 @@
-import { useContext, useEffect, useState } from "react";
+import { useContext } from "react";
 import { AnalyticsContext } from "../context/AnalyticsContext";
-
 import SummaryCard from "./SummaryCard";
+import SalesTrendChart from "./SalesTrendChart";
 import DateRangeFilter from "./DateRangeFilter";
-import LoadingSkeleton from "./LoadingSkeleton";
 import CustomerTrafficHeatmap from "./CustomerTrafficHeatmap";
+import LoadingSkeleton from "./LoadingSkeleton";
 
 export default function DashboardContent({ activeTab }) {
   const { dateFilter } = useContext(AnalyticsContext);
 
-  // Loading state
-  const [loading, setLoading] = useState(true);
-
-  // Date range picker state
-  const [startDate, setStartDate] = useState("");
-  const [endDate, setEndDate] = useState("");
-
-  // Mock dashboard statistics
-  const dashboardStats = {
-    customers: 1284,
-    orders: 846,
-    sales: 124560.75,
-  };
-
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setLoading(false);
-    }, 1200);
-
-    return () => clearTimeout(timer);
-  }, []);
-
   return (
     <div className="dashboard-content">
       <h2>{activeTab} Analytics</h2>
-
       <p>Date Filter: {dateFilter}</p>
 
-      {/* KPI Cards */}
-      <section className="kpi-section">
+      {/* Week 2 Day 2 Summary Cards */}
+      <section
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(3, 1fr)",
+          gap: "16px",
+          marginBottom: "24px",
+        }}
+      >
         <SummaryCard
           title="Total Customers Today"
-          value={dashboardStats.customers}
+          value={1250}
         />
 
         <SummaryCard
           title="Total Orders Today"
-          value={dashboardStats.orders}
+          value={876}
         />
 
         <SummaryCard
           title="Total Sales Today"
-          value={dashboardStats.sales}
-          isCurrency
+          value={157890}
         />
       </section>
 
       {/* Analytics */}
-      <section className="graph-grid">
-
-        {/* Weekly Revenue */}
+      <section
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(2, 1fr)",
+          gap: "20px",
+        }}
+      >
+        {/* Week 2 Day 1 */}
         <div className="graph-card">
           <h3>Weekly Revenue</h3>
 
-          <DateRangeFilter
-            startDate={startDate}
-            endDate={endDate}
-            setStartDate={setStartDate}
-            setEndDate={setEndDate}
-          />
+          <DateRangeFilter />
 
-          {loading ? (
-            <LoadingSkeleton />
-          ) : (
-            <SalesTrendChart />
-          )}
-        </div> 
+          <SalesTrendChart />
+        </div>
 
-        {/* Customer Traffic */}
+        {/* Week 2 Day 2 */}
         <div className="graph-card">
           <h3>Live Customer Traffic</h3>
 
           <CustomerTrafficHeatmap />
         </div>
 
-        {/* AI Forecasting */}
+        {/* Placeholder */}
         <div className="graph-card">
           <h3>AI Forecasting</h3>
 
@@ -93,15 +72,12 @@ export default function DashboardContent({ activeTab }) {
           </div>
         </div>
 
-        {/* Inventory Insights */}
+        {/* Placeholder */}
         <div className="graph-card">
           <h3>Inventory Insights & Wastage</h3>
 
-          <div className="graph-placeholder">
-            Coming in Week 3
-          </div>
+          <LoadingSkeleton />
         </div>
-
       </section>
     </div>
   );

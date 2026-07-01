@@ -187,6 +187,24 @@ describe('OrderDetails', () => {
       await user.type(screen.getByTestId('discount-value-input'), '9999')
       expect(screen.getByTestId('total-amount')).toHaveTextContent('₱0.00')
     })
+
+    it('should deduct a percentage discount from the total amount', async () => {
+      const user = userEvent.setup()
+      renderOrderDetails()
+      await user.selectOptions(screen.getByTestId('discount-type-select'), 'percentage')
+      await user.clear(screen.getByTestId('discount-value-input'))
+      await user.type(screen.getByTestId('discount-value-input'), '10')
+      expect(screen.getByTestId('total-amount')).toHaveTextContent('₱270.00')
+    })
+
+    it('should deduct a fixed discount from the total amount', async () => {
+      const user = userEvent.setup()
+      renderOrderDetails()
+      await user.selectOptions(screen.getByTestId('discount-type-select'), 'fixed')
+      await user.clear(screen.getByTestId('discount-value-input'))
+      await user.type(screen.getByTestId('discount-value-input'), '50')
+      expect(screen.getByTestId('total-amount')).toHaveTextContent('₱250.00')
+    })
   })
 
   describe('order actions', () => {

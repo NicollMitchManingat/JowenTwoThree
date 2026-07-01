@@ -1,45 +1,80 @@
 import { render, screen } from "@testing-library/react";
 import DashboardContent from "../components/DashboardContent";
 import { AnalyticsContext } from "../context/AnalyticsContext";
-import { vi } from "vitest";
 
 describe("DashboardContent", () => {
-  test("renders Sales analytics with Today filter", () => {
+  it("should render Sales analytics with Today filter", () => {
     render(
-      <AnalyticsContext.Provider
-        value={{ dateFilter: "Today", setDateFilter: vi.fn() }}
-      >
+      <AnalyticsContext.Provider value={{ dateFilter: "Today" }}>
         <DashboardContent activeTab="Sales" />
       </AnalyticsContext.Provider>
     );
 
     expect(screen.getByText("Sales Analytics")).toBeInTheDocument();
-    expect(screen.getByText(/Date Filter: Today/i)).toBeInTheDocument();
+    expect(screen.getByText("Date Filter: Today")).toBeInTheDocument();
   });
 
-  test("renders Inventory analytics with This Week filter", () => {
+  it("should render Inventory analytics with This Week filter", () => {
     render(
-      <AnalyticsContext.Provider
-        value={{ dateFilter: "This Week", setDateFilter: vi.fn() }}
-      >
+      <AnalyticsContext.Provider value={{ dateFilter: "This Week" }}>
         <DashboardContent activeTab="Inventory" />
       </AnalyticsContext.Provider>
     );
 
     expect(screen.getByText("Inventory Analytics")).toBeInTheDocument();
-    expect(screen.getByText(/Date Filter: This Week/i)).toBeInTheDocument();
+    expect(screen.getByText("Date Filter: This Week")).toBeInTheDocument();
   });
 
-  test("renders Customers analytics with This Month filter", () => {
+  it("should render Customers analytics with This Month filter", () => {
     render(
-      <AnalyticsContext.Provider
-        value={{ dateFilter: "This Month", setDateFilter: vi.fn() }}
-      >
+      <AnalyticsContext.Provider value={{ dateFilter: "This Month" }}>
         <DashboardContent activeTab="Customers" />
       </AnalyticsContext.Provider>
     );
 
     expect(screen.getByText("Customers Analytics")).toBeInTheDocument();
-    expect(screen.getByText(/Date Filter: This Month/i)).toBeInTheDocument();
+    expect(screen.getByText("Date Filter: This Month")).toBeInTheDocument();
+  });
+
+  it("should render all KPI cards", () => {
+    render(
+      <AnalyticsContext.Provider value={{ dateFilter: "Today" }}>
+        <DashboardContent activeTab="Sales" />
+      </AnalyticsContext.Provider>
+    );
+
+    expect(screen.getByText("Total Customers Today")).toBeInTheDocument();
+    expect(screen.getByText("Total Orders Today")).toBeInTheDocument();
+    expect(screen.getByText("Total Sales Today")).toBeInTheDocument();
+
+    expect(screen.getByText("1,284")).toBeInTheDocument();
+    expect(screen.getByText("846")).toBeInTheDocument();
+    expect(screen.getByText("₱124,560.75")).toBeInTheDocument();
+  });
+
+  it("should render all analytics sections", () => {
+    render(
+      <AnalyticsContext.Provider value={{ dateFilter: "Today" }}>
+        <DashboardContent activeTab="Sales" />
+      </AnalyticsContext.Provider>
+    );
+
+    expect(screen.getByText("Weekly Revenue")).toBeInTheDocument();
+    expect(screen.getByText("Live Customer Traffic")).toBeInTheDocument();
+    expect(screen.getByText("AI Forecasting")).toBeInTheDocument();
+    expect(
+      screen.getByText("Inventory Insights & Wastage")
+    ).toBeInTheDocument();
+  });
+
+  it("should render the customer traffic heatmap", () => {
+    render(
+      <AnalyticsContext.Provider value={{ dateFilter: "Today" }}>
+        <DashboardContent activeTab="Sales" />
+      </AnalyticsContext.Provider>
+    );
+
+    expect(screen.getByText("0:00")).toBeInTheDocument();
+    expect(screen.getByText("23:00")).toBeInTheDocument();
   });
 });

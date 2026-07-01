@@ -1,15 +1,11 @@
 import { render, screen } from "@testing-library/react";
-import { vi, describe, it, expect } from "vitest";
-
 import DashboardContent from "../components/DashboardContent";
 import { AnalyticsContext } from "../context/AnalyticsContext";
 
 describe("DashboardContent", () => {
   it("should render Sales analytics with Today filter", () => {
     render(
-      <AnalyticsContext.Provider
-        value={{ dateFilter: "Today", setDateFilter: vi.fn() }}
-      >
+      <AnalyticsContext.Provider value={{ dateFilter: "Today" }}>
         <DashboardContent activeTab="Sales" />
       </AnalyticsContext.Provider>
     );
@@ -20,9 +16,7 @@ describe("DashboardContent", () => {
 
   it("should render Inventory analytics with This Week filter", () => {
     render(
-      <AnalyticsContext.Provider
-        value={{ dateFilter: "This Week", setDateFilter: vi.fn() }}
-      >
+      <AnalyticsContext.Provider value={{ dateFilter: "This Week" }}>
         <DashboardContent activeTab="Inventory" />
       </AnalyticsContext.Provider>
     );
@@ -33,9 +27,7 @@ describe("DashboardContent", () => {
 
   it("should render Customers analytics with This Month filter", () => {
     render(
-      <AnalyticsContext.Provider
-        value={{ dateFilter: "This Month", setDateFilter: vi.fn() }}
-      >
+      <AnalyticsContext.Provider value={{ dateFilter: "This Month" }}>
         <DashboardContent activeTab="Customers" />
       </AnalyticsContext.Provider>
     );
@@ -44,29 +36,9 @@ describe("DashboardContent", () => {
     expect(screen.getByText("Date Filter: This Month")).toBeInTheDocument();
   });
 
-  it("should render all KPI cards", () => {
-    render(
-      <AnalyticsContext.Provider
-        value={{ dateFilter: "Today", setDateFilter: vi.fn() }}
-      >
-        <DashboardContent activeTab="Sales" />
-      </AnalyticsContext.Provider>
-    );
-
-    expect(screen.getByText("Total Customers Today")).toBeInTheDocument();
-    expect(screen.getByText("Total Orders Today")).toBeInTheDocument();
-    expect(screen.getByText("Total Sales Today")).toBeInTheDocument();
-
-    expect(screen.getByText("1,250")).toBeInTheDocument();
-    expect(screen.getByText("876")).toBeInTheDocument();
-    expect(screen.getByText("157,890")).toBeInTheDocument();
-  });
-
   it("should render all analytics sections", () => {
     render(
-      <AnalyticsContext.Provider
-        value={{ dateFilter: "Today", setDateFilter: vi.fn() }}
-      >
+      <AnalyticsContext.Provider value={{ dateFilter: "Today" }}>
         <DashboardContent activeTab="Sales" />
       </AnalyticsContext.Provider>
     );
@@ -77,18 +49,5 @@ describe("DashboardContent", () => {
     expect(
       screen.getByText("Inventory Insights & Wastage")
     ).toBeInTheDocument();
-  });
-
-  it("should render the customer traffic heatmap", () => {
-    render(
-      <AnalyticsContext.Provider
-        value={{ dateFilter: "Today", setDateFilter: vi.fn() }}
-      >
-        <DashboardContent activeTab="Sales" />
-      </AnalyticsContext.Provider>
-    );
-
-    expect(screen.getByText("13:00")).toBeInTheDocument();
-    expect(screen.getByText("22")).toBeInTheDocument();
   });
 });

@@ -37,7 +37,6 @@
     "is-potential-custom-element-name": "^1.0.1",
     "js-tokens": "^4.0.0",
     "lightningcss": "^1.32.0",
-    "lightningcss-win32-x64-msvc": "^1.32.0",
     "lru-cache": "^11.5.1",
     "lz-string": "^1.5.0",
     "magic-string": "^0.30.21",

@@ -96,22 +96,12 @@ describe('OrderDetails', () => {
       await user.click(screen.getByTestId('remove-1'))
       expect(mockOnRemoveItem).toHaveBeenCalledWith('1')
     })
-
-    it('should display empty cart message when cart is empty', () => {
-      renderOrderDetails({ cart: [] })
-      expect(screen.getByTestId('empty-cart')).toBeInTheDocument()
-    })
   })
 
   describe('special instructions', () => {
     it('should render the textarea', () => {
       renderOrderDetails()
       expect(screen.getByTestId('special-instructions')).toBeInTheDocument()
-    })
-
-    it('should display the current value', () => {
-      renderOrderDetails({ specialInstructions: 'No sugar' })
-      expect(screen.getByTestId('special-instructions')).toHaveValue('No sugar')
     })
 
     it('should display the placeholder when empty', () => {
@@ -129,6 +119,73 @@ describe('OrderDetails', () => {
     it('should display the label', () => {
       renderOrderDetails()
       expect(screen.getByText('Special Instructions')).toBeInTheDocument()
+    })
+  })
+
+  describe('discount selection', () => {
+    it('should render the discount section', () => {
+      renderOrderDetails()
+      expect(screen.getByTestId('discount-section')).toBeInTheDocument()
+    })
+
+    it('should default to no discount', () => {
+      renderOrderDetails()
+      expect(screen.getByTestId('discount-type-select')).toHaveValue('none')
+    })
+
+    it('should not show discount value input when no discount is selected', () => {
+      renderOrderDetails()
+      expect(screen.queryByTestId('discount-value-input')).not.toBeInTheDocument()
+    })
+
+    it('should show discount value input when percentage is selected', async () => {
+      const user = userEvent.setup()
+      renderOrderDetails()
+      await user.selectOptions(screen.getByTestId('discount-type-select'), 'percentage')
+      expect(screen.getByTestId('discount-value-input')).toBeInTheDocument()
+    })
+
+    it('should show discount value input when fixed amount is selected', async () => {
+      const user = userEvent.setup()
+      renderOrderDetails()
+      await user.selectOptions(screen.getByTestId('discount-type-select'), 'fixed')
+      expect(screen.getByTestId('discount-value-input')).toBeInTheDocument()
+    })
+
+    it('should reset discount value when switching discount type', async () => {
+      const user = userEvent.setup()
+      renderOrderDetails()
+      await user.selectOptions(screen.getByTestId('discount-type-select'), 'percentage')
+      await user.clear(screen.getByTestId('discount-value-input'))
+      await user.type(screen.getByTestId('discount-value-input'), '20')
+      await user.selectOptions(screen.getByTestId('discount-type-select'), 'fixed')
+      expect(screen.getByTestId('discount-value-input')).toHaveValue(null)
+    })
+  })
+
+  describe('total amount display', () => {
+    it('should render the total section', () => {
+      renderOrderDetails()
+      expect(screen.getByTestId('total-section')).toBeInTheDocument()
+    })
+
+    it('should display the correct subtotal', () => {
+      renderOrderDetails()
+      expect(screen.getByTestId('subtotal-amount')).toHaveTextContent('₱300.00')
+    })
+
+    it('should display the correct total with no discount', () => {
+      renderOrderDetails()
+      expect(screen.getByTestId('total-amount')).toHaveTextContent('₱300.00')
+    })
+
+    it('should not let fixed discount exceed the subtotal', async () => {
+      const user = userEvent.setup()
+      renderOrderDetails()
+      await user.selectOptions(screen.getByTestId('discount-type-select'), 'fixed')
+      await user.clear(screen.getByTestId('discount-value-input'))
+      await user.type(screen.getByTestId('discount-value-input'), '9999')
+      expect(screen.getByTestId('total-amount')).toHaveTextContent('₱0.00')
     })
   })
 

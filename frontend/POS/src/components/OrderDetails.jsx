@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import '../styles/OrderSummary.css'
 
 export default function OrderDetails({
@@ -10,10 +11,25 @@ export default function OrderDetails({
   specialInstructions,
   onSpecialInstructionsChange
 }) {
+  const [discountType, setDiscountType] = useState('none')
+  const [discountValue, setDiscountValue] = useState('')
+
   const totalItems = cart.reduce((sum, item) => sum + item.quantity, 0)
+  const subtotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0)
+
+  const numericDiscountValue = Number(discountValue) || 0
+
+  const discountAmount = discountType === 'percentage'
+    ? (subtotal * numericDiscountValue) / 100
+    : discountType === 'fixed'
+    ? Math.min(numericDiscountValue, subtotal)
+    : 0
+
+  const totalAmount = subtotal - discountAmount
 
   return (
     <div className="order-details" data-testid="order-details">
+
       <div className="order-stats">
         <div className="stat">
           <span className="stat-label">Items:</span>
@@ -25,12 +41,9 @@ export default function OrderDetails({
         </div>
       </div>
 
+
       <div className="cart-items">
-        {cart.length === 0 ? (
-          <div className="empty-cart" data-testid="empty-cart">
-            Cart is empty
-          </div>
-        ) : (
+      
           <div className="items-list">
             {cart.map(item => (
               <div key={item.id} className="cart-item" data-testid={`cart-item-${item.id}`}>
@@ -75,7 +88,7 @@ export default function OrderDetails({
               </div>
             ))}
           </div>
-        )}
+
       </div>
 
       <div className="special-instructions">
@@ -90,6 +103,58 @@ export default function OrderDetails({
           value={specialInstructions}
           onChange={(e) => onSpecialInstructionsChange(e.target.value)}
         />
+      </div>
+
+      <div className="discount-section" data-testid="discount-section">
+        <label className="discount-label">Discount</label>
+        <div className="discount-controls">
+          <select
+            className="discount-type-select"
+            value={discountType}
+            onChange={(e) => { setDiscountType(e.target.value); setDiscountValue('') }}
+            data-testid="discount-type-select"
+          >
+            <option value="none">No Discount</option>
+            <option value="percentage">Percentage (%)</option>
+            <option value="fixed">Fixed Amount (₱)</option>
+          </select>
+
+          {discountType !== 'none' && (
+            <input
+              type="number"
+              className="discount-value-input"
+              value={discountValue}
+              onChange={(e) => setDiscountValue(e.target.value === '' ? '' : Number(e.target.value))}
+              min="0"
+              max={discountType === 'percentage' ? 100 : subtotal}
+              placeholder={discountType === 'percentage' ? 'e.g. 10' : 'e.g. 50'}
+              data-testid="discount-value-input"
+            />
+          )}
+        </div>
+      </div>
+
+      <div className="total-section" data-testid="total-section">
+        <div className="total-row">
+          <span className="total-label">Subtotal:</span>
+          <span className="total-value" data-testid="subtotal-amount">₱{subtotal.toFixed(2)}</span>
+        </div>
+
+        {discountType !== 'none' && (
+          <div className="total-row discount-row">
+            <span className="total-label">
+              Discount {discountType === 'percentage' ? `(${numericDiscountValue}%)` : ''}:
+            </span>
+            <span className="total-value discount-amount" data-testid="discount-amount">
+              -₱{discountAmount.toFixed(2)}
+            </span>
+          </div>
+        )}
+
+        <div className="total-row grand-total">
+          <span className="total-label">Total:</span>
+          <span className="total-value" data-testid="total-amount">₱{totalAmount.toFixed(2)}</span>
+        </div>
       </div>
 
       <div className="order-actions">

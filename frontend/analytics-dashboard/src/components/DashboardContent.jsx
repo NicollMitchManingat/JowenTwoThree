@@ -2,7 +2,6 @@ import { useContext, useEffect, useState } from "react";
 import { AnalyticsContext } from "../context/AnalyticsContext";
 
 import SummaryCard from "./SummaryCard";
-import SalesTrendChart from "./SalesTrendChart";
 import DateRangeFilter from "./DateRangeFilter";
 import LoadingSkeleton from "./LoadingSkeleton";
 import CustomerTrafficHeatmap from "./CustomerTrafficHeatmap";

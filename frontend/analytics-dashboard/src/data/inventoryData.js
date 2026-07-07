@@ -1,22 +1,28 @@
-export const inventoryData = [
+const inventoryData = [
   {
-    item: "Chicken Burger",
-    sold: 126,
+    item: "Burger",
+    sold: 150,
   },
   {
-    item: "Iced Latte",
-    sold: 112,
+    item: "Fried Chicken",
+    sold: 120,
   },
   {
     item: "Spaghetti",
     sold: 95,
   },
   {
-    item: "Cappuccino",
-    sold: 83,
+    item: "Fries",
+    sold: 180,
   },
   {
-    item: "French Fries",
-    sold: 74,
+    item: "Milk Tea",
+    sold: 140,
+  },
+  {
+    item: "Coffee",
+    sold: 165,
   },
 ];
+
+export default inventoryData;

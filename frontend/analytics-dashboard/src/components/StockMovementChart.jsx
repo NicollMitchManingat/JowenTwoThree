@@ -8,7 +8,6 @@ import {
 } from "chart.js";
 
 import { Bar } from "react-chartjs-2";
-import { inventoryData } from "../data/inventoryData";
 
 ChartJS.register(
   CategoryScale,
@@ -18,13 +17,13 @@ ChartJS.register(
   Legend
 );
 
-export default function StockMovementChart() {
-  const data = {
-    labels: inventoryData.map((item) => item.item),
+export default function StockMovementChart({ data }) {
+  const chartData = {
+    labels: data.map((item) => item.item),
     datasets: [
       {
         label: "Units Sold",
-        data: inventoryData.map((item) => item.sold),
+        data: data.map((item) => item.sold),
         backgroundColor: "#3b82f6",
       },
     ],
@@ -47,7 +46,7 @@ export default function StockMovementChart() {
       <h3>Stock Movement & Top Selling Items</h3>
 
       <Bar
-        data={data}
+        data={chartData}
         options={options}
       />
     </div>

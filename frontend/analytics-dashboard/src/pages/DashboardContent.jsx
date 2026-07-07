@@ -8,6 +8,8 @@ import DateRangeFilter from "../components/DateRangeFilter";
 import CustomerTrafficHeatmap from "../components/CustomerTrafficHeatmap";
 import LoadingSkeleton from "../components/LoadingSkeleton";
 
+import inventoryData from "../data/inventoryData";
+
 export default function DashboardContent({ activeTab }) {
   const { dateFilter } = useContext(AnalyticsContext);
 
@@ -64,7 +66,7 @@ export default function DashboardContent({ activeTab }) {
         <div className="graph-card">
           <h3>Stock Movement</h3>
 
-          <StockMovementChart />
+          <StockMovementChart data={inventoryData} />
         </div>
       </section>
 

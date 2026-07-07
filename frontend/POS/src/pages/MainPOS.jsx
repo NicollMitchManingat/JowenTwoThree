@@ -9,6 +9,7 @@ export default function MainPOS({ user, onLogout }) {
   const [activeMenu, setActiveMenu] = useState('POS')
   const [customerCount, setCustomerCount] = useState(1)
   const [cart, setCart] = useState([])
+  const [specialInstructions, setSpecialInstructions] = useState('')
 
   const handleAddToCart = (product) => {
     const existingItem = cart.find(item => item.id === product.id)
@@ -47,10 +48,11 @@ export default function MainPOS({ user, onLogout }) {
   const handleCheckout = () => {
     setCart([])
     setCustomerCount(1)
+    setSpecialInstructions('')
   }
 
   return (
-    <div className="main-pos-container">
+    <div className="main-pos-container" data-testid="main-pos">
       <Sidebar
         activeMenu={activeMenu}
         onMenuChange={setActiveMenu}
@@ -60,7 +62,7 @@ export default function MainPOS({ user, onLogout }) {
 
       <div className="pos-content">
         {activeMenu === 'POS' && (
-          <div className="pos-main">
+          <div className="pos-main" data-testid="pos-main">
             <div className="pos-header">
               <h1>Point-of-Sale</h1>
               <CustomerRecordingButton
@@ -82,6 +84,8 @@ export default function MainPOS({ user, onLogout }) {
                   onUpdateQuantity={handleUpdateQuantity}
                   onClearCart={handleClearCart}
                   onCheckout={handleCheckout}
+                  specialInstructions={specialInstructions}
+                  onSpecialInstructionsChange={setSpecialInstructions}
                 />
               </div>
             </div>

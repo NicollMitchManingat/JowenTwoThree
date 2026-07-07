@@ -15,14 +15,6 @@ const mockUsers = [
     role: 'cashier',
     fullName: 'Cashier One'
   },
-  {
-    id: '3',
-    username: 'cashier2',
-    email: 'cashier2@jowen.com',
-    password: 'cashier123',
-    role: 'cashier',
-    fullName: 'Cashier Two'
-  }
 ]
 
 const authenticateUser = (username, email, password) => {

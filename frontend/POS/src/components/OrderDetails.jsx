@@ -14,6 +14,7 @@ export default function OrderDetails({
 }) {
   const [discountType, setDiscountType] = useState('none')
   const [discountValue, setDiscountValue] = useState('')
+  const [showReceipt, setShowReceipt] = useState(false)
 
   const totalItems = cart.reduce((sum, item) => sum + item.quantity, 0)
   const subtotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0)

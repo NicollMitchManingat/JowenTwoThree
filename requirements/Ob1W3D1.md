@@ -6,22 +6,24 @@
 
 **Week:** 3 | **Day:** 1
 
-## Task: Design Receipt UI (Front-End)
+## Task: Login Authentication (Back-End)
 
 ### Sub-Tasks (Breakdown)
-- Create printable receipt layout with items, quantities and displays discount and total amount.
-- Create print receipt button.
-- Create receipt preview modal/page.
+- Create a mock user data source for testing.
+- Implement credential validation logic.
+- Develop a login endpoint to process authentication requests.
+- Create automated tests for successful and failed login scenarios.
 
 ### Deliverable(s)
-- Printable Receipt template.
-- Print Control component.
-- Receipt Preview component.
+- Functional back-end login authentication.
+- Mock user authentication for development and testing.
+- Integrated authentication API.
+- Automated authentication test cases.
 
 ### Test Suite / PR Acceptance Criteria
-- User can see purchased items, quantities, and prices on the receipt.
-- User can print the receipt using the print button.
-- Printed receipt format matches the receipt preview.
+- User can log in using valid credentials
+- User can be rejected when incorrect credentials are provided.
+- User requires to input all fields before attempting authentication.
 
 ### Instructor Notes
 

@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import '../styles/OrderSummary.css'
+import ReceiptModal from './ReceiptModal'
 
 export default function OrderDetails({
   cart,
@@ -13,6 +14,7 @@ export default function OrderDetails({
 }) {
   const [discountType, setDiscountType] = useState('none')
   const [discountValue, setDiscountValue] = useState('')
+  const [showReceipt, setShowReceipt] = useState(false)
 
   const totalItems = cart.reduce((sum, item) => sum + item.quantity, 0)
   const subtotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0)
@@ -43,7 +45,6 @@ export default function OrderDetails({
 
 
       <div className="cart-items">
-      
           <div className="items-list">
             {cart.map(item => (
               <div key={item.id} className="cart-item" data-testid={`cart-item-${item.id}`}>
@@ -167,6 +168,14 @@ export default function OrderDetails({
           Clear
         </button>
         <button
+          className="print-btn"
+          onClick={() => setShowReceipt(true)}
+          disabled={cart.length === 0}
+          data-testid="print-btn"
+        >
+          Print Receipt
+        </button>
+        <button
           className="checkout-btn"
           onClick={onCheckout}
           disabled={cart.length === 0}
@@ -175,6 +184,19 @@ export default function OrderDetails({
           Confirm
         </button>
       </div>
+
+      <ReceiptModal
+        isOpen={showReceipt}
+        onClose={() => setShowReceipt(false)}
+        cart={cart}
+        customerCount={customerCount}
+        specialInstructions={specialInstructions}
+        discountType={discountType}
+        discountValue={numericDiscountValue}
+        subtotal={subtotal}
+        discountAmount={discountAmount}
+        totalAmount={totalAmount}
+      />
     </div>
   )
 }

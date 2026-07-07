@@ -9,6 +9,7 @@ export default function MainPOS({ user, onLogout }) {
   const [activeMenu, setActiveMenu] = useState('POS')
   const [customerCount, setCustomerCount] = useState(1)
   const [cart, setCart] = useState([])
+  const [specialInstructions, setSpecialInstructions] = useState('')
 
   const handleAddToCart = (product) => {
     const existingItem = cart.find(item => item.id === product.id)
@@ -47,6 +48,7 @@ export default function MainPOS({ user, onLogout }) {
   const handleCheckout = () => {
     setCart([])
     setCustomerCount(1)
+    setSpecialInstructions('')
   }
 
   return (
@@ -82,6 +84,8 @@ export default function MainPOS({ user, onLogout }) {
                   onUpdateQuantity={handleUpdateQuantity}
                   onClearCart={handleClearCart}
                   onCheckout={handleCheckout}
+                  specialInstructions={specialInstructions}
+                  onSpecialInstructionsChange={setSpecialInstructions}
                 />
               </div>
             </div>

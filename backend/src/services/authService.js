@@ -1,4 +1,4 @@
-const { authenticateUser } = require('../data/mockUsers')
+const { authenticateUser } = require('../models/mockUsers')
 
 const login = ({ username, email, password }) => {
   return authenticateUser(username, email, password)

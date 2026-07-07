@@ -1,8 +1,8 @@
 import { render, screen } from "@testing-library/react";
 import { vi, describe, it, expect } from "vitest";
 
-import DashboardContent from "../components/DashboardContent";
-import { AnalyticsContext } from "../context/AnalyticsContext";
+import DashboardContent from "../pages/DashboardContent";
+import { AnalyticsContext } from "../pages/AnalyticsContext";
 
 describe("DashboardContent", () => {
   it("should render Sales analytics with Today filter", () => {
@@ -72,8 +72,19 @@ describe("DashboardContent", () => {
     );
 
     expect(screen.getByText("Weekly Revenue")).toBeInTheDocument();
-    expect(screen.getByText("Live Customer Traffic")).toBeInTheDocument();
-    expect(screen.getByText("AI Forecasting")).toBeInTheDocument();
+
+    expect(
+      screen.getByText("Live Customer Traffic")
+    ).toBeInTheDocument();
+
+    expect(
+      screen.getByText("Stock Movement")
+    ).toBeInTheDocument();
+
+    expect(
+      screen.getByText("AI Forecasting")
+    ).toBeInTheDocument();
+
     expect(
       screen.getByText("Inventory Insights & Wastage")
     ).toBeInTheDocument();
@@ -90,5 +101,17 @@ describe("DashboardContent", () => {
 
     expect(screen.getByText("13:00")).toBeInTheDocument();
     expect(screen.getByText("22")).toBeInTheDocument();
+  });
+
+  it("should render stock movement chart", () => {
+    render(
+      <AnalyticsContext.Provider
+        value={{ dateFilter: "Today", setDateFilter: vi.fn() }}
+      >
+        <DashboardContent activeTab="Sales" />
+      </AnalyticsContext.Provider>
+    );
+
+    expect(screen.getByText("Stock Movement")).toBeInTheDocument();
   });
 });

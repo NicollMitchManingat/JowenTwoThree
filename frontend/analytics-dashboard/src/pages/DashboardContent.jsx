@@ -1,10 +1,14 @@
 import { useContext } from "react";
-import { AnalyticsContext } from "../context/AnalyticsContext";
-import SummaryCard from "./SummaryCard";
-import SalesTrendChart from "./SalesTrendChart";
-import DateRangeFilter from "./DateRangeFilter";
-import CustomerTrafficHeatmap from "./CustomerTrafficHeatmap";
-import LoadingSkeleton from "./LoadingSkeleton";
+import { AnalyticsContext } from "./AnalyticsContext";
+
+import SummaryCard from "../components/SummaryCard";
+import SalesTrendChart from "../components/SalesTrendChart";
+import StockMovementChart from "../components/StockMovementChart";
+import DateRangeFilter from "../components/DateRangeFilter";
+import CustomerTrafficHeatmap from "../components/CustomerTrafficHeatmap";
+import LoadingSkeleton from "../components/LoadingSkeleton";
+
+import inventoryData from "../data/inventoryData";
 
 export default function DashboardContent({ activeTab }) {
   const { dateFilter } = useContext(AnalyticsContext);
@@ -14,7 +18,6 @@ export default function DashboardContent({ activeTab }) {
       <h2>{activeTab} Analytics</h2>
       <p>Date Filter: {dateFilter}</p>
 
-      {/* Week 2 Day 2 Summary Cards */}
       <section
         style={{
           display: "grid",
@@ -39,7 +42,6 @@ export default function DashboardContent({ activeTab }) {
         />
       </section>
 
-      {/* Analytics */}
       <section
         style={{
           display: "grid",
@@ -47,7 +49,6 @@ export default function DashboardContent({ activeTab }) {
           gap: "20px",
         }}
       >
-        {/* Week 2 Day 1 */}
         <div className="graph-card">
           <h3>Weekly Revenue</h3>
 
@@ -56,28 +57,39 @@ export default function DashboardContent({ activeTab }) {
           <SalesTrendChart />
         </div>
 
-        {/* Week 2 Day 2 */}
         <div className="graph-card">
           <h3>Live Customer Traffic</h3>
 
           <CustomerTrafficHeatmap />
         </div>
 
-        {/* Placeholder */}
         <div className="graph-card">
-          <h3>AI Forecasting</h3>
+          <h3>Stock Movement</h3>
 
-          <div className="graph-placeholder">
-            Coming in Week 5
-          </div>
+          <StockMovementChart data={inventoryData} />
         </div>
+      </section>
 
-        {/* Placeholder */}
-        <div className="graph-card">
-          <h3>Inventory Insights & Wastage</h3>
+      <section
+        style={{
+          marginTop: "20px",
+        }}
+      >
+        <h3>AI Forecasting</h3>
 
-          <LoadingSkeleton />
+        <div className="graph-placeholder">
+          Coming in Week 5
         </div>
+      </section>
+
+      <section
+        style={{
+          marginTop: "20px",
+        }}
+      >
+        <h3>Inventory Insights & Wastage</h3>
+
+        <LoadingSkeleton />
       </section>
     </div>
   );

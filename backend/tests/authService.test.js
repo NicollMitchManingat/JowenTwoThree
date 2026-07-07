@@ -1,7 +1,16 @@
-const { login } = require('../src/services/authService')
+import { describe, test, expect, vi, beforeEach } from 'vitest'
 
-describe('Auth Service - Login', () => {
-  test('should return the admin user for valid admin credentials', () => {
+
+vi.mock('../src/models/mockUsers', () => {
+  return {
+    mockUsers: mockedUsers
+  }
+})
+
+import { login } from '../src/services/authService'
+
+describe('Auth Service - login', () => {
+  test('returns success and user details for valid credentials', () => {
     const result = login({
       username: 'admin',
       email: 'admin@jowen.com',
@@ -18,50 +27,38 @@ describe('Auth Service - Login', () => {
         fullName: 'Admin User'
       }
     })
-    expect(result.success).toBe(true)
-    expect(result.user.username).toBe('admin')
   })
 
-  test('should return the cashier user for valid cashier credentials', () => {
-    const result = login({
-      username: 'cashier1',
-      email: 'cashier1@jowen.com',
-      password: 'cashier123'
-    })
-
-    expect(result).toEqual({
-      success: true,
-      user: {
-        id: '2',
-        username: 'cashier1',
-        email: 'cashier1@jowen.com',
-        role: 'cashier',
-        fullName: 'Cashier One'
-      }
-    })
-    expect(result.success).toBe(true)
-    expect(result.user.username).toBe('cashier1')
-  })
-
-  test('should return error for invalid credentials', () => {
-    const result = login({
-      username: 'wronguser',
-      email: 'wrong@jowen.com',
-      password: 'wrongpass'
-    })
-
-    expect(result.success).toBe(false)
-    expect(result.error).toBeDefined()
-  })
-
-  test('should return error when password is incorrect', () => {
+  test('returns success:false for invalid password', () => {
     const result = login({
       username: 'admin',
       email: 'admin@jowen.com',
-      password: 'wrongpassword'
+      password: 'wrong-password'
     })
 
-    expect(result.success).toBe(false)
-    expect(result.error).toBeDefined()
+    expect(result).toEqual({
+      success: false,
+      error: 'Invalid username, email, or password'
+    })
+  })
+
+  test('returns success:false for invalid username/email combination', () => {
+    const result = login({
+      username: 'not-a-user',
+      email: 'admin@jowen.com',
+      password: 'admin123'
+    })
+
+    expect(result).toEqual({
+      success: false,
+      error: 'Invalid username, email, or password'
+    })
   })
 })
+
+
+
+
+
+
+

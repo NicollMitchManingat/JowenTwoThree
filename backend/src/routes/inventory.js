@@ -1,5 +1,6 @@
 const express = require('express')
 const router = express.Router()
+const mockData = require('../data/mockInventory')
 const mockData = require('../models/mockInventory')
 
 router.get('/', (req, res) => {

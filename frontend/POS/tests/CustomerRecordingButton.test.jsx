@@ -139,10 +139,8 @@ describe('CustomerRecordingButton', () => {
     await user.click(screen.getByTestId('increment-button'))
     await user.click(screen.getByTestId('modal-cancel'))
 
-    // Cancel discards the draft (7) — the cart is never touched.
     expect(mockOnCustomerCountChange).not.toHaveBeenCalled()
 
-    // Re-opening should show the last CONFIRMED value (5), not the discarded draft.
     await user.click(screen.getByTestId('customer-recording-button'))
     expect(screen.getByTestId('customer-input')).toHaveValue(5)
   })

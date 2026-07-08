@@ -16,7 +16,6 @@ export default function CustomerRecordingButton({ customerCount, onCustomerCount
 
   const handleCancel = () => {
     setIsModalOpen(false)
-    onCustomerCountChange(1)
   }
 
   const handleConfirm = () => {
@@ -28,15 +27,23 @@ export default function CustomerRecordingButton({ customerCount, onCustomerCount
   }
 
   const handleIncrement = () => {
-    const newCount = customerCount + 1
-    onCustomerCountChange(newCount)
+    setInputValue((prev) => {
+      const current = parseInt(prev, 10)
+      const base = isNaN(current) ? 0 : current
+      return (base + 1).toString()
+    })
   }
 
   const handleDecrement = () => {
-    if (customerCount > 1) {
-      onCustomerCountChange(customerCount - 1)
-    }
+    setInputValue((prev) => {
+      const current = parseInt(prev, 10)
+      const base = isNaN(current) ? 1 : current
+      return base > 1 ? (base - 1).toString() : '1'
+    })
   }
+
+  const draftCount = parseInt(inputValue, 10)
+  const isDraftValid = !isNaN(draftCount) && draftCount > 0
 
   return (
     <>
@@ -60,7 +67,7 @@ export default function CustomerRecordingButton({ customerCount, onCustomerCount
               <button
                 className="btn-decrement"
                 onClick={handleDecrement}
-                disabled={customerCount <= 1}
+                disabled={!isDraftValid || draftCount <= 1}
                 data-testid="decrement-button"
               >
                 −
@@ -85,7 +92,7 @@ export default function CustomerRecordingButton({ customerCount, onCustomerCount
             </div>
 
             <div className="modal-display">
-              Current: <span className="customer-count-display">{customerCount}</span>
+              Will set to: <span className="customer-count-display">{isDraftValid ? draftCount : '—'}</span>
             </div>
 
             <div className="modal-actions">
@@ -100,6 +107,7 @@ export default function CustomerRecordingButton({ customerCount, onCustomerCount
               <button
                 className="btn-confirm"
                 onClick={handleConfirm}
+                disabled={!isDraftValid}
                 data-testid="modal-confirm"
               >
                 Confirm

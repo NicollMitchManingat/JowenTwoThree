@@ -1,0 +1,36 @@
+module.exports = [
+  {
+    id: 'alert-1',
+    itemName: 'Coffee Beans - Arabica',
+    severity: 'critical',
+    timestamp: new Date(Date.now() - 15 * 60000).toISOString(),
+    itemId: 'ITEM-001',
+    category: 'Beverages',
+    currentStock: 2,
+    threshold: 50,
+    message: 'Stock critically low. Immediate reorder recommended.',
+  },
+  {
+    id: 'alert-2',
+    itemName: 'Espresso Cups',
+    severity: 'warning',
+    timestamp: new Date(Date.now() - 45 * 60000).toISOString(),
+    itemId: 'ITEM-002',
+    category: 'Supplies',
+    currentStock: 25,
+    threshold: 100,
+    message: 'Stock level below optimal threshold.',
+  },
+  {
+    id: 'alert-3',
+    itemName: 'Whole Milk',
+    severity: 'critical',
+    timestamp: new Date(Date.now() - 2 * 60000).toISOString(),
+    itemId: 'ITEM-003',
+    category: 'Dairy',
+    currentStock: 1,
+    threshold: 20,
+    message: 'Stock critically low. Immediate reorder recommended.',
+  },
+]
+

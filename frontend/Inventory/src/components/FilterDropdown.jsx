@@ -27,5 +27,3 @@ export default function FilterDropdown({ categories, selectedCategory, onChange 
     </select>
   );
 }
-
-

@@ -31,6 +31,48 @@ describe('InventoryTable Integration Tests', () => {
     expect(screen.getAllByTestId('stock-badge-NearingExpiration')).toBeDefined();
   });
 
+  it('displays edit button for each item', () => {
+    render(<InventoryTable />);
+    expect(screen.getByTestId('edit-btn-I-001')).toBeInTheDocument();
+    expect(screen.getByTestId('edit-btn-I-002')).toBeInTheDocument();
+    expect(screen.getByTestId('edit-btn-I-003')).toBeInTheDocument();
+    expect(screen.getByTestId('edit-btn-I-004')).toBeInTheDocument();
+    expect(screen.getByTestId('edit-btn-I-005')).toBeInTheDocument();
+  });
+
+  it('opens adjustment modal when edit button is clicked', async () => {
+    const user = userEvent.setup();
+    render(<InventoryTable />);
+    const editBtn = screen.getByTestId('edit-btn-I-001');
+
+    await user.click(editBtn);
+    expect(screen.getByTestId('modal')).toBeInTheDocument();
+    expect(screen.getByText('Adjust Inventory')).toBeInTheDocument();
+  });
+
+  it('displays correct item in modal when edit button is clicked', async () => {
+    const user = userEvent.setup();
+    render(<InventoryTable />);
+    const editBtn = screen.getByTestId('edit-btn-I-002');
+
+    await user.click(editBtn);
+    expect(screen.getByTestId('item-name-display')).toHaveTextContent('Milk');
+    expect(screen.getByTestId('current-stock-display')).toHaveTextContent('5 units');
+  });
+
+  it('closes modal when cancel button is clicked', async () => {
+    const user = userEvent.setup();
+    render(<InventoryTable />);
+    const editBtn = screen.getByTestId('edit-btn-I-001');
+
+    await user.click(editBtn);
+    expect(screen.getByTestId('modal')).toBeInTheDocument();
+
+    const cancelBtn = screen.getByTestId('form-cancel-btn');
+    await user.click(cancelBtn);
+    expect(screen.queryByTestId('modal')).not.toBeInTheDocument();
+  });
+
   it('filters items by search term', async () => {
     const user = userEvent.setup();
     render(<InventoryTable />);
@@ -127,5 +169,24 @@ describe('InventoryTable Integration Tests', () => {
     expect(categories).toContain('Dairy');
     expect(categories).toContain('Pastry');
     expect(categories).toContain('Snacks');
+  });
+
+  it('can edit multiple items sequentially', async () => {
+    const user = userEvent.setup();
+    render(<InventoryTable />);
+
+    // Edit first item
+    let editBtn = screen.getByTestId('edit-btn-I-001');
+    await user.click(editBtn);
+    expect(screen.getByTestId('item-name-display')).toHaveTextContent('Coffee Beans');
+
+    // Close modal
+    let cancelBtn = screen.getByTestId('form-cancel-btn');
+    await user.click(cancelBtn);
+
+    // Edit second item
+    editBtn = screen.getByTestId('edit-btn-I-002');
+    await user.click(editBtn);
+    expect(screen.getByTestId('item-name-display')).toHaveTextContent('Milk');
   });
 });

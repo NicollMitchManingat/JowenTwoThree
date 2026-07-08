@@ -50,5 +50,3 @@ export default function StockStatusBadge({ status, inStock }) {
     </span>
   );
 }
-
-

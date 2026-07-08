@@ -1,8 +1,6 @@
 import React from 'react'
 import { render, screen, within } from '@testing-library/react'
 
-
-
 import App from '../App'
 
 describe('Inventory Dashboard (Ob2W1D1)', () => {

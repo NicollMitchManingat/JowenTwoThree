@@ -240,4 +240,53 @@ describe('OrderDetails', () => {
       expect(screen.getByTestId('checkout-btn')).not.toBeDisabled()
     })
   })
+
+  describe('discount reset when order process ends', () => {
+    it('should reset discount type and value after Confirm (checkout) is clicked', async () => {
+      const user = userEvent.setup()
+      renderOrderDetails()
+
+      await user.selectOptions(screen.getByTestId('discount-type-select'), 'percentage')
+      await user.clear(screen.getByTestId('discount-value-input'))
+      await user.type(screen.getByTestId('discount-value-input'), '15')
+      expect(screen.getByTestId('discount-type-select')).toHaveValue('percentage')
+
+      await user.click(screen.getByTestId('checkout-btn'))
+
+      expect(mockOnCheckout).toHaveBeenCalledTimes(1)
+      expect(screen.getByTestId('discount-type-select')).toHaveValue('none')
+      expect(screen.queryByTestId('discount-value-input')).not.toBeInTheDocument()
+    })
+
+    it('should reset discount type and value after Clear is clicked', async () => {
+      const user = userEvent.setup()
+      renderOrderDetails()
+
+      await user.selectOptions(screen.getByTestId('discount-type-select'), 'fixed')
+      await user.clear(screen.getByTestId('discount-value-input'))
+      await user.type(screen.getByTestId('discount-value-input'), '30')
+      expect(screen.getByTestId('discount-type-select')).toHaveValue('fixed')
+
+      await user.click(screen.getByTestId('clear-cart-btn'))
+
+      expect(mockOnClearCart).toHaveBeenCalledTimes(1)
+      expect(screen.getByTestId('discount-type-select')).toHaveValue('none')
+      expect(screen.queryByTestId('discount-value-input')).not.toBeInTheDocument()
+    })
+
+    it('should reflect ₱0.00 discount amount on the total after checkout resets it', async () => {
+      const user = userEvent.setup()
+      renderOrderDetails()
+
+      await user.selectOptions(screen.getByTestId('discount-type-select'), 'percentage')
+      await user.clear(screen.getByTestId('discount-value-input'))
+      await user.type(screen.getByTestId('discount-value-input'), '10')
+      expect(screen.getByTestId('total-amount')).toHaveTextContent('₱270.00')
+
+      await user.click(screen.getByTestId('checkout-btn'))
+
+      expect(screen.getByTestId('discount-type-select')).toHaveValue('none')
+      expect(screen.getByTestId('total-amount')).toHaveTextContent('₱300.00')
+    })
+  })
 })

@@ -37,7 +37,7 @@ describe('CustomerRecordingButton', () => {
     expect(screen.getByText('Set Number of Customers')).toBeInTheDocument()
   })
 
-  it('should increment customer count when increment button is clicked', async () => {
+  it('should push the incremented value to the cart after Confirm is clicked', async () => {
     const user = userEvent.setup()
     render(
       <CustomerRecordingButton
@@ -46,34 +46,34 @@ describe('CustomerRecordingButton', () => {
       />
     )
 
-    const button = screen.getByTestId('customer-recording-button')
-    await user.click(button)
+    await user.click(screen.getByTestId('customer-recording-button'))
+    await user.click(screen.getByTestId('increment-button'))
+    await user.click(screen.getByTestId('increment-button'))
+    await user.click(screen.getByTestId('modal-confirm'))
 
-    const incrementButton = screen.getByTestId('increment-button')
-    await user.click(incrementButton)
-
-    expect(mockOnCustomerCountChange).toHaveBeenCalledWith(2)
+    expect(mockOnCustomerCountChange).toHaveBeenCalledTimes(1)
+    expect(mockOnCustomerCountChange).toHaveBeenCalledWith(3)
   })
 
-  it('should decrement customer count when decrement button is clicked', async () => {
+  it('should push the decremented value to the cart after Confirm is clicked', async () => {
     const user = userEvent.setup()
     render(
       <CustomerRecordingButton
-        customerCount={3}
+        customerCount={5}
         onCustomerCountChange={mockOnCustomerCountChange}
       />
     )
 
-    const button = screen.getByTestId('customer-recording-button')
-    await user.click(button)
+    await user.click(screen.getByTestId('customer-recording-button'))
+    await user.click(screen.getByTestId('decrement-button'))
+    await user.click(screen.getByTestId('decrement-button'))
+    await user.click(screen.getByTestId('modal-confirm'))
 
-    const decrementButton = screen.getByTestId('decrement-button')
-    await user.click(decrementButton)
-
-    expect(mockOnCustomerCountChange).toHaveBeenCalledWith(2)
+    expect(mockOnCustomerCountChange).toHaveBeenCalledTimes(1)
+    expect(mockOnCustomerCountChange).toHaveBeenCalledWith(3)
   })
 
-  it('should disable decrement button when customer count is 1', async () => {
+  it('should disable decrement button when draft count is 1', async () => {
     const user = userEvent.setup()
     render(
       <CustomerRecordingButton
@@ -82,11 +82,9 @@ describe('CustomerRecordingButton', () => {
       />
     )
 
-    const button = screen.getByTestId('customer-recording-button')
-    await user.click(button)
+    await user.click(screen.getByTestId('customer-recording-button'))
 
-    const decrementButton = screen.getByTestId('decrement-button')
-    expect(decrementButton).toBeDisabled()
+    expect(screen.getByTestId('decrement-button')).toBeDisabled()
   })
 
   it('should confirm new customer count when confirm button is clicked', async () => {
@@ -98,20 +96,18 @@ describe('CustomerRecordingButton', () => {
       />
     )
 
-    const button = screen.getByTestId('customer-recording-button')
-    await user.click(button)
+    await user.click(screen.getByTestId('customer-recording-button'))
 
     const customerInput = screen.getByTestId('customer-input')
     await user.clear(customerInput)
     await user.type(customerInput, '5')
 
-    const confirmButton = screen.getByTestId('modal-confirm')
-    await user.click(confirmButton)
+    await user.click(screen.getByTestId('modal-confirm'))
 
     expect(mockOnCustomerCountChange).toHaveBeenCalledWith(5)
   })
 
-  it('should close modal when cancel button is clicked', async () => {
+  it('should close modal when cancel button is clicked, without changing the cart', async () => {
     const user = userEvent.setup()
     render(
       <CustomerRecordingButton
@@ -120,20 +116,16 @@ describe('CustomerRecordingButton', () => {
       />
     )
 
-    const button = screen.getByTestId('customer-recording-button')
-    await user.click(button)
-
+    await user.click(screen.getByTestId('customer-recording-button'))
     expect(screen.getByTestId('modal-overlay')).toBeInTheDocument()
 
-    const cancelButton = screen.getByTestId('modal-cancel')
-    await user.click(cancelButton)
+    await user.click(screen.getByTestId('modal-cancel'))
 
     expect(screen.queryByTestId('modal-overlay')).not.toBeInTheDocument()
-    // Verify that clicking cancel resets the count to 1
-    expect(mockOnCustomerCountChange).toHaveBeenCalledWith(1)
+    expect(mockOnCustomerCountChange).not.toHaveBeenCalled()
   })
 
-  it('should reset customer count to 1 when cancel button is clicked after incrementing', async () => {
+  it('should discard draft edits and leave the cart untouched when cancel is clicked after incrementing', async () => {
     const user = userEvent.setup()
     render(
       <CustomerRecordingButton
@@ -142,14 +134,15 @@ describe('CustomerRecordingButton', () => {
       />
     )
 
-    const button = screen.getByTestId('customer-recording-button')
-    await user.click(button)
+    await user.click(screen.getByTestId('customer-recording-button'))
+    await user.click(screen.getByTestId('increment-button'))
+    await user.click(screen.getByTestId('increment-button'))
+    await user.click(screen.getByTestId('modal-cancel'))
 
-    const cancelButton = screen.getByTestId('modal-cancel')
-    await user.click(cancelButton)
+    expect(mockOnCustomerCountChange).not.toHaveBeenCalled()
 
-    // Verify that clicking cancel resets the count to 1
-    expect(mockOnCustomerCountChange).toHaveBeenCalledWith(1)
+    await user.click(screen.getByTestId('customer-recording-button'))
+    expect(screen.getByTestId('customer-input')).toHaveValue(5)
   })
 
   it('should close modal when overlay is clicked', async () => {
@@ -161,11 +154,8 @@ describe('CustomerRecordingButton', () => {
       />
     )
 
-    const button = screen.getByTestId('customer-recording-button')
-    await user.click(button)
-
-    const overlay = screen.getByTestId('modal-overlay')
-    await user.click(overlay)
+    await user.click(screen.getByTestId('customer-recording-button'))
+    await user.click(screen.getByTestId('modal-overlay'))
 
     expect(screen.queryByTestId('modal-overlay')).not.toBeInTheDocument()
   })
@@ -179,10 +169,29 @@ describe('CustomerRecordingButton', () => {
       />
     )
 
-    const button = screen.getByTestId('customer-recording-button')
-    await user.click(button)
+    await user.click(screen.getByTestId('customer-recording-button'))
 
-    const currentCount = screen.getByTestId('customer-input')
-    expect(currentCount).toHaveValue(3)
+    expect(screen.getByTestId('customer-input')).toHaveValue(3)
+  })
+
+  it('should show 1 when opening the modal for a new order (cart reset externally)', () => {
+    // Simulates the parent resetting customerCount to 1 once a new order starts.
+    const { rerender } = render(
+      <CustomerRecordingButton
+        customerCount={5}
+        onCustomerCountChange={mockOnCustomerCountChange}
+      />
+    )
+
+    expect(screen.getByTestId('customer-recording-button')).toHaveTextContent('Customers: 5')
+
+    rerender(
+      <CustomerRecordingButton
+        customerCount={1}
+        onCustomerCountChange={mockOnCustomerCountChange}
+      />
+    )
+
+    expect(screen.getByTestId('customer-recording-button')).toHaveTextContent('Customers: 1')
   })
 })

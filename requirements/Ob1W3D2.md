@@ -6,29 +6,20 @@
 
 **Week:** 3 | **Day:** 2
 
-## Task: POS Flow Integration (Front-End)
+## Task: Quantity Button and Discount Updates (Front-End)
 
-### Sub-Tasks (Breakdown)
-- Integrate product selection with cart functionality.
-- Integrate quantity updates with cart calculations.
-- Integrate customer count with order details.
-- Develop checkout review modal.
-- Synchronize order summary data in real time.
+- Fix increment/decrement to update.
+- Reset discount field when an order process ends.
 
 ### Deliverable(s)
-- Product-to-Cart Integration.
-- Quantity and Total Calculation Integration.
-- Customer Count Integration.
-- Checkout Review Modal.
-- Real-Time Order Summary Integration.
+- Increment/Decrement Buttons Update.
+- Discount Field Reset on Order Completion.
 
 ### Test Suite / PR Acceptance Criteria
-- User can add products and see them appear in the cart.
-- User can update quantities and see totals update automatically.
-- User can see customer count reflected in the order details.
-- User can review the complete order before checkout.
-- User can view updated order information in real time.
-
+- Increment and Decrement updates to cart when confirm button is clicked.
+- Discount type and value reset to default after Confirm (checkout) is clicked.
+- Discount type and value reset to default after Clear is clicked.
+- Order total reflects the reset discount (no residual discount carried into the next order).
 ### Instructor Notes
 
 _[Space reserved for instructor feedback]_

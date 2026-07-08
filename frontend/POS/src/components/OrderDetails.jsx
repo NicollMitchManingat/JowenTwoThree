@@ -29,6 +29,21 @@ export default function OrderDetails({
 
   const totalAmount = subtotal - discountAmount
 
+  const resetDiscount = () => {
+    setDiscountType('none')
+    setDiscountValue('')
+  }
+
+  const handleCheckout = () => {
+    onCheckout()
+    resetDiscount()
+  }
+
+  const handleClearCart = () => {
+    onClearCart()
+    resetDiscount()
+  }
+
   return (
     <div className="order-details" data-testid="order-details">
 
@@ -162,7 +177,7 @@ export default function OrderDetails({
       <div className="order-actions">
         <button
           className="clear-btn"
-          onClick={onClearCart}
+          onClick={handleClearCart}
           disabled={cart.length === 0}
           data-testid="clear-cart-btn"
         >
@@ -178,7 +193,7 @@ export default function OrderDetails({
         </button>
         <button
           className="checkout-btn"
-          onClick={onCheckout}
+          onClick={handleCheckout}
           disabled={cart.length === 0}
           data-testid="checkout-btn"
         >

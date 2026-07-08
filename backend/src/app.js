@@ -1,6 +1,6 @@
 const express = require('express')
-const inventoryRouter = require('./routes/inventory')
-const alertsRouter = require('./routes/alerts')
+const inventoryRouter = require('./routes/inventoryRoute')
+const alertsRouter = require('./routes/alertsRoute')
 
 const app = express()
 app.use(express.json())

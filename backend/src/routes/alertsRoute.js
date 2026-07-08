@@ -1,6 +1,6 @@
 const express = require('express')
 const router = express.Router()
-const mockAlerts = require('../data/mockAlerts')
+const mockAlerts = require('../models/alertsModel')
 
 // GET /api/inventory/alerts
 router.get('/', (req, res) => {

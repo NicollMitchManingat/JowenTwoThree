@@ -24,6 +24,7 @@ const sales = [
     date: "2026-07-01T18:45:00",
   },
 ]
+<<<<<<< HEAD
 
 function getSales() {
   return sales
@@ -32,3 +33,5 @@ function getSales() {
 module.exports = {
   getSales,
 }
+=======
+>>>>>>> ca5c734a47db085bfce82b596f89056b6805b869

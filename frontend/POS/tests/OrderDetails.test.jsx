@@ -163,6 +163,61 @@ describe('OrderDetails', () => {
     })
   })
 
+  describe('discount validation', () => {
+    it('should show a warning when a discount type is selected but no value is entered', async () => {
+      const user = userEvent.setup()
+      renderOrderDetails()
+      await user.selectOptions(screen.getByTestId('discount-type-select'), 'percentage')
+      expect(screen.getByTestId('discount-error')).toHaveTextContent(
+        'Enter a discount value greater than 0.'
+      )
+    })
+
+    it('should show a warning when percentage discount is 100 or more', async () => {
+      const user = userEvent.setup()
+      renderOrderDetails()
+      await user.selectOptions(screen.getByTestId('discount-type-select'), 'percentage')
+      await user.type(screen.getByTestId('discount-value-input'), '100')
+      expect(screen.getByTestId('discount-error')).toHaveTextContent(
+        'Discount cannot be 100% or more of the total amount.'
+      )
+    })
+
+    it('should show a warning when fixed discount equals the subtotal', async () => {
+      const user = userEvent.setup()
+      renderOrderDetails()
+      await user.selectOptions(screen.getByTestId('discount-type-select'), 'fixed')
+      await user.type(screen.getByTestId('discount-value-input'), '300')
+      expect(screen.getByTestId('discount-error')).toHaveTextContent(
+        'Discount cannot be equal to or greater than the total amount.'
+      )
+    })
+
+    it('should show a warning when fixed discount exceeds the subtotal', async () => {
+      const user = userEvent.setup()
+      renderOrderDetails()
+      await user.selectOptions(screen.getByTestId('discount-type-select'), 'fixed')
+      await user.type(screen.getByTestId('discount-value-input'), '9999')
+      expect(screen.getByTestId('discount-error')).toHaveTextContent(
+        'Discount cannot be equal to or greater than the total amount.'
+      )
+    })
+  })
+
+  describe('cart errors', () => {
+    const cartWithInvalidQty = [
+      { id: '1', name: 'Iced Americano', price: 150, quantity: 2 },
+      { id: '2', name: 'Broken Item', price: 80, quantity: 0 }
+    ]
+
+    it('should not call onCheckout when a cart item has an invalid quantity', async () => {
+      const user = userEvent.setup()
+      renderOrderDetails({ cart: cartWithInvalidQty })
+      await user.click(screen.getByTestId('checkout-btn'))
+      expect(mockOnCheckout).not.toHaveBeenCalled()
+    })
+  })
+
   describe('total amount display', () => {
     it('should render the total section', () => {
       renderOrderDetails()
@@ -179,13 +234,14 @@ describe('OrderDetails', () => {
       expect(screen.getByTestId('total-amount')).toHaveTextContent('₱300.00')
     })
 
-    it('should not let fixed discount exceed the subtotal', async () => {
+    it('should not let fixed discount exceed the subtotal, though it now also flags an error', async () => {
       const user = userEvent.setup()
       renderOrderDetails()
       await user.selectOptions(screen.getByTestId('discount-type-select'), 'fixed')
       await user.clear(screen.getByTestId('discount-value-input'))
       await user.type(screen.getByTestId('discount-value-input'), '9999')
       expect(screen.getByTestId('total-amount')).toHaveTextContent('₱0.00')
+      expect(screen.getByTestId('discount-error')).toBeInTheDocument()
     })
 
     it('should deduct a percentage discount from the total amount', async () => {
@@ -221,11 +277,20 @@ describe('OrderDetails', () => {
       expect(mockOnClearCart).toHaveBeenCalledTimes(1)
     })
 
-    it('should call onCheckout when Confirm is clicked', async () => {
+    it('should call onCheckout when Confirm is clicked and the order is valid', async () => {
       const user = userEvent.setup()
       renderOrderDetails()
       await user.click(screen.getByTestId('checkout-btn'))
       expect(mockOnCheckout).toHaveBeenCalledTimes(1)
+    })
+
+    it('should not call onCheckout when the discount is invalid', async () => {
+      const user = userEvent.setup()
+      renderOrderDetails()
+      await user.selectOptions(screen.getByTestId('discount-type-select'), 'percentage')
+      await user.type(screen.getByTestId('discount-value-input'), '150')
+      await user.click(screen.getByTestId('checkout-btn'))
+      expect(mockOnCheckout).not.toHaveBeenCalled()
     })
 
     it('should disable both buttons when cart is empty', () => {
@@ -256,6 +321,20 @@ describe('OrderDetails', () => {
       expect(mockOnCheckout).toHaveBeenCalledTimes(1)
       expect(screen.getByTestId('discount-type-select')).toHaveValue('none')
       expect(screen.queryByTestId('discount-value-input')).not.toBeInTheDocument()
+    })
+
+    it('should not reset the discount if Confirm is clicked while the discount is invalid', async () => {
+      const user = userEvent.setup()
+      renderOrderDetails()
+
+      await user.selectOptions(screen.getByTestId('discount-type-select'), 'percentage')
+      await user.type(screen.getByTestId('discount-value-input'), '150')
+
+      await user.click(screen.getByTestId('checkout-btn'))
+
+      expect(mockOnCheckout).not.toHaveBeenCalled()
+      expect(screen.getByTestId('discount-type-select')).toHaveValue('percentage')
+      expect(screen.getByTestId('discount-value-input')).toHaveValue(150)
     })
 
     it('should reset discount type and value after Clear is clicked', async () => {

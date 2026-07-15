@@ -244,6 +244,40 @@
   cursor: not-allowed;
 }
 
+.cart-errors {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 6px;
+  padding: 8px 12px;
+  margin-bottom: 12px;
+}
+.cart-errors ul { margin: 0; padding-left: 18px; }
+.cart-errors li { color: #b91c1c; font-size: 0.85rem; }
+
+.discount-error {
+  color: #b91c1c;
+  font-size: 0.85rem;
+  margin-top: 4px;
+}
+
+.input-error {
+  border-color: #fca5a5 !important;
+}
+
+.discount-type-select:disabled,
+.discount-value-input:disabled,
+.special-instructions-input:disabled {
+  background: #f3f4f6;
+  color: #9ca3af;
+  cursor: not-allowed;
+}
+
+.special-instructions-error {
+  color: #b91c1c;
+  font-size: 0.85rem;
+  margin-top: 4px;
+}
+
 @media (max-width: 768px) {
   .order-summary {
     gap: 0.75rem;

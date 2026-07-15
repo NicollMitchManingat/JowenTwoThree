@@ -1,9 +1,13 @@
-const salesRecords = require("../models/salesModel")
+const salesModel = require("../models/salesModel")
 const { inventory } = require("./inventoryStore")
 
-const sales = salesRecords.map((record) => ({ ...record }))
+const sales = salesModel.getSales().map((record) => ({
+  ...record,
+}))
 
-const inventoryData = inventory.map((item) => ({ ...item }))
+const inventoryData = inventory.map((item) => ({
+  ...item,
+}))
 
 module.exports = {
   sales,

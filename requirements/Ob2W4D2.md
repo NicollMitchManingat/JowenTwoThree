@@ -9,8 +9,6 @@
 ## Task: Inventory Core (Back-End)
 
 ### Sub-Tasks (Breakdown)
-- Design inventory database schema (columns: ITEM ID, NAME, CATEGORY, IN STOCK, STATUS).
-- Create inventory migration files.
 - Develop Inventory model/entity.
 - Build inventory retrieval API endpoint.
 - Implement API response formatting.
@@ -26,7 +24,6 @@
 - User can view all inventory records retrieved from the system database.
 - User can see accurate product information displayed on the inventory page.
 - User can refresh the page and still view inventory data.
-- User can see current stock quantities for all products.
 - User can access inventory information without loading errors.
 
 ### Instructor Notes

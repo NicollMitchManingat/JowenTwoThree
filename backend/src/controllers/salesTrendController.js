@@ -1,8 +1,8 @@
-const { getSalesTrendData } = require("../services/salesTrendService")
+const salesTrendService = require("../services/salesTrendService")
 
 function getSalesTrend(req, res) {
   try {
-    const data = getSalesTrendData()
+    const data = salesTrendService.getSalesTrendData()
 
     res.status(200).json({
       data,

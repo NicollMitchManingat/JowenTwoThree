@@ -1,6 +1,6 @@
-const { sales } = require("./salesStore")
+const salesModel = require("../models/salesModel")
 
-function getSalesTrendData(salesData = sales) {
+function getSalesTrendData(salesData = salesModel.getSales()) {
   if (!Array.isArray(salesData)) {
     throw new Error("Sales data is unavailable")
   }

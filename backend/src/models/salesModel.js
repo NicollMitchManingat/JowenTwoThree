@@ -1,4 +1,4 @@
-module.exports = [
+const sales = [
   {
     orderId: "ORD-001",
     itemId: "I-001",
@@ -24,3 +24,11 @@ module.exports = [
     date: "2026-07-01T18:45:00",
   },
 ]
+
+function getSales() {
+  return sales
+}
+
+module.exports = {
+  getSales,
+}

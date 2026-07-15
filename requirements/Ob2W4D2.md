@@ -15,7 +15,6 @@
 
 ### Deliverable(s)
 - Inventory database schema.
-- Migration files.
 - Inventory model/entity.
 - Inventory retrieval API endpoint.
 - Standardized API response structure.

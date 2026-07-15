@@ -6,29 +6,37 @@
 
 **Week:** 5 | **Day:** 2
 
-## Task: Manual Update Logic (Back-End)
+## Task: Back-End Integration (Front-End)
 
 ### Sub-Tasks (Breakdown)
-- Create manual stock adjustment API.
-- Validate adjustment requests (check for negative values, valid reasons).
-- Develop audit log database table (logs: who, when, what, why).
-- Record adjustment details and user information.
-- Implement adjustment history retrieval.
+
+- Connect the Inventory module to the back-end API.
+- Replace mock inventory data with live API responses.
+- Implement inventory data fetching on page load.
+- Handle loading, empty, and error states during API requests.
+- Integrate inventory update actions with the API.
+- Refresh inventory data after successful updates.
+- Verify synchronization between front-end and back-end inventory records.
 
 ### Deliverable(s)
-- Manual adjustment API endpoint.
-- Adjustment validation logic.
-- Audit log database table.
-- Adjustment logging functionality.
-- Adjustment history retrieval API.
+
+- Front-end successfully connected to the Inventory API.
+- Live inventory data displayed from the database.
+- Inventory update functionality integrated with the back end.
+- Automatic inventory refresh after data modifications.
+- Error handling and loading states implemented.
 
 ### Test Suite / PR Acceptance Criteria
-- User can manually adjust inventory stock levels.
-- User can immediately see updated quantities after saving changes.
-- User can view a history of inventory adjustments.
-- User can see who made the adjustment and when it was performed.
-- User can still view adjustment records after reloading the page.
+
+- Inventory module successfully communicates with the back-end API.
+- Inventory data is retrieved and displayed correctly.
+- Inventory updates are saved successfully to the database.
+- UI automatically refreshes after inventory changes.
+- Loading, empty, and error states function as expected.
+- No console errors or failed API requests.
+- All integration tests pass.
+- Pull request is reviewed and approved.
 
 ### Instructor Notes
 
-_[Space reserved for instructor feedback]_
+> _Space reserved for instructor feedback._

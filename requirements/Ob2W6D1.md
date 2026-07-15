@@ -6,29 +6,31 @@
 
 **Week:** 6 | **Day:** 1
 
-## Task: Alert System Logic (Back-End)
+## Task: End-to-End Testing
 
 ### Sub-Tasks (Breakdown)
-- Create low-stock threshold checking service (default: 10 units).
-- Configure default stock threshold values.
-- Generate alerts for low-stock products.
-- Build alert retrieval API endpoint.
-- Test alert generation workflow.
+
+- Perform end-to-end testing of the Inventory Management module.
+- Verify inventory retrieval, creation, update, and deletion workflows.
+- Test stock deduction and inventory synchronization after POS transactions.
+- Validate low-stock alerts and inventory status updates.
+- Test API communication between the front end and back end.
 
 ### Deliverable(s)
-- Threshold checking service.
-- Threshold configuration settings.
-- Alert generation functionality.
-- Alert retrieval API endpoint.
-- Alert generation test results.
+
+- Completed end-to-end testing for the Inventory Management module.
+- Verified inventory workflows from user interface to database.
+- Bug reports and issue resolutions documented.
+- Stable inventory synchronization across the system.
+- Final validated Inventory Management functionality.
 
 ### Test Suite / PR Acceptance Criteria
-- User receives notifications when products reach low-stock levels.
-- User can view all low-stock products in the alert list.
-- User can see multiple alerts when several products fall below the threshold.
-- User can verify that alert information matches current inventory quantities.
-- User continues to see alerts until stock levels are replenished.
+
+- All inventory CRUD operations work correctly.
+- Low-stock alerts trigger under the correct conditions.
+- Front-end and back-end remain synchronized throughout all workflows.
+- Database records match the displayed inventory information.
 
 ### Instructor Notes
 
-_[Space reserved for instructor feedback]_
+> _Space reserved for instructor feedback._

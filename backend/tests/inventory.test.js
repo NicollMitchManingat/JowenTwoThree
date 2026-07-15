@@ -4,9 +4,11 @@ const app = require('../src/app')
 describe('Inventory API', () => {
   test('GET /api/inventory returns items', async () => {
     const res = await request(app).get('/api/inventory').expect(200)
+    expect(res.body).toHaveProperty('success', true)
     expect(res.body).toHaveProperty('data')
     expect(Array.isArray(res.body.data)).toBe(true)
     expect(res.body.data[0]).toHaveProperty('id', 'I-001')
+
   })
 
   test('GET /api/inventory/alerts returns alerts', async () => {
@@ -21,5 +23,6 @@ describe('Inventory API', () => {
     const res = await request(app).get('/').expect(200)
     expect(res.body).toEqual({ status: 'ok' })
   })
+
 })
 

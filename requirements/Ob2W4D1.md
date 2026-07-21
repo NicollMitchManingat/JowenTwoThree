@@ -6,28 +6,22 @@
 
 **Week:** 4 | **Day:** 1
 
-## Task: UI Error Handling (Front-End)
+## Task: Database SetUp (Back-End)
 
 ### Sub-Tasks (Breakdown)
-- Validate adjustment quantities.
-- Prevent negative stock entries.
-- Create validation error messages.
-- Handle empty search results.
-- Display user-friendly error notifications.
-
+- Set Up Supabase Client
+- Creating SQL Schema
+- Developing Tables and Policies
+ 
 ### Deliverable(s)
-- Quantity validation logic.
-- Negative stock prevention logic.
-- Validation message component.
-- Empty-state component ("No results found").
-- Error notification component.
+- SQL Schema File
+- Supabase Client File 
+- Adding RLS Policies
 
 ### Test Suite / PR Acceptance Criteria
-- User receives an error message when entering invalid stock quantities.
-- User cannot save negative stock values.
-- User sees a "No Results Found" message when no products match the search.
-- User receives feedback when an action fails.
-- User cannot submit incomplete inventory adjustment forms.
+- The user can call supabase server
+- The user can retrieve data from the tables
+- The user can retrieve specific data from the server
 
 ### Instructor Notes
 

@@ -1,4 +1,4 @@
-const { inventory } = require('./inventoryStore')
+const inventorySupabaseStore = require('./inventorySupabaseStore')
 
 function computeStatus(inStock) {
   if (inStock === 0) return 'OutOfStock'
@@ -7,11 +7,39 @@ function computeStatus(inStock) {
   return 'Good'
 }
 
-function listInventory({ q, category } = {}) {
+function mapInventoryRow(row) {
+  const id = row.id
+  const name = row.item_name
+  // Supabase tests/model uses nested relationship: inventory_categories: { name }
+  const category =
+    row.category_name ?? row.inventory_categories?.name ?? row.category ?? undefined
+  const inStock = Number(row.current_stock ?? row.in_stock ?? 0)
+
+
+  return {
+    id,
+    name,
+    category,
+    inStock,
+    status: computeStatus(inStock),
+  }
+}
+
+async function listInventory({ q, category } = {}) {
   const keyword = typeof q === 'string' ? q.trim().toLowerCase() : ''
   const normalizedCategory = typeof category === 'string' ? category.trim() : ''
 
-  let result = inventory
+  let rows
+  try {
+    rows = await inventorySupabaseStore.getAllInventory()
+  } catch (err) {
+    console.log('err', err)
+
+    const { inventory } = require('./inventoryStore')
+    return inventory
+  }
+
+  let result = rows.map(mapInventoryRow)
 
   if (normalizedCategory) {
     result = result.filter((item) => item.category === normalizedCategory)
@@ -29,8 +57,28 @@ function listInventory({ q, category } = {}) {
   return result
 }
 
+function createHttpError(message, statusCode) {
+  const err = new Error(message)
+  err.statusCode = statusCode
+  return err
+}
+
+function resolveInMemoryItem(id) {
+  const { inventory } = require('./inventoryStore')
+  return inventory.find((it) => it.id === id)
+}
+
+function updateInMemoryStatus(item) {
+  item.status = computeStatus(item.inStock)
+  return item
+}
+
 function updateInventoryById(id, { quantity, reason, notes } = {}) {
+
+  const { inventory } = require('./inventoryStore')
+
   const item = inventory.find((it) => it.id === id)
+
   if (!item) {
     const err = new Error('Inventory item not found')
     err.statusCode = 404
@@ -49,12 +97,9 @@ function updateInventoryById(id, { quantity, reason, notes } = {}) {
     throw err
   }
 
-  // quantity can be positive (restock) or negative (consumption/usage)
   const newStock = item.inStock + quantity
   item.inStock = newStock
   item.status = computeStatus(newStock)
-
-  // notes/reason accepted for future audit log (not stored in this simplified version)
   void notes
 
   return item
@@ -62,7 +107,7 @@ function updateInventoryById(id, { quantity, reason, notes } = {}) {
 
 module.exports = {
   computeStatus,
+  mapInventoryRow,
   listInventory,
   updateInventoryById,
 }
-

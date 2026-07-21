@@ -15,9 +15,9 @@
 - Update displayed inventory data after edits.
 
 ### Deliverable(s)
-- Search-table integration.
+- Search-table dynamic filtering.
 - Table filtering functionality.
-- Row-specific edit integration.
+- Row-specific edit.
 - Dynamic inventory update feature.
 
 ### Test Suite / PR Acceptance Criteria

@@ -6,28 +6,27 @@
 
 **Week:** 5 | **Day:** 1
 
-## Task: Transaction Processing (Back-End)
+## Task: POS Processing (Back-End)
 
 ### Sub-Tasks (Breakdown)
 - Build sales transaction API endpoint.
-- Create sales transaction database schema.
-- Implement cart payload validation.
-- Develop transaction saving functionality.
-- Implement transaction response handling.
-
+- Create subtotal calculation and discount service.
+- Build receipt generation API endpoint.
+- Build transaction history API endpoint.
+- Connect receipt and history APIs to transaction records.
 ### Deliverable(s)
 - Sales Transaction API.
-- Sales Transaction Schema.
-- Cart Validation Middleware.
-- Transaction Persistence Logic.
-- Transaction Response Handler.
+- Subtotal Calculation and Discount Service.
+- Receipt Generation API
+- Transaction History API
+- Transaction Record Integration
 
 ### Test Suite / PR Acceptance Criteria
 - System can receive transaction requests from the POS interface.
-- System can store completed transactions in the database.
-- System rejects invalid or incomplete cart data.
-- System saves valid transaction records successfully.
-- System returns confirmation details after a successful transaction.
+- System provides subtotal and and discount values through the calculation service.
+- System generates a receipt containing purchased items, quantities, and totals.
+- System retrieves completed transaction records through the history API.
+- System displays accurate transaction data based on stored records.
 
 ### Instructor Notes
 

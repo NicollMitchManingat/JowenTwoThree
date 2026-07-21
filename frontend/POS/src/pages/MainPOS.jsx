@@ -45,33 +45,41 @@ export default function MainPOS({ user, onLogout }) {
     }
   }
 
-  const handleCheckout = async () => {
+const handleCheckout = async () => {
     if (cart.length === 0) {
       alert("Cart is empty")
       return
     }
 
-    const subtotal = calculateSubtotal(cart)
-    const discount = calculateDiscount(
-      subtotal,
-      0
-    )
-    const total = calculateTotal(
-      subtotal,
-      discount
-    )
+const subtotal = calculateSubtotal(cart);
 
-    const payload = {
-      customerCount,
-      cart,
-      subtotal,
-      discount,
-      total,
-      paymentMethod: "CASH",
-      cashReceived: total,
-      changeAmount: 0,
-      specialInstructions: ""
-    }
+const discountType = "none";
+const discountValue = 0;
+
+const discount = calculateDiscount(
+  subtotal,
+  discountType,
+  discountValue
+);
+
+const total = calculateTotal(subtotal, discount);
+
+const payload = {
+  customerCount,
+  cart,
+
+  subtotal,
+  discount,
+  total,
+
+  discountType,
+  discountValue,
+
+  paymentMethod: "CASH",
+  cashReceived: total,
+  changeAmount: 0,
+  specialInstructions: ""
+};
 
     console.log(
       "Transaction Payload:",

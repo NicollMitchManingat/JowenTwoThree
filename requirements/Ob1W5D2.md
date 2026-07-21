@@ -5,7 +5,6 @@
 **Owner:** Trishia Mae F. Piliin
 
 **Week:** 5 | **Day:** 2
-
 ## Task: Implement Transaction API and Database Integration
 
 ### Sub-Tasks (Breakdown)

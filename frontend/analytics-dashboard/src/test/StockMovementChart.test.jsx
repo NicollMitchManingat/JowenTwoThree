@@ -1,5 +1,9 @@
 import { render, screen } from "@testing-library/react";
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
+
+vi.mock("react-chartjs-2", () => ({
+  Bar: () => <canvas data-testid="chart-canvas" />,
+}));
 
 import StockMovementChart from "../components/StockMovementChart";
 import inventoryData from "../data/inventoryData";
@@ -25,7 +29,7 @@ describe("StockMovementChart", () => {
     render(<StockMovementChart data={inventoryData} />);
 
     expect(
-      screen.getByRole("img")
+      screen.getByTestId("chart-canvas")
     ).toBeInTheDocument();
   });
 });

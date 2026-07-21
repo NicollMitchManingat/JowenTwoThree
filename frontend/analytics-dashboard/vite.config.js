@@ -12,8 +12,10 @@ export default defineConfig({
     globals: true,
     environment: "jsdom",
     setupFiles: "./src/setupTests.js",
-    deps: {
-      inline: ["react", "react-dom"],
+    server: {
+      deps: {
+        inline: ["react", "react-dom"],
+      },
     },
   },
 });

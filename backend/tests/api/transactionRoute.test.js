@@ -1,11 +1,13 @@
 import request from "supertest";
 import { describe, it, expect, beforeEach } from "vitest";
 
-import app from "../../src/app";
+const app = require("../../src/app.js");
+
 const TransactionService =
-  require("../../src/services/transactionService");
+  require("../../src/services/transactionService.js");
 
 const payload = {
+  customerCount: 2,
   cart: [
     {
       id: 1,
@@ -14,34 +16,59 @@ const payload = {
       quantity: 2
     }
   ],
-  customerCount: 2,
-  specialInstructions: "",
-  discountType: "none",
-  discountValue: 0,
+
   subtotal: 200,
-  discountAmount: 0,
-  totalAmount: 200
+  discount: 0,
+  total: 200,
+  paymentMethod: "CASH",
+  cashReceived: 200,
+  changeAmount: 0,
+  specialInstructions: ""
 };
 
 describe("Transaction Routes", () => {
-
-  beforeEach(() => {
-    TransactionService.clearHistory();
+  beforeEach(async () => {
+    if (TransactionService.clearHistory) {
+      await TransactionService.clearHistory();
+    }
   });
 
   it("POST /api/transactions should save transaction", async () => {
-
     const response =
       await request(app)
         .post("/api/transactions")
         .send(payload);
 
-    expect(response.status).toBe(201);
-    expect(response.body.success).toBe(true);
+    expect(response.status)
+      .toBe(201);
+
+    expect(response.body.success)
+      .toBe(true);
+
+    expect(response.body.transaction)
+      .toBeDefined();
+
+    expect(response.body.transaction.cart.length)
+      .toBe(1);
   });
 
-  it("GET /api/transactions/history should return all transactions", async () => {
+  it("POST should reject empty cart", async () => {
+    const response =
+      await request(app)
+        .post("/api/transactions")
+        .send({
+          customerCount: 2,
+          cart: []
+        });
 
+    expect(response.status)
+      .toBe(400);
+
+    expect(response.body.success)
+      .toBe(false);
+  });
+
+  it("GET /api/transactions/history should return transactions", async () => {
     await request(app)
       .post("/api/transactions")
       .send(payload);
@@ -50,12 +77,20 @@ describe("Transaction Routes", () => {
       await request(app)
         .get("/api/transactions/history");
 
-    expect(response.status).toBe(200);
-    expect(response.body.history.length).toBe(1);
+    expect(response.status)
+      .toBe(200);
+
+    expect(response.body.success)
+      .toBe(true);
+
+    expect(response.body.history)
+      .toBeInstanceOf(Array);
+
+    expect(response.body.history.length)
+      .toBe(1);
   });
 
   it("GET receipt should return formatted receipt", async () => {
-
     const saved =
       await request(app)
         .post("/api/transactions")
@@ -66,24 +101,36 @@ describe("Transaction Routes", () => {
 
     const response =
       await request(app)
-        .get(`/api/transactions/${id}/receipt`);
+        .get(
+          `/api/transactions/${id}/receipt`
+        );
 
-    expect(response.status).toBe(200);
+    expect(response.status)
+      .toBe(200);
+
+    expect(response.body.success)
+      .toBe(true);
 
     expect(response.body.receipt.receiptId)
       .toBe(id);
 
-    expect(response.body.receipt.items.length)
-      .toBe(1);
+    expect(response.body.receipt.items)
+      .toHaveLength(1);
   });
 
-  it("GET receipt should return 404 for invalid id", async () => {
 
+  it("GET receipt should return 404 for invalid transaction", async () => {
     const response =
       await request(app)
-        .get("/api/transactions/TXN-999999/receipt");
+        .get(
+          "/api/transactions/TXN-999999/receipt"
+        );
+      
+    expect(response.status)
+      .toBe(404);
 
-    expect(response.status).toBe(404);
+    expect(response.body.success)
+      .toBe(false);
   });
 
 });

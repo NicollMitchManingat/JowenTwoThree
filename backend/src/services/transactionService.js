@@ -1,70 +1,117 @@
 let transactionHistory = [];
 
-class TransactionService {
-  static clearHistory() {
-    transactionHistory = [];
+function saveTransaction(data) {
+
+  if (!Array.isArray(data.cart) || data.cart.length === 0) {
+
+    throw new Error(
+      "Cannot save transaction: Cart is invalid."
+    );
   }
 
-  static saveTransaction(receiptPayload) {
-    const {
-      cart,
-      customerCount,
-      specialInstructions,
-      discountType,
-      discountValue,
-      subtotal,
-      discountAmount,
-      totalAmount
-    } = receiptPayload;
+  const transaction = {
+    id: `TXN-${Date.now()}`,
+    customerCount:
+      Number(data.customerCount || 1),
+    cart:
+      data.cart.map(item => ({
+        ...item,
+        price:
+          Number(item.price || 0),
+        quantity:
+          Number(item.quantity || 1)
+      })),
 
-    if (!cart || !Array.isArray(cart)) {
-      throw new Error("Cannot save transaction: Cart is invalid.");
-    }
+    specialInstructions:
+      data.specialInstructions || "",
 
-    const transactionRecord = {
-      id: `TXN-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-      createdAt: new Date().toISOString(),
-      customerCount: Number(customerCount || 1),
-      specialInstructions: specialInstructions || "",
-      discountType: discountType || "none",
-      discountValue: Number(discountValue || 0),
-      subtotal: Number(subtotal),
-      discountAmount: Number(discountAmount || 0),
-      totalAmount: Number(totalAmount),
-      cart: cart.map(item => ({
-        id: item.id,
-        name: item.name,
-        price: Number(item.price),
-        quantity: Number(item.quantity)
-      }))
-    };
+    discountType:
+      data.discountType || "none",
 
-    transactionHistory.push(transactionRecord);
-    return transactionRecord;
-  }
+    discountValue:
+      Number(data.discountValue || 0),
 
-  static getTransactionHistory() {
-    return [...transactionHistory].reverse();
-  }
+    subtotal:
+      Number(data.subtotal || 0),
 
-  static getTransactionById(id) {
-    return transactionHistory.find(transaction => transaction.id === id);
-  }
+    discountAmount:
+      Number(
+        data.discountAmount ??
+        data.discount ??
+        0
+      ),
 
-  static formatReceipt(transaction) {
-    return {
-      receiptId: transaction.id,
-      createdAt: transaction.createdAt,
-      customerCount: transaction.customerCount,
-      items: transaction.cart,
-      subtotal: transaction.subtotal,
-      discountType: transaction.discountType,
-      discountValue: transaction.discountValue,
-      discountAmount: transaction.discountAmount,
-      totalAmount: transaction.totalAmount,
-      specialInstructions: transaction.specialInstructions
-    };
-  }
+    totalAmount:
+      Number(
+        data.totalAmount ??
+        data.total ??
+        0
+      ),
+
+    paymentMethod:
+      data.paymentMethod || "CASH",
+
+    cashReceived:
+      Number(data.cashReceived || 0),
+
+    changeAmount:
+      Number(data.changeAmount || 0),
+
+    createdAt:
+      new Date()
+  };
+
+  transactionHistory.unshift(transaction);
+  return transaction;
 }
 
-module.exports = TransactionService;
+function getTransactionHistory(){
+  return transactionHistory;
+}
+
+function getTransactionById(id){
+  const transaction =
+    transactionHistory.find(
+      item => item.id === id
+    );
+
+  return transaction;
+}
+
+function formatReceipt(transaction){
+
+  return {
+    receiptId:
+      transaction.id,
+    createdAt:
+      transaction.createdAt,
+    customerCount:
+      transaction.customerCount,
+    items:
+      transaction.cart,
+    subtotal:
+      transaction.subtotal,
+    discountType:
+      transaction.discountType,
+    discountValue:
+      transaction.discountValue,
+    discountAmount:
+      transaction.discountAmount,
+    totalAmount:
+      transaction.totalAmount,
+    specialInstructions:
+      transaction.specialInstructions
+  };
+}
+
+function clearHistory(){
+  transactionHistory = [];
+}
+
+module.exports = {
+  saveTransaction,
+  getTransactionHistory,
+  getTransactionById,
+  formatReceipt,
+  clearHistory
+};

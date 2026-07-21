@@ -5,7 +5,6 @@ class TransactionService {
     transactionHistory = [];
   }
 
-
   static saveTransaction(receiptPayload) {
     const {
       cart,
@@ -44,9 +43,27 @@ class TransactionService {
     return transactionRecord;
   }
 
-
   static getTransactionHistory() {
     return [...transactionHistory].reverse();
+  }
+
+  static getTransactionById(id) {
+    return transactionHistory.find(transaction => transaction.id === id);
+  }
+
+  static formatReceipt(transaction) {
+    return {
+      receiptId: transaction.id,
+      createdAt: transaction.createdAt,
+      customerCount: transaction.customerCount,
+      items: transaction.cart,
+      subtotal: transaction.subtotal,
+      discountType: transaction.discountType,
+      discountValue: transaction.discountValue,
+      discountAmount: transaction.discountAmount,
+      totalAmount: transaction.totalAmount,
+      specialInstructions: transaction.specialInstructions
+    };
   }
 }
 

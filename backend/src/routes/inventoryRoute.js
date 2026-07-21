@@ -6,11 +6,25 @@ const {
   updateInventoryById,
 } = require('../services/inventoryService')
 
-router.get('/', (req, res) => {
+router.get('/', async (req, res) => {
   const { q, category } = req.query
-  const data = listInventory({ q, category })
-  res.json({ data })
+
+  try {
+    const data = await listInventory({ q, category })
+    res.status(200).json({
+      success: true,
+      data,
+    })
+  } catch (err) {
+    res.status(err?.statusCode || 500).json({
+      success: false,
+      error: {
+        message: err?.message || 'Internal server error',
+      },
+    })
+  }
 })
+
 
 router.put('/:id', (req, res) => {
   const { id } = req.params

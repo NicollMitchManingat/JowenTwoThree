@@ -41,22 +41,23 @@ describe('TransactionService', () => {
         discountAmount: 25,
         totalAmount: 225
       }
+
       TransactionService.saveTransaction(discountedProps)
 
       const history = TransactionService.getTransactionHistory()
 
       expect(history).toHaveLength(2)
-      
+
       expect(history[0].totalAmount).toBe(225)
       expect(history[0].discountAmount).toBe(25)
-      
+
       expect(history[1].totalAmount).toBe(250)
       expect(history[1].discountAmount).toBe(0)
     })
 
     it('Should throw an error if the cart is missing or not an array', () => {
       const invalidProps = { ...baseProps, cart: null }
-      
+
       expect(() => {
         TransactionService.saveTransaction(invalidProps)
       }).toThrow('Cannot save transaction: Cart is invalid.')
@@ -70,7 +71,7 @@ describe('TransactionService', () => {
       expect(savedRecord).toHaveProperty('id')
       expect(savedRecord).toHaveProperty('createdAt')
       expect(savedRecord.id).toMatch(/^TXN-/)
-      
+
       expect(Date.parse(savedRecord.createdAt)).not.toBeNaN()
     })
 
@@ -99,9 +100,46 @@ describe('TransactionService', () => {
       expect(savedRecord.cart).toHaveLength(1)
       expect(savedRecord.cart[0].id).toBe(1)
       expect(savedRecord.cart[0].name).toBe('Burger')
-      
+
       expect(savedRecord.cart[0].price).toBe(100)
       expect(savedRecord.cart[0].quantity).toBe(2)
+    })
+  })
+
+  describe('Additional Transaction Features', () => {
+    it('Should retrieve a transaction by its ID', () => {
+      const savedTransaction = TransactionService.saveTransaction(baseProps)
+
+      const foundTransaction = TransactionService.getTransactionById(savedTransaction.id)
+
+      expect(foundTransaction).toBeDefined()
+      expect(foundTransaction.id).toBe(savedTransaction.id)
+      expect(foundTransaction.totalAmount).toBe(250)
+    })
+
+    it('Should return undefined when the transaction ID does not exist', () => {
+      const transaction = TransactionService.getTransactionById('TXN-INVALID')
+
+      expect(transaction).toBeUndefined()
+    })
+
+    it('Should correctly format a receipt from a transaction', () => {
+      const savedTransaction = TransactionService.saveTransaction(baseProps)
+
+      const receipt = TransactionService.formatReceipt(savedTransaction)
+
+      expect(receipt).toEqual({
+        receiptId: savedTransaction.id,
+        createdAt: savedTransaction.createdAt,
+        customerCount: 2,
+        items: savedTransaction.cart,
+        subtotal: 250,
+        discountType: 'none',
+        discountValue: 0,
+        discountAmount: 0,
+        totalAmount: 250,
+        specialInstructions: 'No onions'
+      })
     })
   })
 })

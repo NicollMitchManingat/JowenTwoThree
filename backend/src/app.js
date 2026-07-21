@@ -1,4 +1,5 @@
 const express = require("express")
+const cors = require("cors")
 
 const inventoryRouter = require("./routes/inventoryRoute")
 const alertsRouter = require("./routes/alertsRoute")
@@ -12,6 +13,7 @@ const transactionRouter = require("./routes/transactionRoute") // NEW
 
 const app = express()
 
+app.use(cors())
 app.use(express.json())
 
 app.get("/", (req, res) =>

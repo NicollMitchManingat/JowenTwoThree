@@ -5,29 +5,25 @@
 **Owner:** Trishia Mae F. Piliin
 
 **Week:** 5 | **Day:** 2
-
-## Task: Calculation Engine (Back-End)
+## Task: Implement Transaction API and Database Integration
 
 ### Sub-Tasks (Breakdown)
-- Develop subtotal calculation logic.
-- Develop tax calculation logic.
-- Develop discount calculation logic.
-- Create subtotal calculation service.
-- Create tax and discount service.
+- Connect Transaction API to the Supabase transactions table.
+- Update Transaction API to support asynchronous database operations (async/await).
+- Integrate calculation services (subtotal and discount) into the checkout transaction payload.
+- Validate successful transaction saving to the database.
 
 ### Deliverable(s)
-- Subtotal Calculation Logic.
-- Tax Calculation Logic.
-- Discount Calculation Logic.
-- Subtotal Calculation Service.
-- Tax and Discount Service.
+- Supabase Transaction Integration.
+- Async Transaction API.
+- Checkout Calculation Integration.
+- Verified Transaction Storage.
 
 ### Test Suite / PR Acceptance Criteria
-- System calculates the correct subtotal based on selected products and quantities.
-- System calculates the correct tax amount for a transaction.
-- System applies discounts correctly to eligible transactions.
-- System provides subtotal values through the calculation service.
-- System provides tax and discount values through the calculation service.
+- Transaction API successfully saves records to the transactions table.
+- API returns the saved transaction after a successful checkout.
+- Subtotal and discount values are computed using the calculation service before saving.
+- Transaction data is stored correctly in Supabase.
 
 ### Instructor Notes
 

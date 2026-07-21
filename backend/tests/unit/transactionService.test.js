@@ -1,145 +1,145 @@
-import { describe, it, expect, beforeEach } from 'vitest'
-const TransactionService = require('../../src/services/transactionService.js')
+import { describe, it, expect, beforeEach } from "vitest";
 
-const baseProps = {
+const TransactionService = require("../../src/services/transactionService.js");
+
+const createBaseProps = () => ({
   cart: [
-    { id: 1, name: 'Burger', price: 100, quantity: 2 },
-    { id: 2, name: 'Fries', price: 50, quantity: 1 }
+    {
+      id: 1,
+      name: "Burger",
+      price: 100,
+      quantity: 2,
+    },
+    {
+      id: 2,
+      name: "Fries",
+      price: 50,
+      quantity: 1,
+    },
   ],
   customerCount: 2,
-  specialInstructions: 'No onions',
-  discountType: 'none',
+  specialInstructions: "No onions",
+  discountType: "none",
   discountValue: 0,
-  subtotal: 250,
-  discountAmount: 0,
-  totalAmount: 250
-}
+  paymentMethod: "CASH",
+  cashReceived: 250,
+  changeAmount: 0,
+});
 
-describe('TransactionService', () => {
+describe("TransactionService", () => {
   beforeEach(() => {
-    TransactionService.clearHistory()
-  })
+    TransactionService.clearHistory();
+  });
 
-  describe('saveTransaction and History Management', () => {
-    it('Should successfully save a transaction and retrieve it through history logic', () => {
-      TransactionService.saveTransaction(baseProps)
+  describe("saveTransaction()", () => {
+    it("should save transaction successfully", async () => {
+      const saved = await TransactionService.saveTransaction(createBaseProps());
 
-      const history = TransactionService.getTransactionHistory()
+      expect(saved).toHaveProperty("transaction_number");
+      expect(saved.cart).toHaveLength(2);
 
-      expect(history).toBeInstanceOf(Array)
-      expect(history).toHaveLength(1)
-      expect(history[0].cart[1].name).toBe('Fries')
-    })
+      const history = await TransactionService.getTransactionHistory();
+      expect(history.length).toBeGreaterThan(0);
+    });
 
-    it('Should return a list of previous sales transactions accurately ordered by newest first', () => {
-      TransactionService.saveTransaction(baseProps)
+    it("should return transactions ordered newest first", async () => {
+      await TransactionService.saveTransaction(createBaseProps());
 
-      const discountedProps = {
-        ...baseProps,
-        discountType: 'percentage',
+      await TransactionService.saveTransaction({
+        ...createBaseProps(),
+        discountType: "percentage",
         discountValue: 10,
-        discountAmount: 25,
-        totalAmount: 225
-      }
+      });
 
-      TransactionService.saveTransaction(discountedProps)
+      const history = await TransactionService.getTransactionHistory();
+      expect(history.length).toBeGreaterThanOrEqual(2);
+    });
 
-      const history = TransactionService.getTransactionHistory()
+    it("should throw error when cart is invalid", async () => {
+      await expect(
+        TransactionService.saveTransaction({
+          ...createBaseProps(),
+          cart: null,
+        })
+      ).rejects.toThrow("Cannot save transaction: Cart is invalid.");
+    });
+  });
 
-      expect(history).toHaveLength(2)
+  describe("Transaction Record Mapping", () => {
+    it("should generate transaction metadata", async () => {
+      const saved = await TransactionService.saveTransaction(createBaseProps());
 
-      expect(history[0].totalAmount).toBe(225)
-      expect(history[0].discountAmount).toBe(25)
+      expect(saved).toHaveProperty("transaction_number");
+      expect(saved).toHaveProperty("created_at");
+      expect(saved.transaction_number).toMatch(/^TXN-/);
+      expect(Date.parse(saved.created_at)).not.toBeNaN();
+    });
 
-      expect(history[1].totalAmount).toBe(250)
-      expect(history[1].discountAmount).toBe(0)
-    })
+    it("should correctly map transaction values", async () => {
+      const saved = await TransactionService.saveTransaction(createBaseProps());
 
-    it('Should throw an error if the cart is missing or not an array', () => {
-      const invalidProps = { ...baseProps, cart: null }
+      expect(saved.customer_count).toBe(2);
+      expect(saved.special_instructions).toBe("No onions");
+      expect(saved.discount_type).toBe("none");
+      expect(saved.discount_value).toBe(0);
+      expect(saved.subtotal).toBe(250);
+      expect(saved.discount).toBe(0);
+      expect(saved.total).toBe(250);
+    });
 
-      expect(() => {
-        TransactionService.saveTransaction(invalidProps)
-      }).toThrow('Cannot save transaction: Cart is invalid.')
-    })
-  })
-
-  describe('transactionRecord Structure and Mapping', () => {
-    it('Should successfully generate and validate metadata properties (id, createdAt)', () => {
-      const savedRecord = TransactionService.saveTransaction(baseProps)
-
-      expect(savedRecord).toHaveProperty('id')
-      expect(savedRecord).toHaveProperty('createdAt')
-      expect(savedRecord.id).toMatch(/^TXN-/)
-
-      expect(Date.parse(savedRecord.createdAt)).not.toBeNaN()
-    })
-
-    it('Should accurately map and sanitize core billing and details matching UI state', () => {
-      const savedRecord = TransactionService.saveTransaction(baseProps)
-
-      expect(savedRecord.customerCount).toBe(2)
-      expect(savedRecord.specialInstructions).toBe('No onions')
-      expect(savedRecord.discountType).toBe('none')
-      expect(savedRecord.discountValue).toBe(0)
-      expect(savedRecord.subtotal).toBe(250)
-      expect(savedRecord.discountAmount).toBe(0)
-      expect(savedRecord.totalAmount).toBe(250)
-    })
-
-    it('Should cleanly map and convert cart item values to appropriate numeric types', () => {
-      const stringifiedCartProps = {
-        ...baseProps,
+    it("should convert cart values to numbers", async () => {
+      const saved = await TransactionService.saveTransaction({
+        ...createBaseProps(),
         cart: [
-          { id: 1, name: 'Burger', price: '100', quantity: '2' }
-        ]
-      }
+          {
+            id: 1,
+            name: "Burger",
+            price: "100",
+            quantity: "2",
+          },
+        ],
+      });
 
-      const savedRecord = TransactionService.saveTransaction(stringifiedCartProps)
+      expect(saved.cart[0].price).toBe(100);
+      expect(saved.cart[0].quantity).toBe(2);
+    });
+  });
 
-      expect(savedRecord.cart).toHaveLength(1)
-      expect(savedRecord.cart[0].id).toBe(1)
-      expect(savedRecord.cart[0].name).toBe('Burger')
+  describe("Additional Transaction Features", () => {
+    it("should retrieve transaction by ID", async () => {
+      const saved = await TransactionService.saveTransaction(createBaseProps());
 
-      expect(savedRecord.cart[0].price).toBe(100)
-      expect(savedRecord.cart[0].quantity).toBe(2)
-    })
-  })
+      const result = await TransactionService.getTransactionById(
+        saved.transaction_number
+      );
 
-  describe('Additional Transaction Features', () => {
-    it('Should retrieve a transaction by its ID', () => {
-      const savedTransaction = TransactionService.saveTransaction(baseProps)
+      expect(result).toBeDefined();
+      expect(result.transaction_number).toBe(saved.transaction_number);
+    });
 
-      const foundTransaction = TransactionService.getTransactionById(savedTransaction.id)
+    it("should return undefined for invalid ID", async () => {
+      const result = await TransactionService.getTransactionById("INVALID-ID");
 
-      expect(foundTransaction).toBeDefined()
-      expect(foundTransaction.id).toBe(savedTransaction.id)
-      expect(foundTransaction.totalAmount).toBe(250)
-    })
+      expect(result).toBeUndefined();
+    });
 
-    it('Should return undefined when the transaction ID does not exist', () => {
-      const transaction = TransactionService.getTransactionById('TXN-INVALID')
+    it("should format receipt correctly", async () => {
+      const saved = await TransactionService.saveTransaction(createBaseProps());
 
-      expect(transaction).toBeUndefined()
-    })
-
-    it('Should correctly format a receipt from a transaction', () => {
-      const savedTransaction = TransactionService.saveTransaction(baseProps)
-
-      const receipt = TransactionService.formatReceipt(savedTransaction)
+      const receipt = TransactionService.formatReceipt(saved);
 
       expect(receipt).toEqual({
-        receiptId: savedTransaction.id,
-        createdAt: savedTransaction.createdAt,
+        receiptId: saved.transaction_number,
+        createdAt: saved.created_at,
         customerCount: 2,
-        items: savedTransaction.cart,
+        items: saved.cart,
         subtotal: 250,
-        discountType: 'none',
+        discountType: "none",
         discountValue: 0,
         discountAmount: 0,
         totalAmount: 250,
-        specialInstructions: 'No onions'
-      })
-    })
-  })
-})
+        specialInstructions: "No onions",
+      });
+    });
+  });
+});

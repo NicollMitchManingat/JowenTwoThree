@@ -1,13 +1,18 @@
 import '../styles/Sidebar.css'
 
 const menuItems = [
-  { id: 'POS', label: 'POS'},
-  { id: 'Inventory', label: 'Inventory'},
-  { id: 'Orders', label: 'Orders'},
-  { id: 'Settings', label: 'Settings'}
+  { id: 'POS', label: 'POS', icon: '🛒' },
+  { id: 'Inventory', label: 'Inventory', icon: '📦' },
+  { id: 'Orders', label: 'Orders', icon: '🧾' },
+  { id: 'Settings', label: 'Settings', icon: '⚙️' }
 ]
 
-export default function Sidebar({ activeMenu, onMenuChange, onLogout, user }) {
+export default function Sidebar({
+  activeMenu,
+  onMenuChange,
+  onLogout,
+  user
+}) {
   return (
     <div className="sidebar" data-testid="sidebar">
       <div className="sidebar-header">
@@ -21,8 +26,12 @@ export default function Sidebar({ activeMenu, onMenuChange, onLogout, user }) {
         {menuItems.map(item => (
           <button
             key={item.id}
-            className={`menu-item ${activeMenu === item.id ? 'active' : ''}`}
-            onClick={() => onMenuChange(item.id)}
+            className={`menu-item ${
+              activeMenu === item.id ? 'active' : ''
+            }`}
+            onClick={() =>
+              onMenuChange && onMenuChange(item.id)
+            }
             data-testid={`menu-${item.id.toLowerCase()}`}
           >
             <span className="menu-icon">{item.icon}</span>

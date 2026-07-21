@@ -1,10 +1,26 @@
-import { render, screen } from "@testing-library/react";
-import { vi, describe, it, expect } from "vitest";
+import { render, screen, waitFor } from "@testing-library/react";
+import { vi, describe, it, expect, beforeEach } from "vitest";
 
 import DashboardContent from "../pages/DashboardContent";
 import { AnalyticsContext } from "../pages/AnalyticsContext";
 
 describe("DashboardContent", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    vi.spyOn(global, "fetch").mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        data: {
+          summary: { totalRevenue: 0, totalUnitsSold: 0, totalCustomers: 0, totalInventoryItems: 0 },
+          rows: [],
+          salesByItem: [],
+          inventorySummary: [],
+          trafficByHour: [],
+        },
+      }),
+    });
+  });
+
   it("should render Sales analytics with Today filter", () => {
     render(
       <AnalyticsContext.Provider
@@ -59,7 +75,7 @@ describe("DashboardContent", () => {
 
     expect(screen.getByText("1,250")).toBeInTheDocument();
     expect(screen.getByText("876")).toBeInTheDocument();
-    expect(screen.getByText("157,890")).toBeInTheDocument();
+    expect(screen.getByText("₱157,890.00")).toBeInTheDocument();
   });
 
   it("should render all analytics sections", () => {
@@ -113,5 +129,19 @@ describe("DashboardContent", () => {
     );
 
     expect(screen.getByText("Stock Movement")).toBeInTheDocument();
+  });
+
+  it("should render the consolidated data table section", async () => {
+    render(
+      <AnalyticsContext.Provider
+        value={{ dateFilter: "Today", setDateFilter: vi.fn() }}
+      >
+        <DashboardContent activeTab="Sales" />
+      </AnalyticsContext.Provider>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Consolidated System Data")).toBeInTheDocument();
+    });
   });
 });

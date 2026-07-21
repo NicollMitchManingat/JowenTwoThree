@@ -1,4 +1,4 @@
-import { useContext } from "react";
+import { useContext, useState } from "react";
 import { AnalyticsContext } from "./AnalyticsContext";
 
 import SummaryCard from "../components/SummaryCard";
@@ -7,11 +7,14 @@ import StockMovementChart from "../components/StockMovementChart";
 import DateRangeFilter from "../components/DateRangeFilter";
 import CustomerTrafficHeatmap from "../components/CustomerTrafficHeatmap";
 import LoadingSkeleton from "../components/LoadingSkeleton";
+import ConsolidatedDataTable from "../components/ConsolidatedDataTable";
 
 import inventoryData from "../data/inventoryData";
 
 export default function DashboardContent({ activeTab }) {
   const { dateFilter } = useContext(AnalyticsContext);
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
 
   return (
     <div className="dashboard-content">
@@ -39,6 +42,7 @@ export default function DashboardContent({ activeTab }) {
         <SummaryCard
           title="Total Sales Today"
           value={157890}
+          isCurrency
         />
       </section>
 
@@ -52,7 +56,12 @@ export default function DashboardContent({ activeTab }) {
         <div className="graph-card">
           <h3>Weekly Revenue</h3>
 
-          <DateRangeFilter />
+          <DateRangeFilter
+            startDate={startDate}
+            endDate={endDate}
+            setStartDate={setStartDate}
+            setEndDate={setEndDate}
+          />
 
           <SalesTrendChart />
         </div>
@@ -90,6 +99,10 @@ export default function DashboardContent({ activeTab }) {
         <h3>Inventory Insights & Wastage</h3>
 
         <LoadingSkeleton />
+      </section>
+
+      <section className="consolidated-table">
+        <ConsolidatedDataTable />
       </section>
     </div>
   );

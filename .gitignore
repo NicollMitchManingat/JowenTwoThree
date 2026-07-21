@@ -8,3 +8,7 @@ npm-debug.log*
 .yarn-error.log*
 .env
 .DS_Store
+
+# Playwright test artifacts
+playwright-report/
+test-results/

@@ -8,59 +8,51 @@ const {
 
 let transactionHistory = [];
 
+// Save transaction to Supabase
 async function saveTransaction(data) {
   if (!Array.isArray(data.cart) || data.cart.length === 0) {
     throw new Error("Cannot save transaction: Cart is invalid.");
   }
 
-  const subtotal = calculateSubtotal(data.cart);
+  const cart = data.cart.map((item) => ({
+    ...item,
+    price: Number(item.price || 0),
+    quantity: Number(item.quantity || 1),
+  }));
+
+  // Backend calculation
+  const subtotal = calculateSubtotal(cart);
+  const discountType = data.discountType || "none";
+  const discountValue = Number(data.discountValue || 0);
 
   const discountAmount = calculateDiscount(
     subtotal,
-    data.discountType,
-    data.discountValue
+    discountType,
+    discountValue
   );
 
   const totalAmount = subtotal - discountAmount;
+  const transactionNumber = `TXN-${Date.now()}`;
 
   const transaction = {
-    id: `TXN-${Date.now()}`,
-    customerCount: Number(data.customerCount || 1),
-    cart: data.cart.map((item) => ({
-      ...item,
-      price: Number(item.price || 0),
-      quantity: Number(item.quantity || 1),
-    })),
-    specialInstructions: data.specialInstructions || "",
-    discountType: data.discountType || "none",
-    discountValue: Number(data.discountValue || 0),
+    transaction_number: transactionNumber,
+    idempotency_key: crypto.randomUUID(),
     subtotal,
-    discountAmount,
-    totalAmount,
-    paymentMethod: data.paymentMethod || "CASH",
-    cashReceived: Number(data.cashReceived || 0),
-    changeAmount: Number(data.changeAmount || 0),
+    discount: discountAmount,
+    total: totalAmount,
+    payment_method: data.paymentMethod || "CASH",
+    cash_received: Number(data.cashReceived || 0),
+    change_amount: Number(data.changeAmount || 0),
+    customer_count: Number(data.customerCount || 1),
+    special_instructions: data.specialInstructions || "",
+    discount_type: discountType,
+    discount_value: discountValue,
+    cart,
   };
 
   const { data: savedTransaction, error } = await supabase
     .from("transactions")
-    .insert([
-      {
-        transaction_number: transaction.id,
-        idempotency_key: crypto.randomUUID(),
-        subtotal: transaction.subtotal,
-        discount: transaction.discountAmount,
-        total: transaction.totalAmount,
-        payment_method: transaction.paymentMethod,
-        cash_received: transaction.cashReceived,
-        change_amount: transaction.changeAmount,
-        customer_count: transaction.customerCount,
-        special_instructions: transaction.specialInstructions,
-        discount_type: transaction.discountType,
-        discount_value: transaction.discountValue,
-        cart: transaction.cart,
-      },
-    ])
+    .insert([transaction])
     .select()
     .single();
 
@@ -73,6 +65,7 @@ async function saveTransaction(data) {
   return savedTransaction;
 }
 
+// Get transactions from Supabase
 async function getTransactionHistory() {
   const { data, error } = await supabase
     .from("transactions")
@@ -88,6 +81,7 @@ async function getTransactionHistory() {
   return data;
 }
 
+// Get transaction by transaction number
 async function getTransactionById(id) {
   const { data, error } = await supabase
     .from("transactions")
@@ -95,29 +89,30 @@ async function getTransactionById(id) {
     .eq("transaction_number", id)
     .single();
 
-  if (error) {
+  if (error || !data) {
     return undefined;
   }
 
   return data;
 }
 
+// Receipt formatter
 function formatReceipt(transaction) {
   return {
-    receiptId: transaction.transaction_number || transaction.id,
-    createdAt: transaction.created_at || transaction.createdAt,
-    customerCount: transaction.customer_count ?? transaction.customerCount,
+    receiptId: transaction.transaction_number,
+    createdAt: transaction.created_at,
+    customerCount: transaction.customer_count,
     items: transaction.cart,
     subtotal: transaction.subtotal,
-    discountType: transaction.discount_type ?? transaction.discountType,
-    discountValue: transaction.discount_value ?? transaction.discountValue,
-    discountAmount: transaction.discount ?? transaction.discountAmount,
-    totalAmount: transaction.total ?? transaction.totalAmount,
-    specialInstructions:
-      transaction.special_instructions ?? transaction.specialInstructions,
+    discountType: transaction.discount_type,
+    discountValue: transaction.discount_value,
+    discountAmount: transaction.discount,
+    totalAmount: transaction.total,
+    specialInstructions: transaction.special_instructions,
   };
 }
 
+// Used for tests only
 function clearHistory() {
   transactionHistory = [];
 }

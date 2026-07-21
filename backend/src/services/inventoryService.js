@@ -57,6 +57,22 @@ async function listInventory({ q, category } = {}) {
   return result
 }
 
+function createHttpError(message, statusCode) {
+  const err = new Error(message)
+  err.statusCode = statusCode
+  return err
+}
+
+function resolveInMemoryItem(id) {
+  const { inventory } = require('./inventoryStore')
+  return inventory.find((it) => it.id === id)
+}
+
+function updateInMemoryStatus(item) {
+  item.status = computeStatus(item.inStock)
+  return item
+}
+
 function updateInventoryById(id, { quantity, reason, notes } = {}) {
 
   const { inventory } = require('./inventoryStore')

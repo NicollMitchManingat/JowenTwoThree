@@ -1,6 +1,10 @@
 import { useState } from 'react'
 import '../styles/OrderSummary.css'
 import ReceiptModal from './ReceiptModal'
+import {
+  calculateSubtotal,
+  calculateDiscount
+} from "../services/calculationService";
 
 export default function OrderDetails({
   cart,
@@ -18,18 +22,18 @@ export default function OrderDetails({
   const [checkoutAttempted, setCheckoutAttempted] = useState(false)
 
   const totalItems = cart.reduce((sum, item) => sum + item.quantity, 0)
-  const subtotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0)
+  const subtotal = calculateSubtotal(cart)
   const isCartEmpty = cart.length === 0
 
   const numericDiscountValue = Number(discountValue) || 0
 
-  const discountAmount = discountType === 'percentage'
-    ? (subtotal * numericDiscountValue) / 100
-    : discountType === 'fixed'
-    ? Math.min(numericDiscountValue, subtotal)
-    : 0
+  const discountAmount = calculateDiscount(
+  subtotal,
+  discountType,
+  numericDiscountValue
+)
 
-  const totalAmount = subtotal - discountAmount
+const totalAmount = Math.max(0, subtotal - discountAmount)
 
   const discountError = (() => {
     if (discountType === 'none') return null

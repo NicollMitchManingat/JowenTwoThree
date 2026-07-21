@@ -9,25 +9,19 @@
 ## Task: Product Catalog (Back-End)
 
 ### Sub-Tasks (Breakdown)
-- Create Product database schema.
-- Develop Product database model.
-- Build product retrieval API endpoint.
-- Implement product catalog response formatting.
-- Connect API to product database.
+-  Build transaction history API endpoint.
+- Implement transaction history retrieval logic.
+- Connect receipt and history APIs to transaction records.
 
 ### Deliverable(s)
-- Product Database Schema.
-- Product Database Model.
-- Product Retrieval API.
-- Product Catalog Response Handler.
-- Product Database Integration.
+- Transaction History API.
+- Transaction History Retrieval Service.
+- Transaction Record Integration.
 
 ### Test Suite / PR Acceptance Criteria
-- System can store valid product information in the database.
-- System can create and manage product records using the database model.
-- System can retrieve product data through the API endpoint.
-- System returns product details in a consistent format.
-- System displays products from the database in the catalog.
+- System retrieves completed transaction records through the history API.
+- System returns a list of previous sales transactions.
+- System displays accurate transaction data based on stored records.
 
 ### Instructor Notes
 

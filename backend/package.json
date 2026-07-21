@@ -12,6 +12,10 @@
   "dependencies": {
     "@supabase/supabase-js": "^2.45.0",
     "cors": "^2.8.6",
+<<<<<<< HEAD
+=======
+    "dotenv": "^17.4.2",
+>>>>>>> bff363bfd20fac41217edf9c173eaf98604c8fe5
     "express": "^4.18.2"
   },
   "devDependencies": {

@@ -1,113 +1,117 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import '../styles/CustomerRecordingButton.css'
 
-export default function CustomerRecordingButton({ customerCount, onCustomerCountChange }) {
+export default function CustomerRecordingButton({ count = 1, setCount = () => {} }) {
   const [isModalOpen, setIsModalOpen] = useState(false)
-  const [inputValue, setInputValue] = useState(customerCount.toString())
+  const [inputValue, setInputValue] = useState(String(count))
+
+  useEffect(() => {
+    if (!isModalOpen) {
+      setInputValue(String(count))
+    }
+  }, [count, isModalOpen])
 
   const handleOpen = () => {
+    setInputValue(String(count))
     setIsModalOpen(true)
-    setInputValue(customerCount.toString())
   }
 
   const handleClose = () => {
     setIsModalOpen(false)
   }
 
-  const handleCancel = () => {
-    setIsModalOpen(false)
-  }
-
   const handleConfirm = () => {
-    const newCount = parseInt(inputValue, 10)
-    if (!isNaN(newCount) && newCount > 0) {
-      onCustomerCountChange(newCount)
+    const parsed = parseInt(inputValue, 10)
+    if (!isNaN(parsed) && parsed > 0) {
+      setCount(parsed)
       handleClose()
     }
   }
 
   const handleIncrement = () => {
-    setInputValue((prev) => {
-      const current = parseInt(prev, 10)
-      const base = isNaN(current) ? 0 : current
-      return (base + 1).toString()
-    })
+    const current = parseInt(inputValue, 10) || 1
+    setInputValue(String(current + 1))
   }
 
   const handleDecrement = () => {
-    setInputValue((prev) => {
-      const current = parseInt(prev, 10)
-      const base = isNaN(current) ? 1 : current
-      return base > 1 ? (base - 1).toString() : '1'
-    })
+    const current = parseInt(inputValue, 10) || 1
+    setInputValue(String(Math.max(1, current - 1)))
   }
 
   const draftCount = parseInt(inputValue, 10)
-  const isDraftValid = !isNaN(draftCount) && draftCount > 0
+  const isValid = !isNaN(draftCount) && draftCount > 0
 
   return (
     <>
       <button
+        type="button"
         className="customer-recording-button"
         onClick={handleOpen}
         data-testid="customer-recording-button"
-        title="Click to set number of customers"
       >
-        Customers: {customerCount}
+        Customers: {count}
       </button>
 
       {isModalOpen && (
-        <div className="modal-overlay" onClick={handleCancel} data-testid="modal-overlay">
-          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <h3>Set Number of Customers</h3>
-
-            <p>How many customers ordered?</p>
+        <div
+          className="modal-overlay"
+          data-testid="modal-overlay"
+          onClick={handleClose}
+        >
+          <div
+            className="modal-content"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-labelledby="modal-title"
+          >
+            <h3 id="modal-title">Set Number of Customers</h3>
 
             <div className="customer-input-group">
               <button
-                className="btn-decrement"
+                type="button"
                 onClick={handleDecrement}
-                disabled={!isDraftValid || draftCount <= 1}
                 data-testid="decrement-button"
+                disabled={draftCount <= 1}
+                aria-label="Decrease customer count"
               >
-                −
+                -
               </button>
 
               <input
                 type="number"
+                min="1"
                 value={inputValue}
                 onChange={(e) => setInputValue(e.target.value)}
-                min="1"
                 data-testid="customer-input"
-                className="customer-input"
               />
 
               <button
-                className="btn-increment"
+                type="button"
                 onClick={handleIncrement}
                 data-testid="increment-button"
+                aria-label="Increase customer count"
               >
                 +
               </button>
             </div>
 
-            <div className="modal-display">
-              Will set to: <span className="customer-count-display">{isDraftValid ? draftCount : '—'}</span>
-            </div>
+            <p data-testid="customer-count-display">
+              Customers: {isValid ? draftCount : '-'}
+            </p>
 
             <div className="modal-actions">
               <button
-                className="btn-cancel"
-                onClick={handleCancel}
+                type="button"
+                onClick={handleClose}
                 data-testid="modal-cancel"
               >
                 Cancel
               </button>
 
               <button
-                className="btn-confirm"
+                type="button"
                 onClick={handleConfirm}
-                disabled={!isDraftValid}
+                disabled={!isValid}
                 data-testid="modal-confirm"
               >
                 Confirm

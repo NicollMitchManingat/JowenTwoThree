@@ -6,28 +6,25 @@
 
 **Week:** 6 | **Day:** 1
 
-## Task: Receipt Generation (Back-End)
+## Task: Implement End-to-End Transaction Processing Integration
 
 ### Sub-Tasks (Breakdown)
-- Build receipt generation API endpoint.
-- Create receipt formatting logic.
-- Build transaction history API endpoint.
-- Implement transaction history retrieval logic.
-- Connect receipt and history APIs to transaction records.
+- Integrate the frontend checkout process with the Transaction API.
+- Implement end-to-end receipt generation after successful checkout.
+- Verify transaction history retrieval from Supabase.
+- Perform end-to-end transaction workflow testing.
 
 ### Deliverable(s)
-- Receipt Generation API.
-- Receipt Formatting Service.
-- Transaction History API.
-- Transaction History Retrieval Service.
-- Transaction Record Integration.
+- Frontend Checkout Integration.
+- Receipt Generation Integration.
+- Transaction History Integration.
+- End-to-End Workflow Testing.
 
 ### Test Suite / PR Acceptance Criteria
-- System generates a receipt containing purchased items, quantities, and totals.
-- System returns receipt data in a consistent format.
-- System retrieves completed transaction records through the history API.
-- System returns a list of previous sales transactions.
-- System displays accurate transaction data based on stored records.
+- Checkout sends transaction data from the frontend to the backend successfully.
+- Receipt is generated using the saved transaction returned by the API.
+- Transaction history is retrieved from Supabase and displayed correctly.
+- Complete transaction workflow (Frontend → API → Supabase → Receipt → History) executes successfully without errors.
 
 ### Instructor Notes
 

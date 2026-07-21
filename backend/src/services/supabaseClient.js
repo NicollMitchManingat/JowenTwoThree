@@ -1,8 +1,3 @@
-// Supabase client abstraction.
-//
-// Tests should mock this module to return a fake Supabase client.
-// Real runtime can later replace the placeholder with @supabase/supabase-js.
-
 function createSupabasePlaceholder() {
   return {
     from() {
@@ -25,6 +20,9 @@ function getSupabase() {
 
 module.exports = {
   getSupabase,
+  get supabase() {
+    return getSupabase()
+  },
 }
 
 

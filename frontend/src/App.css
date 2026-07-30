@@ -1,3 +1,46 @@
+@keyframes skeleton-shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.skeleton-shimmer {
+  position: relative;
+}
+
+.skeleton-block {
+  border-radius: 6px;
+  background: linear-gradient(90deg, #e5e0d8 25%, #f3efe9 50%, #e5e0d8 75%);
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.5s ease-in-out infinite;
+}
+
+.skeleton-card {
+  border-radius: 12px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-surface);
+  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+}
+
+.skeleton-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  background: linear-gradient(90deg, #e5e0d8 25%, #f3efe9 50%, #e5e0d8 75%);
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.5s ease-in-out infinite;
+  flex-shrink: 0;
+}
+
+.skeleton-bar {
+  flex: 1;
+  border-radius: 4px;
+  background: linear-gradient(90deg, #e5e0d8 25%, #f3efe9 50%, #e5e0d8 75%);
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.5s ease-in-out infinite;
+}
+
 .relative { position: relative; }
 .flex { display: flex; }
 .flex-1 { flex: 1; }

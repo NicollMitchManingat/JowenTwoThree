@@ -2,14 +2,14 @@ function generateCsv(consolidatedData) {
   const { rows } = consolidatedData
 
   const headers = [
-    "Date",
+    "Date ▲",
     "Order ID",
     "Item Name",
     "Category",
-    "Quantity Sold",
+    "Qty Sold",
     "Total Amount",
     "In Stock",
-    "Inventory Status",
+    "Status",
   ]
 
   const escapeCsvField = (field) => {
@@ -31,7 +31,7 @@ function generateCsv(consolidatedData) {
       row.quantitySold,
       row.totalAmount,
       row.inStock,
-      row.inventoryStatus,
+      row.status,
     ]
       .map(escapeCsvField)
       .join(",")

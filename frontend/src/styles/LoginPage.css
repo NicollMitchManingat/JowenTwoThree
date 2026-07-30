@@ -1,0 +1,91 @@
+/* Login page styles - login-card is now in App.css */
+
+.login-header {
+  width: 100%;
+  text-align: center;
+  margin-bottom: 2rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.login-icon {
+  margin: 0 auto;
+}
+
+.login-header h2 {
+  margin-top: 0.5rem;
+  font-size: 1.3rem;
+}
+
+.login-header p {
+  margin-top: 0.25rem;
+  font-size: 0.85rem;
+}
+
+.login-form {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.input-with-icon {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.input-with-icon .input-icon {
+  position: absolute;
+  left: 0.85rem;
+  color: var(--text-muted);
+  pointer-events: none;
+}
+
+.input-with-icon .form-input {
+  width: 100%;
+  padding-left: 2.75rem;
+  margin: 0;
+}
+
+.error-message {
+  color: var(--color-danger);
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-align: center;
+  padding: 0.5rem;
+  background-color: #fcebeb;
+  border-radius: 6px;
+}
+
+.demo-credentials {
+  margin-top: 1.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border-color);
+  width: 100%;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.demo-group {
+  margin-bottom: 0.5rem;
+  padding: 0.4rem 0.6rem;
+  background-color: var(--bg-hover);
+  border-radius: 4px;
+  border-left: 3px solid var(--color-accent);
+  text-align: left;
+}
+
+.demo-group strong {
+  color: var(--color-primary);
+  font-size: 0.75rem;
+}
+
+.demo-group p {
+  margin: 0.15rem 0 0 0;
+  font-family: monospace;
+  font-size: 0.7rem;
+  color: var(--text-muted);
+}

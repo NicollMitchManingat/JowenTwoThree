@@ -165,10 +165,10 @@
 
 .order-totals {
   border-top: 2px solid #e0e0e0;
-  padding-top: 0.75rem;
+  padding-top: 0.5rem;
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: 0.3rem;
 }
 
 .total-row {

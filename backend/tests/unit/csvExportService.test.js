@@ -36,9 +36,9 @@ describe("CSV Export Service", () => {
     it("should contain the header row", () => {
       const csv = generateCsv(sampleData)
 
-      expect(csv).toContain(
-        "Date,Order ID,Item Name,Category,Quantity Sold,Total Amount,In Stock,Inventory Status"
-      )
+        expect(csv).toContain(
+          "Date ▲,Order ID,Item Name,Category,Qty Sold,Total Amount,In Stock,Status"
+        )
     })
 
     it("should contain data rows", () => {

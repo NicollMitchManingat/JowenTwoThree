@@ -26,9 +26,9 @@ describe("CSV Export Route", () => {
     it("should return a CSV string with header row", async () => {
       const res = await request(app).get("/api/export/csv")
 
-      expect(res.text).toContain(
-        "Date,Order ID,Item Name,Category,Quantity Sold,Total Amount,In Stock,Inventory Status"
-      )
+       expect(res.text).toContain(
+          "Date ▲,Order ID,Item Name,Category,Qty Sold,Total Amount,In Stock,Status"
+        )
     })
 
     it("should contain sales data rows", async () => {

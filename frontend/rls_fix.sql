@@ -1,0 +1,7 @@
+-- Disable RLS on all tables so the anon key (frontend) can read/write
+ALTER TABLE product_categories DISABLE ROW LEVEL SECURITY;
+ALTER TABLE products DISABLE ROW LEVEL SECURITY;
+ALTER TABLE transactions DISABLE ROW LEVEL SECURITY;
+ALTER TABLE transaction_items DISABLE ROW LEVEL SECURITY;
+ALTER TABLE customer_traffic DISABLE ROW LEVEL SECURITY;
+ALTER TABLE inventory DISABLE ROW LEVEL SECURITY;

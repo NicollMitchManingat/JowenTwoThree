@@ -56,7 +56,7 @@ function getConsolidatedData() {
       quantitySold: sale.quantitySold,
       totalAmount: sale.totalAmount,
       inStock: inv ? inv.inStock : "N/A",
-      inventoryStatus: inv ? inv.status : "N/A",
+      status: inv ? inv.status : "N/A",
     })
   })
 
@@ -71,7 +71,7 @@ function getConsolidatedData() {
         quantitySold: 0,
         totalAmount: 0,
         inStock: inv.inStock,
-        inventoryStatus: inv.status,
+        status: inv.status,
       })
     }
   })

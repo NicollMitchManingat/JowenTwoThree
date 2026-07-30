@@ -328,16 +328,14 @@ export default function InventoryPage({ userRole }) {
                       <h4 className="font-semibold text-danger flex items-center gap-2 mb-3">
                         <Package size={16} /> Out of Stock ({outOfStockItems.length})
                       </h4>
-                      <div className="space-y-2">
+                      <div className="stock-list">
                         {outOfStockItems.map(item => (
-                          <div key={item.id} className="p-3 bg-danger/10 border border-danger/20 rounded-lg">
-                            <div className="flex justify-between items-center">
-                              <div>
-                                <p className="font-medium">{item.name}</p>
-                                <p className="text-sm text-muted">{item.category || 'Uncategorized'}</p>
-                              </div>
-                              <span className="badge badge-danger">0 {item.unit || 'units'}</span>
+                          <div key={item.id} className="stock-item stock-item-danger">
+                            <div>
+                              <p className="font-medium">{item.name}</p>
+                              <p className="text-sm text-muted">{item.category || 'Uncategorized'}</p>
                             </div>
+                            <span className="badge badge-danger">0 {item.unit || 'units'}</span>
                           </div>
                         ))}
                       </div>
@@ -348,16 +346,14 @@ export default function InventoryPage({ userRole }) {
                       <h4 className="font-semibold text-warning flex items-center gap-2 mb-3">
                         <AlertTriangle size={16} /> Low Stock ({lowStockItems.length})
                       </h4>
-                      <div className="space-y-2">
+                      <div className="stock-list">
                         {lowStockItems.map(item => (
-                          <div key={item.id} className="p-3 bg-warning/10 border border-warning/20 rounded-lg">
-                            <div className="flex justify-between items-center">
-                              <div>
-                                <p className="font-medium">{item.name}</p>
-                                <p className="text-sm text-muted">{item.category || 'Uncategorized'}</p>
-                              </div>
-                              <span className="badge badge-warning">{item.stock_quantity} {item.unit || 'units'} left</span>
+                          <div key={item.id} className="stock-item stock-item-warning">
+                            <div>
+                              <p className="font-medium">{item.name}</p>
+                              <p className="text-sm text-muted">{item.category || 'Uncategorized'}</p>
                             </div>
+                            <span className="badge badge-warning">{item.stock_quantity} {item.unit || 'units'} left</span>
                           </div>
                         ))}
                       </div>

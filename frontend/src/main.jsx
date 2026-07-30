@@ -4,17 +4,18 @@ import App from './App.jsx'
 import './index.css'
 import { processQueue } from './services/offlineQueue'
 
-if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js');
-  });
-}
-
 window.addEventListener('online', () => {
   processQueue();
 });
 if (navigator.onLine) {
   processQueue();
+}
+
+// Unregister any stale service worker
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.getRegistrations().then(regs => {
+    regs.forEach(r => r.unregister());
+  });
 }
 
 ReactDOM.createRoot(document.getElementById('root')).render(

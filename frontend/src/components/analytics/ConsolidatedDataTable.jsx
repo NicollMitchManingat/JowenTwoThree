@@ -21,7 +21,10 @@ export default function ConsolidatedDataTable() {
   const [sortDirection, setSortDirection] = useState("asc")
 
   useEffect(() => {
-    fetch(`${API_BASE}/api/consolidated-data`)
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 3000)
+
+    fetch(`${API_BASE}/api/consolidated-data`, { signal: controller.signal })
       .then((res) => {
         if (!res.ok) throw new Error("Failed to fetch consolidated data")
         return res.json()
@@ -34,6 +37,12 @@ export default function ConsolidatedDataTable() {
         setData(fallbackData)
         setLoading(false)
       })
+      .finally(() => clearTimeout(timeout))
+
+    return () => {
+      clearTimeout(timeout)
+      controller.abort()
+    }
   }, [])
 
   const handleSort = (field) => {
@@ -61,7 +70,7 @@ export default function ConsolidatedDataTable() {
     : []
 
   const handleDownloadCsv = () => {
-    const headers = ["Date ▲", "Order ID", "Item Name", "Category", "Qty Sold", "Total Amount", "In Stock", "Status"]
+    const headers = ["Date ", "Order ID", "Item Name", "Category", "Qty Sold", "Total Amount", "In Stock", "Status"]
     const csvRows = [headers.join(",")]
     for (const row of sortedRows) {
       csvRows.push([
@@ -83,7 +92,7 @@ export default function ConsolidatedDataTable() {
   }
 
   const columns = [
-    { key: "date", label: "Date ▲" },
+    { key: "date", label: "Date" },
     { key: "orderId", label: "Order ID" },
     { key: "itemName", label: "Item Name" },
     { key: "category", label: "Category" },
@@ -148,8 +157,8 @@ export default function ConsolidatedDataTable() {
                 <td>₱{Number(row.totalAmount).toLocaleString()}</td>
                 <td>{row.inStock}</td>
                 <td>
-                  <span className="status-badge" style={{ color: statusColor(row.status) }} data-testid={`status-${idx}`}>
-                    {row.status}
+                  <span className="status-badge" style={{ color: statusColor(row.inventoryStatus || row.status) }} data-testid={`status-${idx}`}>
+                    {row.inventoryStatus || row.status}
                   </span>
                 </td>
               </tr>

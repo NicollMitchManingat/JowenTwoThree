@@ -246,21 +246,7 @@ export default function DashboardContent({ activeTab }) {
         </div>
       </div>
 
-      <div className="card">
-        <div className="card-header">
-          <h3 className="m-0">Recent Transactions</h3>
-        </div>
-        <ConsolidatedDataTable 
-          data={[]} 
-          columns={[
-            { key: 'transaction_number', label: 'Transaction #' },
-            { key: 'created_at', label: 'Date', render: (v) => new Date(v).toLocaleString() },
-            { key: 'total', label: 'Total', render: (v) => `₱${Number(v).toFixed(2)}` },
-            { key: 'payment_method', label: 'Payment' },
-            { key: 'customer_count', label: 'Customers' },
-          ]} 
-        />
-      </div>
+      <ConsolidatedDataTable />
 
       <div className="card">
         <div className="card-header">

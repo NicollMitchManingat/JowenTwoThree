@@ -7,13 +7,13 @@ export default function SettingsPage({ currentUser, onLogout }) {
   return (
     <div className="page-content settings-page">
       <div className="settings-grid">
-        <div className="card">
+        <div className="card card-stretch">
           <div className="card-header">
             <h3 className="flex items-center gap-2 m-0">
               <UserCog size={20} className="text-primary" /> My Profile
             </h3>
           </div>
-          <div className="card-body flex flex-col gap-2">
+          <div className="card-body card-body-stretch" style={{ gap: '0.5rem' }}>
             <p className="m-0 text-muted">
               Username: <strong className="text-main">{currentUser.username}</strong>
             </p>
@@ -24,29 +24,28 @@ export default function SettingsPage({ currentUser, onLogout }) {
                 {currentUser.role}
               </span>
             </p>
-            <button className="btn btn-secondary mt-3 flex items-center justify-center gap-2"
-              onClick={onLogout} style={{ width: '100%', padding: '0.75rem' }}>
+            <button className="btn btn-secondary btn-full"
+              onClick={onLogout}>
               <RefreshCcw size={16} /> Switch Account
             </button>
           </div>
         </div>
 
         {currentUser.role === 'admin' && (
-          <div className="card" style={{ border: '2px solid var(--color-accent)' }}>
+          <div className="card card-stretch" style={{ border: '2px solid var(--color-accent)' }}>
             <div className="card-header">
               <h3 className="m-0 flex items-center gap-2 text-primary">Session Management</h3>
             </div>
-            <div className="card-body">
-              <div className="flex items-center gap-2 mb-4">
-                <div style={{
-                  width: '12px', height: '12px', borderRadius: '50%',
+            <div className="card-body card-body-stretch">
+              <div className="session-indicator">
+                <div className="session-dot" style={{
                   backgroundColor: isSessionActive ? 'var(--color-success)' : 'var(--color-danger)',
                   boxShadow: isSessionActive ? '0 0 8px var(--color-success)' : 'none'
                 }}></div>
                 <span className="font-semibold">{isSessionActive ? 'Session Active' : 'No Active Session'}</span>
               </div>
               <button
-                className={`btn w-full ${isSessionActive ? 'btn-danger' : 'btn-success'}`}
+                className={`btn btn-full ${isSessionActive ? 'btn-danger' : 'btn-success'}`}
                 onClick={() => setIsSessionActive(!isSessionActive)}
               >
                 {isSessionActive ? 'End Session' : 'Start Session'}
@@ -63,7 +62,7 @@ export default function SettingsPage({ currentUser, onLogout }) {
               </h3>
             </div>
             <div className="card-body">
-              <p className="text-sm text-muted mb-4">
+              <p className="text-sm text-muted desc-mb">
                 Manage employee access levels. Only admins can view analytics and modify inventory.
               </p>
               <div className="table-responsive">

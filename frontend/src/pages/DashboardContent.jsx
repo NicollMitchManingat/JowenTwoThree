@@ -240,7 +240,7 @@ export default function DashboardContent({ activeTab }) {
           <div className="card-header">
             <h3 className="m-0">Customer Traffic Heatmap</h3>
           </div>
-          <div className="chart-container" style={{ height: "250px" }}>
+          <div className="chart-container" style={{ height: "280px" }}>
             <CustomerTrafficHeatmap />
           </div>
         </div>
@@ -267,15 +267,15 @@ export default function DashboardContent({ activeTab }) {
           <h3 className="m-0">AI Insights</h3>
         </div>
         <div className="card-body">
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="prediction-grid">
           {aiPredictions.map((prediction, index) => (
-            <div key={index} className="card card-body">
-              <div className="flex items-center gap-2 mb-2">
+            <div key={index} className="card prediction-card card-body">
+              <div className="flex items-center gap-2">
                 <Sparkles size={18} className="text-primary" />
                 <span className="font-semibold">{prediction.metric}</span>
               </div>
-              <p className="text-2xl font-bold mb-1">{prediction.value}</p>
-              <p className="text-sm text-muted mb-2">{prediction.insight}</p>
+              <p className="text-2xl font-bold">{prediction.value}</p>
+              <p className="text-sm text-muted">{prediction.insight}</p>
               <span className={`badge ${prediction.impact === 'High' || prediction.impact === 'Reorder' ? 'badge-danger' : prediction.impact === 'Positive' ? 'badge-success' : 'badge-warning'}`}>
                 {prediction.impact}
               </span>
@@ -290,9 +290,9 @@ export default function DashboardContent({ activeTab }) {
           <h3 className="m-0">Low Stock Alerts</h3>
         </div>
         <div className="card-body">
-          <div className="space-y-2">
+          <div className="stock-list">
           {lowStock.length > 0 ? lowStock.map(item => (
-            <div key={item.id} className="flex justify-between items-center p-3 bg-warning/10 border border-warning/20 rounded-lg">
+            <div key={item.id} className="stock-item stock-item-warning">
               <div>
                 <p className="font-medium">{item.name}</p>
                 <p className="text-sm text-muted">{item.category || 'Uncategorized'}</p>

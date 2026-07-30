@@ -62,7 +62,7 @@ export default function StockMovementChart({ data }) {
 
   return (
     <div data-testid="stock-chart" style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column' }}>
-      <h4 style={{ margin: '0 0 12px 0', fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-main)' }}>Stock Movement & Top Selling Items</h4>
+      <h4 style={{ margin: '0 0 16px 0', paddingTop: '4px', fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-main)' }}>Stock Movement & Top Selling Items</h4>
       <div style={{ flex: 1 }}>
         <Bar
           data={chartData}

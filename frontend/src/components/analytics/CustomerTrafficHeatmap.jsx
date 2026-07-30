@@ -31,10 +31,10 @@ export default function CustomerTrafficHeatmap() {
             key={hour}
             style={{
               background: getColor(value),
-              padding: "8px 4px",
+              padding: "6px 4px",
               borderRadius: "6px",
               textAlign: "center",
-              minHeight: "50px",
+              minHeight: "40px",
               display: "flex",
               flexDirection: "column",
               justifyContent: "center",

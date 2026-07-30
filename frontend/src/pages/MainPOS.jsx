@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useEffect as useLayoutEffect } from "react";
-import { ShoppingCart, Plus, Minus, Users, Tag, X, Search, Coffee, CakeSlice, RefreshCcw, Sparkles, Printer, X as XIcon } from 'lucide-react';
+import { ShoppingCart, Plus, Minus, Users, Tag, X, Search, Coffee, CakeSlice, RefreshCcw, Printer } from 'lucide-react';
 import { db } from '../services/db';
 
 export default function MainPOS({ user }) {
@@ -293,28 +293,27 @@ export default function MainPOS({ user }) {
       </div>
       {showReceipt && receipt && (
         <div className="modal-overlay" onClick={() => setShowReceipt(false)}>
-          <div className="modal-content card receipt-modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '400px', width: '100%' }}>
-            <div className="receipt-header">
-              <div className="receipt-title">
-                <Sparkles size={20} className="text-primary" />
-                <h3>Jowen Coffee</h3>
+          <div className="modal-content card receipt-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="receipt-paper" data-testid="receipt">
+              <div className="receipt-header">
+                <h3>Jowen's Cafe</h3>
+                <p className="receipt-subhead">Order Receipt</p>
               </div>
-              <button className="btn-icon-small" onClick={() => setShowReceipt(false)}><XIcon size={18} /></button>
-            </div>
-            <div className="receipt-body">
-              <div className="receipt-info">
-                <div className="receipt-row"><span>Transaction #</span><span>{receipt.transaction.transaction_number}</span></div>
-                <div className="receipt-row"><span>Date</span><span>{new Date(receipt.timestamp).toLocaleString()}</span></div>
-                <div className="receipt-row"><span>Cashier</span><span>{user?.name || 'Cashier'}</span></div>
-                {receipt.customerCount > 0 && <div className="receipt-row"><span>Customers</span><span>{receipt.customerCount}</span></div>}
+              <div className="receipt-meta">
+                <div className="receipt-meta-row"><span>Transaction #</span><span>{receipt.transaction.transaction_number}</span></div>
+                <div className="receipt-meta-row"><span>Date</span><span>{new Date(receipt.timestamp).toLocaleString()}</span></div>
+                <div className="receipt-meta-row"><span>Cashier</span><span>{user?.name || 'Cashier'}</span></div>
+                {receipt.customerCount > 0 && <div className="receipt-meta-row"><span>Customers</span><span>{receipt.customerCount}</span></div>}
               </div>
               <div className="receipt-divider"></div>
               <div className="receipt-items">
                 {receipt.items.map((item, idx) => (
                   <div key={idx} className="receipt-item">
-                    <div className="receipt-item-name">{item.name}{item.note && ` (${item.note})`}</div>
-                    <div className="receipt-item-qty">{item.qty} x ₱{item.price.toFixed(2)}</div>
-                    <div className="receipt-item-total">₱{item.subtotal.toFixed(2)}</div>
+                    <div className="receipt-item-row">
+                      <span className="receipt-item-name">{item.name}</span>
+                      <span className="receipt-item-total">₱{item.subtotal.toFixed(2)}</span>
+                    </div>
+                    <div className="receipt-item-qty">{item.qty} x ₱{item.price.toFixed(2)}{item.note && ` — ${item.note}`}</div>
                   </div>
                 ))}
               </div>
@@ -325,17 +324,17 @@ export default function MainPOS({ user }) {
                   <div className="receipt-total-row discount"><span>Discount ({receipt.discountType === 'pwd' ? 'PWD' : receipt.discountType === 'senior' ? 'Senior' : 'Promo'} {receipt.discountType === 'promo' ? '10%' : '20%'})</span><span>- ₱{receipt.discountAmount.toFixed(2)}</span></div>
                 )}
                 <div className="receipt-total-row grand-total"><span>Total</span><span>₱{receipt.total.toFixed(2)}</span></div>
-                <div className="receipt-total-row"><span>Payment</span><span>Cash: ₱{receipt.total.toFixed(2)}</span></div>
+                <div className="receipt-total-row payment"><span>Payment</span><span>Cash</span></div>
               </div>
               <div className="receipt-divider"></div>
               <div className="receipt-footer">
-                <p>Thank you for your purchase!</p>
-                <p className="text-sm text-muted">Please keep this receipt for reference.</p>
+                <p className="receipt-thankyou">Thank you!</p>
+                <p>Please keep this receipt for reference.</p>
               </div>
             </div>
             <div className="receipt-actions">
               <button className="btn btn-primary w-full" onClick={() => window.print()}>
-                <Printer size={16} className="mr-2" /> Print Receipt
+                <Printer size={16} /> Print Receipt
               </button>
               <button className="btn btn-secondary w-full mt-2" onClick={() => setShowReceipt(false)}>
                 Close

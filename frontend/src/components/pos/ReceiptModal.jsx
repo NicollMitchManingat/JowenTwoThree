@@ -28,21 +28,16 @@ export default function ReceiptModal({
 
   return (
     <div className="modal-overlay" onClick={onClose} data-testid="receipt-modal">
-      <div className="modal-content card receipt-modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '400px', width: '100%' }}>
-        <div className="receipt-modal-actions no-print">
-          <button className="print-receipt-btn" onClick={handlePrint} data-testid="print-receipt-btn">
-            Print
-          </button>
-          <button className="close-receipt-btn" onClick={onClose} data-testid="close-receipt-btn">
-            Close
-          </button>
-        </div>
-
-        <div className="receipt" data-testid="receipt">
+      <div className="modal-content card receipt-modal" onClick={(e) => e.stopPropagation()}>
+        <div className="receipt-paper" data-testid="receipt">
           <div className="receipt-header">
-            <h2>Order Receipt</h2>
-            <p className="receipt-date">{orderDate}</p>
-            <p className="receipt-customers">Customers: {customerCount}</p>
+            <h3>Jowen's Cafe</h3>
+            <p className="receipt-subhead">Order Receipt</p>
+          </div>
+
+          <div className="receipt-meta">
+            <div className="receipt-meta-row"><span>Date</span><span>{orderDate}</span></div>
+            <div className="receipt-meta-row"><span>Customers</span><span>{customerCount}</span></div>
           </div>
 
           <div className="receipt-divider" />
@@ -52,13 +47,9 @@ export default function ReceiptModal({
               <div key={item.id} className="receipt-item" data-testid={`receipt-item-${item.id}`}>
                 <div className="receipt-item-row">
                   <span className="receipt-item-name">{item.name}</span>
-                  <span className="receipt-item-subtotal">
-                    ₱{(item.price * item.quantity).toFixed(2)}
-                  </span>
+                  <span className="receipt-item-total">₱{(item.price * item.quantity).toFixed(2)}</span>
                 </div>
-                <div className="receipt-item-detail">
-                  {item.quantity} x ₱{item.price.toFixed(2)}
-                </div>
+                <div className="receipt-item-qty">{item.quantity} x ₱{item.price.toFixed(2)}</div>
               </div>
             ))}
           </div>
@@ -82,17 +73,13 @@ export default function ReceiptModal({
             </div>
 
             {discountType !== 'none' && (
-              <div className="receipt-total-row receipt-discount-row">
-                <span>
-                  Discount {discountType === 'percentage' ? `(${discountValue}%)` : ''}
-                </span>
-                <span data-testid="receipt-discount">
-                  -₱{discountAmount.toFixed(2)}
-                </span>
+              <div className="receipt-total-row discount">
+                <span>Discount {discountType === 'percentage' ? `(${discountValue}%)` : ''}</span>
+                <span data-testid="receipt-discount">-₱{discountAmount.toFixed(2)}</span>
               </div>
             )}
 
-            <div className="receipt-total-row receipt-grand-total">
+            <div className="receipt-total-row grand-total">
               <span>Total</span>
               <span data-testid="receipt-total">₱{totalAmount.toFixed(2)}</span>
             </div>
@@ -100,9 +87,19 @@ export default function ReceiptModal({
 
           <div className="receipt-divider" />
 
-          <p className="receipt-footer">Thank you!</p>
+          <div className="receipt-footer">
+            <p className="receipt-thankyou">Thank you!</p>
+          </div>
         </div>
 
+        <div className="receipt-actions no-print">
+          <button className="btn btn-primary w-full" onClick={handlePrint} data-testid="print-receipt-btn">
+            Print Receipt
+          </button>
+          <button className="btn btn-secondary w-full mt-2" onClick={onClose} data-testid="close-receipt-btn">
+            Close
+          </button>
+        </div>
       </div>
     </div>
   )

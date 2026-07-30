@@ -269,7 +269,7 @@ export default function DashboardContent({ activeTab }) {
         <div className="card-body">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           {aiPredictions.map((prediction, index) => (
-            <div key={index} className="card p-4">
+            <div key={index} className="card card-body">
               <div className="flex items-center gap-2 mb-2">
                 <Sparkles size={18} className="text-primary" />
                 <span className="font-semibold">{prediction.metric}</span>

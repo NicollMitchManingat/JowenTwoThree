@@ -13,7 +13,7 @@ export default function SettingsPage({ currentUser, onLogout }) {
               <UserCog size={20} className="text-primary" /> My Profile
             </h3>
           </div>
-          <div className="flex flex-col gap-2">
+          <div className="card-body flex flex-col gap-2">
             <p className="m-0 text-muted">
               Username: <strong className="text-main">{currentUser.username}</strong>
             </p>
@@ -36,20 +36,22 @@ export default function SettingsPage({ currentUser, onLogout }) {
             <div className="card-header">
               <h3 className="m-0 flex items-center gap-2 text-primary">Session Management</h3>
             </div>
-            <div className="flex items-center gap-2 mb-4">
-              <div style={{
-                width: '12px', height: '12px', borderRadius: '50%',
-                backgroundColor: isSessionActive ? 'var(--color-success)' : 'var(--color-danger)',
-                boxShadow: isSessionActive ? '0 0 8px var(--color-success)' : 'none'
-              }}></div>
-              <span className="font-semibold">{isSessionActive ? 'Session Active' : 'No Active Session'}</span>
+            <div className="card-body">
+              <div className="flex items-center gap-2 mb-4">
+                <div style={{
+                  width: '12px', height: '12px', borderRadius: '50%',
+                  backgroundColor: isSessionActive ? 'var(--color-success)' : 'var(--color-danger)',
+                  boxShadow: isSessionActive ? '0 0 8px var(--color-success)' : 'none'
+                }}></div>
+                <span className="font-semibold">{isSessionActive ? 'Session Active' : 'No Active Session'}</span>
+              </div>
+              <button
+                className={`btn w-full ${isSessionActive ? 'btn-danger' : 'btn-success'}`}
+                onClick={() => setIsSessionActive(!isSessionActive)}
+              >
+                {isSessionActive ? 'End Session' : 'Start Session'}
+              </button>
             </div>
-            <button
-              className={`btn w-full ${isSessionActive ? 'btn-danger' : 'btn-success'}`}
-              onClick={() => setIsSessionActive(!isSessionActive)}
-            >
-              {isSessionActive ? 'End Session' : 'Start Session'}
-            </button>
           </div>
         )}
 
@@ -60,10 +62,11 @@ export default function SettingsPage({ currentUser, onLogout }) {
                 <ShieldAlert size={20} className="text-danger" /> Access Control
               </h3>
             </div>
-            <p className="text-sm text-muted mb-4">
-              Manage employee access levels. Only admins can view analytics and modify inventory.
-            </p>
-            <div className="table-responsive">
+            <div className="card-body">
+              <p className="text-sm text-muted mb-4">
+                Manage employee access levels. Only admins can view analytics and modify inventory.
+              </p>
+              <div className="table-responsive">
               <table className="data-table">
                 <thead>
                   <tr><th>User</th><th>Username</th><th>Role</th></tr>
@@ -81,6 +84,7 @@ export default function SettingsPage({ currentUser, onLogout }) {
                   </tr>
                 </tbody>
               </table>
+            </div>
             </div>
           </div>
         )}

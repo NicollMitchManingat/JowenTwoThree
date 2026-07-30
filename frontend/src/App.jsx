@@ -15,7 +15,10 @@ import { AnalyticsProvider } from './pages/AnalyticsContext';
 import DashboardContent from './pages/DashboardContent';
 
 function App() {
-  const [currentUser, setCurrentUser] = useState(null);
+  const [currentUser, setCurrentUser] = useState(() => {
+    const saved = localStorage.getItem('jowen_user');
+    return saved ? JSON.parse(saved) : null;
+  });
   const [currentPage, setCurrentPage] = useState('pos');
   const [isDesktopCollapsed, setIsDesktopCollapsed] = useState(false);
   const [isMobileOpen, setIsMobileOpen] = useState(false);
@@ -27,11 +30,14 @@ function App() {
   const handleLogin = (credentials) => {
     if (credentials && credentials.username) {
       const user = users.find(u => u.username === credentials.username);
-      setCurrentUser(user || { username: credentials.username, role: 'staff' });
+      const loggedInUser = user || { username: credentials.username, role: 'staff' };
+      localStorage.setItem('jowen_user', JSON.stringify(loggedInUser));
+      setCurrentUser(loggedInUser);
     }
   };
 
   const handleLogout = () => {
+    localStorage.removeItem('jowen_user');
     setCurrentUser(null);
   };
 

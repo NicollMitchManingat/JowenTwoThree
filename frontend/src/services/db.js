@@ -15,15 +15,16 @@ async function offlineSafe(fn) {
 }
 
 async function offlineWrite(table, body) {
+  const tempId = crypto.randomUUID?.() || `${Date.now()}-${Math.random()}`
   try {
     const { data, error } = await supabase.from(table).insert(body).select();
     if (error) throw error;
     processQueue();
-    return data;
+    return data[0];
   } catch (err) {
     if (!navigator.onLine && (err.message?.includes('Failed to fetch'))) {
-      await offlineQueue.enqueue({ method: 'insert', table, body });
-      return body;
+      await offlineQueue.enqueue({ method: 'insert', table, body: { ...body, id: undefined } });
+      return { ...body, id: tempId };
     }
     throw err;
   }

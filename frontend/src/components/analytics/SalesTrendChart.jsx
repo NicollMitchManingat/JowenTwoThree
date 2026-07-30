@@ -45,7 +45,7 @@ export default function SalesTrendChart({ data }) {
   return (
     <div
       data-testid="sales-chart"
-      style={{ width: "100%", height: "250px" }}
+      style={{ width: "100%", height: "100%" }}
     >
       <Line data={chartData} options={options} />
     </div>

@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useEffect as useLayoutEffect } from "react";
-import { ShoppingCart, Plus, Minus, Users, Tag, X, Search, Coffee, CakeSlice, RefreshCcw, Printer } from 'lucide-react';
+import { ShoppingCart, Plus, Minus, Users, Tag, X, Search, Coffee, CakeSlice, RefreshCcw, Printer, AlertCircle, CheckCircle } from 'lucide-react';
 import { db } from '../services/db';
+import { productAPI } from '../services/productAPI';
 
 export default function MainPOS({ user }) {
   const [customerCount, setCustomerCount] = useState(0);
@@ -16,6 +17,11 @@ export default function MainPOS({ user }) {
   const [loading, setLoading] = useState(true);
   const [receipt, setReceipt] = useState(null);
   const [showReceipt, setShowReceipt] = useState(false);
+  const [showAddProductModal, setShowAddProductModal] = useState(false);
+  const [addProductForm, setAddProductForm] = useState({ name: '', price: '', category: '' });
+  const [productCategories, setProductCategories] = useState([]);
+  const [addProductLoading, setAddProductLoading] = useState(false);
+  const [toast, setToast] = useState(null);
 
   useEffect(() => {
     async function load() {
@@ -31,6 +37,7 @@ export default function MainPOS({ user }) {
           category: p.product_categories?.name || 'Other',
         })))
         setCategories(['All', ...new Set(prods.map(p => p.product_categories?.name || 'Other'))])
+        setProductCategories(cats.map(c => c.name))
       } catch (err) {
         console.error('Failed to load products:', err)
       } finally {
@@ -80,6 +87,51 @@ export default function MainPOS({ user }) {
     if (customerCount === 0) setCustomerCount(1);
     setSelectedProduct(null);
     setProductNote('');
+  };
+
+  const handleAddProductSubmit = async (e) => {
+    e.preventDefault();
+    if (!addProductForm.name || !addProductForm.price || !addProductForm.category) {
+      setToast({ type: 'error', message: 'Please fill in all required fields' });
+      return;
+    }
+    setAddProductLoading(true);
+    try {
+      await productAPI.createProduct({
+        product_name: addProductForm.name,
+        selling_price: Number(addProductForm.price),
+        category: addProductForm.category,
+      });
+      setToast({ type: 'success', message: 'Product added successfully!' });
+      setAddProductForm(prev => ({ ...prev, name: '', price: '' }));
+      const [prods, cats] = await Promise.all([
+        db.getProducts(),
+        db.getCategories(),
+      ]);
+      setProducts(prods.map(p => ({
+        id: p.id,
+        name: p.product_name,
+        price: Number(p.selling_price),
+        category: p.product_categories?.name || 'Other',
+      })));
+      setCategories(['All', ...new Set(prods.map(p => p.product_categories?.name || 'Other'))]);
+      setProductCategories(cats.map(c => c.name));
+    } catch (err) {
+      setToast({ type: 'error', message: err.message || 'Failed to add product' });
+    } finally {
+      setAddProductLoading(false);
+    }
+  };
+
+  const handleAddProductChange = (e) => {
+    const { name, value } = e.target;
+    setAddProductForm(prev => ({ ...prev, [name]: value }));
+  };
+
+  const handleCloseAddProductModal = () => {
+    setShowAddProductModal(false);
+    setAddProductForm({ name: '', price: '', category: '' });
+    setToast(null);
   };
 
   const handleCheckout = async () => {
@@ -223,20 +275,31 @@ export default function MainPOS({ user }) {
       <div className="pos-grid mt-2">
         <div className="menu-section">
           {filteredMenu.length > 0 ? (
-            <div className="product-grid">
-              {filteredMenu.map(item => (
-                <div key={item.id} className="product-card" onClick={() => openProductModal(item)}>
-                  <Coffee size={32} className="product-icon" />
-                  <h4>{item.name}</h4>
-                  <p className="price">₱{item.price.toFixed(2)}</p>
-                </div>
-              ))}
-            </div>
+            <>
+              <div className="product-grid">
+                {filteredMenu.map(item => (
+                  <div key={item.id} className="product-card" onClick={() => openProductModal(item)}>
+                    <Coffee size={32} className="product-icon" />
+                    <h4>{item.name}</h4>
+                    <p className="price">₱{item.price.toFixed(2)}</p>
+                  </div>
+                ))}
+              </div>
+            </>
           ) : (
             <div className="flex flex-col items-center justify-center text-muted" style={{ height: '300px' }}>
               <Search size={48} className="mb-4 opacity-30" />
               <p className="text-lg">No products found</p>
             </div>
+          )}
+          {user?.role === 'admin' && (
+            <button 
+              className="add-product-fab" 
+              onClick={() => setShowAddProductModal(true)}
+              title="Add Product"
+            >
+              <Plus size={24} />
+            </button>
           )}
         </div>
 
@@ -341,6 +404,79 @@ export default function MainPOS({ user }) {
               </button>
             </div>
           </div>
+        </div>
+      )}
+      {showAddProductModal && (
+        <div className="modal-overlay" onClick={handleCloseAddProductModal}>
+          <div className="modal-content card add-product-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>Add New Product</h3>
+              <button className="btn-icon-small" onClick={handleCloseAddProductModal}><X size={18} /></button>
+            </div>
+            <form onSubmit={handleAddProductSubmit} className="add-product-form">
+              {toast && (
+                <div className={`toast toast-${toast.type}`}>
+                  {toast.type === 'success' ? <CheckCircle size={16} /> : <AlertCircle size={16} />}
+                  <span>{toast.message}</span>
+                </div>
+              )}
+              <div className="form-group">
+                <label>Product Name <span className="text-danger">*</span></label>
+                <input
+                  type="text"
+                  name="name"
+                  className="form-input"
+                  placeholder="e.g., Caramel Latte"
+                  value={addProductForm.name}
+                  onChange={handleAddProductChange}
+                  required
+                />
+              </div>
+              <div className="form-row-grid">
+                <div className="form-group m-0">
+                  <label>Price (₱) <span className="text-danger">*</span></label>
+                  <input
+                    type="number"
+                    name="price"
+                    className="form-input"
+                    placeholder="0.00"
+                    step="0.01"
+                    min="0"
+                    value={addProductForm.price}
+                    onChange={handleAddProductChange}
+                    required
+                  />
+                </div>
+                <div className="form-group m-0">
+                  <label>Category <span className="text-danger">*</span></label>
+                  <select
+                    name="category"
+                    className="form-input"
+                    value={addProductForm.category}
+                    onChange={handleAddProductChange}
+                    required
+                  >
+                    <option value="">Select Category</option>
+                    {productCategories.map(cat => (
+                      <option key={cat} value={cat}>{cat}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <div className="modal-footer">
+                <button type="button" className="btn btn-secondary" onClick={handleCloseAddProductModal}>Cancel</button>
+                <button type="submit" className="btn btn-primary" disabled={addProductLoading}>
+                  {addProductLoading ? 'Adding...' : 'Add Product'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+      {toast && !showAddProductModal && (
+        <div className={`toast toast-${toast.type} toast-global`}>
+          {toast.type === 'success' ? <CheckCircle size={16} /> : <AlertCircle size={16} />}
+          <span>{toast.message}</span>
         </div>
       )}
     </div>

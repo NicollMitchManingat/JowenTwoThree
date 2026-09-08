@@ -2072,6 +2072,206 @@
   color: var(--color-primary);
 }
 
+.add-product-fab {
+  position: absolute;
+  bottom: 24px;
+  right: 24px;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #8B6914, #A0843E);
+  color: white;
+  border: none;
+  box-shadow: 0 4px 12px rgba(139, 105, 20, 0.4);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275), box-shadow 0.2s ease;
+  z-index: 10;
+}
+
+.add-product-fab:hover {
+  transform: scale(1.1) translateY(-2px);
+  box-shadow: 0 6px 16px rgba(139, 105, 20, 0.5);
+}
+
+.add-product-fab:active {
+  transform: scale(0.95);
+}
+
+@media (max-width: 768px) {
+  .add-product-fab {
+    position: fixed;
+    bottom: 16px;
+    right: 16px;
+    width: 48px;
+    height: 48px;
+    z-index: 100;
+  }
+  .add-product-fab svg {
+    width: 20px;
+    height: 20px;
+  }
+}
+
+.add-product-modal {
+  max-width: 480px;
+  background: linear-gradient(180deg, #FDFBF7 0%, #F5F0E8 100%);
+}
+
+.add-product-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.add-product-form .form-group {
+  margin-bottom: 0.5rem;
+}
+
+.add-product-form label {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #5D4E37;
+}
+
+.add-product-form .text-danger {
+  color: #C0392B;
+}
+
+.add-product-form .form-input,
+.add-product-form select {
+  padding: 0.85rem 1rem;
+  border: 2px solid #E8E0D0;
+  border-radius: 10px;
+  background-color: #FDFBF7;
+  font-size: 0.95rem;
+  color: #3D342B;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.add-product-form .form-input:focus,
+.add-product-form select:focus {
+  outline: none;
+  border-color: #A0843E;
+  box-shadow: 0 0 0 3px rgba(160, 132, 62, 0.2);
+}
+
+.add-product-form .form-row-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  width: 100%;
+}
+
+.toast {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.85rem 1.25rem;
+  border-radius: 10px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  animation: toastSlideIn 0.3s ease-out;
+  margin-bottom: 1rem;
+}
+
+.toast-success {
+  background: linear-gradient(135deg, #E8F8F0 0%, #D4F0E0 100%);
+  border: 1px solid #27AE60;
+  color: #1E8A49;
+}
+
+.toast-error {
+  background: linear-gradient(135deg, #FDF2F2 0%, #FADBD8 100%);
+  border: 1px solid #E74C3C;
+  color: #C0392B;
+}
+
+.toast-global {
+  position: fixed;
+  top: 80px;
+  right: 24px;
+  z-index: 1100;
+  min-width: 300px;
+  max-width: 420px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
+}
+
+@keyframes toastSlideIn {
+  from {
+    opacity: 0;
+    transform: translateX(100%) translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0) translateY(0);
+  }
+}
+
+.modal-content.add-product-modal .modal-header {
+  border-bottom: 1px solid #E8E0D0;
+  padding-bottom: 1rem;
+}
+
+.modal-content.add-product-modal .modal-header h3 {
+  color: #5D4E37;
+  font-size: 1.25rem;
+}
+
+.modal-content.add-product-modal .modal-footer {
+  border-top: 1px solid #E8E0D0;
+  padding-top: 1rem;
+}
+
+.modal-content.add-product-modal .btn-primary {
+  background: linear-gradient(135deg, #8B6914, #A0843E);
+  border: none;
+}
+
+.modal-content.add-product-modal .btn-primary:hover:not(:disabled) {
+  background: linear-gradient(135deg, #7A5A11, #8F7536);
+}
+
+.modal-content.add-product-modal .btn-secondary {
+  background: transparent;
+  border: 2px solid #E8E0D0;
+  color: #5D4E37;
+}
+
+.modal-content.add-product-modal .btn-secondary:hover {
+  background: #F5F0E8;
+  border-color: #D4C4A8;
+}
+
+@media (max-width: 480px) {
+  .add-product-fab {
+    bottom: 16px;
+    right: 16px;
+    width: 48px;
+    height: 48px;
+  }
+  .add-product-fab svg {
+    width: 20px;
+    height: 20px;
+  }
+  .add-product-form .form-row-grid {
+    grid-template-columns: 1fr;
+  }
+  .toast-global {
+    top: auto;
+    bottom: 80px;
+    right: 16px;
+    left: 16px;
+    min-width: auto;
+    max-width: none;
+  }
+}
+
 @media print {
   body { background: #fff; }
   .receipt-actions, .modal-overlay {

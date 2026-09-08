@@ -1,7 +1,8 @@
 import { useContext, useEffect, useState, useMemo } from "react";
 import { AnalyticsContext } from "./AnalyticsContext";
-import { Sparkles, TrendingUp, AlertTriangle, Package, BrainCircuit, BarChart3, ShoppingBag, Calendar, ChevronDown } from 'lucide-react';
+import { Sparkles, TrendingUp, AlertTriangle, Package, BrainCircuit, BarChart3, ShoppingBag, Calendar, ChevronDown, Plus, X, AlertCircle, CheckCircle } from 'lucide-react';
 import { db } from '../services/db';
+import { productAPI } from '../services/productAPI';
 
 import SummaryCard from "../components/analytics/SummaryCard";
 import SalesTrendChart from "../components/analytics/SalesTrendChart";
@@ -57,7 +58,7 @@ const aiPredictions = [
   { metric: "Wastage Risk", value: "Strawberries", insight: "Use in promos today", impact: "Medium" },
 ];
 
-export default function DashboardContent({ activeTab }) {
+export default function DashboardContent({ activeTab, user }) {
   const { dateFilter, setDateFilter } = useContext(AnalyticsContext);
   const [customStartDate, setCustomStartDate] = useState("");
   const [customEndDate, setCustomEndDate] = useState("");
@@ -66,6 +67,15 @@ export default function DashboardContent({ activeTab }) {
   const [adjustments, setAdjustments] = useState([]);
   const [salesData, setSalesData] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [showAddProductModal, setShowAddProductModal] = useState(false);
+  const [addProductForm, setAddProductForm] = useState({ name: '', price: '', category: '' });
+  const [productCategories, setProductCategories] = useState([]);
+  const [addProductLoading, setAddProductLoading] = useState(false);
+  const [toast, setToast] = useState(null);
+
+  useEffect(() => {
+    db.getCategories().then(cats => setProductCategories(cats.map(c => c.name)));
+  }, []);
 
   // Determine the active date range
   const dateRange = useMemo(() => {
@@ -168,6 +178,39 @@ export default function DashboardContent({ activeTab }) {
       if (!customEndDate) setCustomEndDate(formatDateForInput(end));
     }
   }, [dateFilter]);
+
+  const handleAddProductSubmit = async (e) => {
+    e.preventDefault();
+    if (!addProductForm.name || !addProductForm.price || !addProductForm.category) {
+      setToast({ type: 'error', message: 'Please fill in all required fields' });
+      return;
+    }
+    setAddProductLoading(true);
+    try {
+      await productAPI.createProduct({
+        product_name: addProductForm.name,
+        selling_price: Number(addProductForm.price),
+        category: addProductForm.category,
+      });
+      setToast({ type: 'success', message: 'Product added successfully!' });
+      setAddProductForm(prev => ({ ...prev, name: '', price: '' }));
+    } catch (err) {
+      setToast({ type: 'error', message: err.message || 'Failed to add product' });
+    } finally {
+      setAddProductLoading(false);
+    }
+  };
+
+  const handleAddProductChange = (e) => {
+    const { name, value } = e.target;
+    setAddProductForm(prev => ({ ...prev, [name]: value }));
+  };
+
+  const handleCloseAddProductModal = () => {
+    setShowAddProductModal(false);
+    setAddProductForm({ name: '', price: '', category: '' });
+    setToast(null);
+  };
 
   if (loading && !salesData) {
     return <div className="page-content"><LoadingSkeleton /></div>;
@@ -291,6 +334,79 @@ export default function DashboardContent({ activeTab }) {
           </div>
         </div>
       </div>
+      {showAddProductModal && (
+        <div className="modal-overlay" onClick={handleCloseAddProductModal}>
+          <div className="modal-content card add-product-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>Add New Product</h3>
+              <button className="btn-icon-small" onClick={handleCloseAddProductModal}><X size={18} /></button>
+            </div>
+            <form onSubmit={handleAddProductSubmit} className="add-product-form">
+              {toast && (
+                <div className={`toast toast-${toast.type}`}>
+                  {toast.type === 'success' ? <CheckCircle size={16} /> : <AlertCircle size={16} />}
+                  <span>{toast.message}</span>
+                </div>
+              )}
+              <div className="form-group">
+                <label>Product Name <span className="text-danger">*</span></label>
+                <input
+                  type="text"
+                  name="name"
+                  className="form-input"
+                  placeholder="e.g., Caramel Latte"
+                  value={addProductForm.name}
+                  onChange={handleAddProductChange}
+                  required
+                />
+              </div>
+              <div className="form-row-grid">
+                <div className="form-group m-0">
+                  <label>Price (₱) <span className="text-danger">*</span></label>
+                  <input
+                    type="number"
+                    name="price"
+                    className="form-input"
+                    placeholder="0.00"
+                    step="0.01"
+                    min="0"
+                    value={addProductForm.price}
+                    onChange={handleAddProductChange}
+                    required
+                  />
+                </div>
+                <div className="form-group m-0">
+                  <label>Category <span className="text-danger">*</span></label>
+                  <select
+                    name="category"
+                    className="form-input"
+                    value={addProductForm.category}
+                    onChange={handleAddProductChange}
+                    required
+                  >
+                    <option value="">Select Category</option>
+                    {productCategories.map(cat => (
+                      <option key={cat} value={cat}>{cat}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <div className="modal-footer">
+                <button type="button" className="btn btn-secondary" onClick={handleCloseAddProductModal}>Cancel</button>
+                <button type="submit" className="btn btn-primary" disabled={addProductLoading}>
+                  {addProductLoading ? 'Adding...' : 'Add Product'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+      {toast && !showAddProductModal && (
+        <div className={`toast toast-${toast.type} toast-global`}>
+          {toast.type === 'success' ? <CheckCircle size={16} /> : <AlertCircle size={16} />}
+          <span>{toast.message}</span>
+        </div>
+      )}
     </div>
   );
 }

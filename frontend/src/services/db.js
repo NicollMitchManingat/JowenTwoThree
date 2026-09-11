@@ -163,6 +163,135 @@ export const db = {
       .abortSignal(signal))
   },
 
+  // ── Recipes / automatic stock deduction ──────────────────
+  // product_recipes(product_id, inventory_id, qty_per_sale).
+  // Run frontend/product_recipes.sql once to create + seed it.
+  async getProductRecipes(productIds) {
+    const ids = [...new Set((productIds || []).filter(Boolean))]
+    if (ids.length === 0) return []
+    try {
+      return await queryWithTimeout((signal) => supabase
+        .from('product_recipes')
+        .select('product_id, inventory_id, qty_per_sale, inventory(id, name, stock_quantity)')
+        .in('product_id', ids)
+        .abortSignal(signal))
+    } catch (err) {
+      if (err?.code === '42P01' || err?.code === 'PGRST205' || /product_recipes|relation .* does not exist/i.test(err?.message || '')) {
+        throw new Error('Recipes table not set up — run frontend/product_recipes.sql in Supabase SQL Editor, then retry checkout.')
+      }
+      throw err
+    }
+  },
+
+  // Expand cart [{productId, qty}] into per-ingredient totals and BLOCK
+  // (throw, code INSUFFICIENT_STOCK with .shortfalls) on missing ingredient
+  // or insufficient stock. No writes here, so calling this BEFORE creating
+  // the transaction prevents orphan rows.
+  // Returns [{ inventory_id, name, required, available }] for applyDeductions.
+  async computeRequiredDeductions(cart) {
+    const lines = (cart || []).filter((i) => i && i.productId && Number(i.qty) > 0)
+    if (lines.length === 0) return []
+    const recipes = await this.getProductRecipes(lines.map((i) => i.productId))
+    const qtyByProduct = new Map()
+    lines.forEach((i) => qtyByProduct.set(i.productId, (qtyByProduct.get(i.productId) || 0) + Number(i.qty)))
+    const required = new Map()
+    for (const r of recipes || []) {
+      const units = Number(r.qty_per_sale) * (qtyByProduct.get(r.product_id) || 0)
+      if (!(units > 0)) continue
+      const prev = required.get(r.inventory_id) || { inventory_id: r.inventory_id, name: r.inventory?.name || r.inventory_id, required: 0 }
+      prev.required += units
+      if (r.inventory?.name) prev.name = r.inventory.name
+      required.set(r.inventory_id, prev)
+    }
+    if (required.size === 0) return []
+    const stock = await this.getInventory()
+    const byId = new Map((stock || []).map((s) => [s.id, s]))
+    const result = []
+    const shortfalls = []
+    for (const req of required.values()) {
+      const row = byId.get(req.inventory_id)
+      if (!row) {
+        shortfalls.push({ inventory_id: req.inventory_id, name: req.name, required: req.required, available: 0, missing: true })
+        continue
+      }
+      const available = Number(row.stock_quantity)
+      const entry = { ...req, name: row.name || req.name, available: Number.isFinite(available) ? available : 0 }
+      result.push(entry)
+      if (!Number.isFinite(available) || available < req.required) shortfalls.push(entry)
+    }
+    if (shortfalls.length > 0) {
+      const names = shortfalls.map((s) => `${s.name} (need ${s.required}, have ${s.available})`).join('; ')
+      const err = new Error(`Insufficient stock: ${names} — sale blocked.`)
+      err.code = 'INSUFFICIENT_STOCK'
+      err.shortfalls = shortfalls
+      err.required = result
+      throw err
+    }
+    return result
+  },
+
+  // Deduct precomputed requirements + log an adjustment per ingredient.
+  // Rolls back already-deducted lines if one fails mid-loop.
+  // With { allowShortage: true } (override path), each line floors at 0
+  // and the shortfall is recorded in the adjustment notes. Never negative.
+  async applyDeductions(required, transactionNumber, opts = {}) {
+    const list = required || []
+    if (list.length === 0) return { shorted: [] }
+    const allowShortage = !!opts.allowShortage
+    const shorted = []
+    const done = []
+    try {
+      for (const req of list) {
+        const stock = await this.getInventory()
+        const row = (stock || []).find((s) => s.id === req.inventory_id)
+        if (!row) {
+          if (!allowShortage) throw new Error(`Ingredient "${req.name}" is not in inventory — sale blocked.`)
+          shorted.push({ ...req, short: Number(req.required) })
+          continue
+        }
+        const prevQty = Number(row.stock_quantity)
+        if (!Number.isFinite(prevQty)) throw new Error(`Insufficient stock: ${row.name || req.name} — sale blocked.`)
+        let deduct = Number(req.required)
+        let newQty = prevQty - deduct
+        let note = transactionNumber ? `Auto-deduct for ${transactionNumber}` : 'Auto-deduct for sale'
+        if (newQty < 0) {
+          if (!allowShortage) throw new Error(`Insufficient stock: ${row.name || req.name} — sale blocked.`)
+          const short = -newQty
+          shorted.push({ ...req, name: row.name || req.name, short })
+          deduct = prevQty
+          newQty = 0
+          note += ` (short ${short}, floored at 0)`
+        }
+        await this.updateInventoryItem(req.inventory_id, { stock_quantity: newQty })
+        await this.createAdjustment({
+          inventory_id: req.inventory_id,
+          previous_quantity: prevQty,
+          new_quantity: newQty,
+          change_amount: -deduct,
+          reason: 'sale',
+          notes: note,
+        })
+        done.push({ inventory_id: req.inventory_id, qty: deduct })
+      }
+    } catch (err) {
+      // Compensate already-deducted lines so stock isn't left partial.
+      for (const d of done.reverse()) {
+        try {
+          const stock = await this.getInventory()
+          const row = (stock || []).find((s) => s.id === d.inventory_id)
+          if (row) {
+            const restored = Number(row.stock_quantity) + d.qty
+            await this.updateInventoryItem(d.inventory_id, { stock_quantity: restored })
+          }
+        } catch {
+          // Best-effort rollback; surface the original error below.
+        }
+      }
+      throw err
+    }
+    return { shorted }
+  },
+
   // ── Transactions ───────────────────────────────────────
   async getTransactions() {
     return queryWithTimeout((signal) => supabase

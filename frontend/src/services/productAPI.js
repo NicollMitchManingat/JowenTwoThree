@@ -5,23 +5,29 @@ export const productAPI = {
     return db.getProducts()
   },
 
+  // Direct Supabase insert (consistent with all other writes).
+  // Accepts { product_name, selling_price, category } where category is a
+  // product_categories name, or { product_name, selling_price, category_id }.
   createProduct: async (payload) => {
-    const response = await fetch('/api/products', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    });
-    if (!response.ok) {
-      let errMsg = 'Failed to create product';
-      try {
-        const err = await response.json();
-        errMsg = err.error || errMsg;
-      } catch {
-        const text = await response.text();
-        if (text) errMsg = text;
-      }
-      throw new Error(errMsg);
+    const product_name = (payload?.product_name || payload?.name || '').trim()
+    if (!product_name) throw new Error('Product name is required')
+
+    const priceRaw = payload?.selling_price ?? payload?.price
+    const selling_price = Number(priceRaw)
+    if (!Number.isFinite(selling_price) || selling_price < 0) {
+      throw new Error('Price must be a number >= 0')
     }
-    return response.json();
+
+    let category_id = payload?.category_id || null
+    if (!category_id) {
+      const categoryName = (payload?.category || '').trim()
+      if (!categoryName) throw new Error('Category is required')
+      const cats = await db.getCategories()
+      const match = (cats || []).find((c) => c.name === categoryName)
+      if (!match) throw new Error(`Unknown category: ${categoryName}`)
+      category_id = match.id
+    }
+
+    return db.createProduct({ product_name, selling_price, category_id })
   }
 }

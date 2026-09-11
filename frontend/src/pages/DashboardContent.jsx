@@ -74,7 +74,7 @@ export default function DashboardContent({ activeTab, user }) {
   const [toast, setToast] = useState(null);
 
   useEffect(() => {
-    db.getCategories().then(cats => setProductCategories(cats.map(c => c.name)));
+    db.getCategories().then(cats => setProductCategories((cats || []).map(c => c.name))).catch(err => console.error('Failed to load categories:', err));
   }, []);
 
   // Determine the active date range

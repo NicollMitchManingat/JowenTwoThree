@@ -9,6 +9,7 @@ export default function InventoryPage({ userRole }) {
   const [editId, setEditId] = useState(null);
   const [inventoryData, setInventoryData] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(null);
   const [showWastageModal, setShowWastageModal] = useState(false);
   const [wastageItem, setWastageItem] = useState(null);
   const [wastageQty, setWastageQty] = useState('');
@@ -28,16 +29,14 @@ export default function InventoryPage({ userRole }) {
 
   const categories = ['Ingredients', 'Dairy', 'Syrups', 'Packaging', 'Fruits', 'Other'];
 
-  useEffect(() => {
-    loadInventory()
-  }, [])
-
   async function loadInventory() {
+    setLoadError(null)
     try {
       const data = await db.getInventory()
-      setInventoryData(data)
+      setInventoryData(data || [])
     } catch (err) {
       console.error('Failed to load inventory:', err)
+      setLoadError(err.message || 'Failed to load inventory. Please retry.')
     } finally {
       setLoading(false)
     }
@@ -46,12 +45,14 @@ export default function InventoryPage({ userRole }) {
   async function loadLowStockAlerts() {
     try {
       setLowStockLoading(true);
-      const [lowStock, outOfStock] = await Promise.all([
+      const [lowRes, outRes] = await Promise.allSettled([
         db.getLowStockItems(5),
         db.getOutOfStockItems()
       ]);
-      setLowStockItems(lowStock || []);
-      setOutOfStockItems(outOfStock || []);
+      setLowStockItems(lowRes.status === 'fulfilled' ? (lowRes.value || []) : []);
+      setOutOfStockItems(outRes.status === 'fulfilled' ? (outRes.value || []) : []);
+      if (lowRes.status === 'rejected') console.error('Failed to load low stock alerts:', lowRes.reason);
+      if (outRes.status === 'rejected') console.error('Failed to load low stock alerts:', outRes.reason);
     } catch (err) {
       console.error('Failed to load low stock alerts:', err);
     } finally {
@@ -60,13 +61,19 @@ export default function InventoryPage({ userRole }) {
   }
 
   useEffect(() => {
-    loadInventory();
-    loadLowStockAlerts();
+    let cancelled = false
+    async function load() {
+      await loadInventory();
+      if (!cancelled) loadLowStockAlerts();
+    }
+    load()
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const filteredData = inventoryData.filter(item =>
-    item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    item.id?.toLowerCase().includes(searchTerm.toLowerCase())
+    (item.name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+    String(item.id || '').toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   const handleOpenAdd = () => {
@@ -154,7 +161,11 @@ export default function InventoryPage({ userRole }) {
   }
 
   if (loading) {
-    return <div className="page-content"><div className="card"><p className="text-muted">Loading inventory...</p></div></div>
+    return <div className="page-content"><div className="card"><p className="text-muted">Loading inventory...</p><p className="text-sm text-muted">If this takes over 8s, Supabase timed out — it will fail fast with a retry.</p></div></div>
+  }
+
+  if (loadError && inventoryData.length === 0) {
+    return <div className="page-content"><div className="card"><p className="text-danger">Failed to load inventory: {loadError}</p><button className="btn btn-primary mt-2" onClick={() => { setLoading(true); loadInventory(); }}>Retry</button></div></div>
   }
 
   return (

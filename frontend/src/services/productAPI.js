@@ -29,5 +29,50 @@ export const productAPI = {
     }
 
     return db.createProduct({ product_name, selling_price, category_id })
+  },
+
+  // Direct Supabase update. Accepts partial { product_name?, selling_price/price?, category/category_id? }.
+  updateProduct: async (id, payload) => {
+    if (!id) throw new Error('Product id is required')
+    const updates = {}
+    if (typeof payload?.product_name !== 'undefined' || typeof payload?.name !== 'undefined') {
+      const product_name = (payload?.product_name ?? payload?.name ?? '').trim()
+      if (!product_name) throw new Error('Product name is required')
+      updates.product_name = product_name
+    }
+    if (typeof payload?.selling_price !== 'undefined' || typeof payload?.price !== 'undefined') {
+      const selling_price = Number(payload?.selling_price ?? payload?.price)
+      if (!Number.isFinite(selling_price) || selling_price < 0) {
+        throw new Error('Price must be a number >= 0')
+      }
+      updates.selling_price = selling_price
+    }
+    if (typeof payload?.category_id !== 'undefined' || typeof payload?.category !== 'undefined') {
+      if (payload?.category_id) {
+        updates.category_id = payload.category_id
+      } else {
+        const categoryName = (payload?.category || '').trim()
+        if (!categoryName) throw new Error('Category is required')
+        const cats = await db.getCategories()
+        const match = (cats || []).find((c) => c.name === categoryName)
+        if (!match) throw new Error(`Unknown category: ${categoryName}`)
+        updates.category_id = match.id
+      }
+    }
+    return db.updateProduct(id, updates)
+  },
+
+  // Soft-deactivate (status INACTIVE) — never hard-deletes sold products.
+  deactivateProduct: async (id) => {
+    return db.deactivateProduct(id)
+  },
+
+  // Undo for deactivate.
+  reactivateProduct: async (id) => {
+    return db.reactivateProduct(id)
+  },
+
+  getInactive: async () => {
+    return db.getInactiveProducts()
   }
 }

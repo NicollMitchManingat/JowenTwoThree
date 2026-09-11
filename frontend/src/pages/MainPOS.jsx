@@ -15,6 +15,7 @@ export default function MainPOS({ user }) {
   const [products, setProducts] = useState([]);
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(null);
   const [receipt, setReceipt] = useState(null);
   const [showReceipt, setShowReceipt] = useState(false);
   const [showAddProductModal, setShowAddProductModal] = useState(false);
@@ -24,12 +25,21 @@ export default function MainPOS({ user }) {
   const [toast, setToast] = useState(null);
 
   useEffect(() => {
+    let cancelled = false
     async function load() {
+      setLoading(true)
+      setLoadError(null)
       try {
-        const [prods, cats] = await Promise.all([
+        // Fetch independently so a categories failure never blanks the menu.
+        const [prodsResult, catsResult] = await Promise.allSettled([
           db.getProducts(),
           db.getCategories(),
         ])
+        if (cancelled) return
+        if (prodsResult.status === 'rejected') throw prodsResult.reason
+        const prods = prodsResult.value || []
+        const cats = catsResult.status === 'fulfilled' ? (catsResult.value || []) : []
+        if (catsResult.status === 'rejected') console.error('Failed to load categories:', catsResult.reason)
         setProducts(prods.map(p => ({
           id: p.id,
           name: p.product_name,
@@ -40,11 +50,13 @@ export default function MainPOS({ user }) {
         setProductCategories(cats.map(c => c.name))
       } catch (err) {
         console.error('Failed to load products:', err)
+        if (!cancelled) setLoadError(err.message || 'Failed to load menu. Supabase may be waking up — retry.')
       } finally {
-        setLoading(false)
+        if (!cancelled) setLoading(false)
       }
     }
     load()
+    return () => { cancelled = true }
   }, [])
 
   const filteredMenu = products.filter(item => {
@@ -215,7 +227,11 @@ export default function MainPOS({ user }) {
   const total = subtotal - discountAmount;
 
   if (loading) {
-    return <div className="page-content"><div className="card"><p className="text-muted">Loading menu...</p></div></div>
+    return <div className="page-content"><div className="card"><p className="text-muted">Loading menu...</p><p className="text-sm text-muted">If this takes over 8s, Supabase timed out — it will fail fast with a retry.</p></div></div>
+  }
+
+  if (loadError && products.length === 0) {
+    return <div className="page-content"><div className="card"><p className="text-danger">Failed to load menu: {loadError}</p><button className="btn btn-primary mt-2" onClick={() => window.location.reload()}>Retry</button></div></div>
   }
 
   return (

@@ -1,6 +1,29 @@
 import { supabase } from '../lib/supabase'
 import { offlineQueue, processQueue } from './offlineQueue'
 
+const QUERY_TIMEOUT_MS = 8000
+
+function timeoutError() {
+  return new Error('Request timed out after 8s. Supabase may be waking up — please retry.')
+}
+
+// Wraps a Supabase query builder with an 8s abort so hung PostgREST
+// requests (504/upstream timeout) fail fast instead of hanging loading state.
+async function queryWithTimeout(build) {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), QUERY_TIMEOUT_MS)
+  try {
+    const { data, error } = await build(controller.signal)
+    if (error) throw error
+    return data
+  } catch (err) {
+    if (controller.signal.aborted || err?.name === 'AbortError') throw timeoutError()
+    throw err
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 async function offlineSafe(fn) {
   try {
     const result = await fn();
@@ -33,57 +56,76 @@ async function offlineWrite(table, body) {
 export const db = {
   // ── Products ──────────────────────────────────────────
   async getProducts() {
-    const { data, error } = await supabase
+    return queryWithTimeout((signal) => supabase
       .from('products')
       .select('*, product_categories(name)')
       .eq('status', 'ACTIVE')
       .order('product_name')
-    if (error) throw error
-    return data
+      .range(0, 99)
+      .abortSignal(signal))
   },
 
   async getCategories() {
-    const { data, error } = await supabase
+    return queryWithTimeout((signal) => supabase
       .from('product_categories')
       .select('*')
       .order('name')
-    if (error) throw error
-    return data
+      .range(0, 99)
+      .abortSignal(signal))
+  },
+
+  // Direct insert matching live products columns
+  // (product_name, selling_price, category_id, status). No sku/description.
+  async createProduct({ product_name, selling_price, category_id }) {
+    const name = (product_name || '').trim()
+    if (!name) throw new Error('Product name is required')
+    const price = Number(selling_price)
+    if (!Number.isFinite(price) || price < 0) throw new Error('Price must be a number >= 0')
+    if (!category_id) throw new Error('Unknown category — pick an existing category')
+    return offlineWrite('products', {
+      product_name: name,
+      selling_price: price,
+      category_id,
+      status: 'ACTIVE',
+    })
   },
 
   // ── Transactions ───────────────────────────────────────
   async getTransactions() {
-    const { data, error } = await supabase
+    return queryWithTimeout((signal) => supabase
       .from('transactions')
       .select('*')
       .order('created_at', { ascending: false })
       .limit(50)
-    if (error) throw error
-    return data
+      .abortSignal(signal))
   },
 
   async getTransactionsByDateRange(startDate, endDate) {
-    const { data, error } = await supabase
+    return queryWithTimeout((signal) => supabase
       .from('transactions')
       .select('*')
       .gte('created_at', startDate)
       .lte('created_at', endDate)
       .order('created_at', { ascending: true })
-    if (error) throw error
-    return data
+      .range(0, 199)
+      .abortSignal(signal))
   },
 
   async getDailySales(startDate, endDate) {
-    const { data, error } = await supabase
+    const data = await queryWithTimeout((signal) => supabase
       .from('transactions')
       .select('created_at, total')
       .gte('created_at', startDate)
       .lte('created_at', endDate)
       .order('created_at', { ascending: true })
-    if (error) throw error
+      .range(0, 499)
+      .abortSignal(signal))
     const dailySales = {}
     data.forEach(txn => {
-      const date = new Date(txn.created_at).toISOString().split('T')[0]
+      if (!txn.created_at) return
+      const d = new Date(txn.created_at)
+      if (Number.isNaN(d.getTime())) return
+      const date = d.toISOString().split('T')[0]
       dailySales[date] = (dailySales[date] || 0) + Number(txn.total)
     })
     return dailySales
@@ -113,12 +155,12 @@ export const db = {
 
   // ── Inventory ──────────────────────────────────────────
   async getInventory() {
-    const { data, error } = await supabase
+    return queryWithTimeout((signal) => supabase
       .from('inventory')
       .select('*')
       .order('name')
-    if (error) throw error
-    return data
+      .range(0, 99)
+      .abortSignal(signal))
   },
 
   async createInventoryItem(item) {
@@ -153,24 +195,24 @@ export const db = {
   },
 
   async getLowStockItems(threshold = 5) {
-    const { data, error } = await supabase
+    return queryWithTimeout((signal) => supabase
       .from('inventory')
       .select('*')
       .lte('stock_quantity', threshold)
       .gt('stock_quantity', 0)
       .order('stock_quantity', { ascending: true })
-    if (error) throw error
-    return data
+      .range(0, 49)
+      .abortSignal(signal))
   },
 
   async getOutOfStockItems() {
-    const { data, error } = await supabase
+    return queryWithTimeout((signal) => supabase
       .from('inventory')
       .select('*')
       .lte('stock_quantity', 0)
       .order('name')
-    if (error) throw error
-    return data
+      .range(0, 49)
+      .abortSignal(signal))
   },
 
   // ── Customer Traffic ───────────────────────────────────
@@ -181,23 +223,23 @@ export const db = {
   async getTrafficToday() {
     const today = new Date()
     today.setHours(0, 0, 0, 0)
-    const { data, error } = await supabase
+    const data = await queryWithTimeout((signal) => supabase
       .from('customer_traffic')
       .select('number_of_customer')
       .gte('created_at', today.toISOString())
-    if (error) throw error
-    return data.reduce((sum, r) => sum + (r.number_of_customer || 0), 0)
+      .range(0, 199)
+      .abortSignal(signal))
+    return data.reduce((sum, r) => sum + (Number(r.number_of_customer) || 0), 0)
   },
 
   // ── Inventory Adjustments / Wastage ────────────────────
   async getAdjustments() {
-    const { data, error } = await supabase
+    return queryWithTimeout((signal) => supabase
       .from('inventory_adjustments')
       .select('*, inventory(name)')
       .order('created_at', { ascending: false })
       .limit(50)
-    if (error) throw error
-    return data
+      .abortSignal(signal))
   },
 
   async createAdjustment(adj) {
@@ -217,27 +259,26 @@ export const db = {
     today.setHours(0, 0, 0, 0)
     const iso = today.toISOString()
 
-    const { data: orders, error } = await supabase
+    const orders = await queryWithTimeout((signal) => supabase
       .from('transactions')
       .select('total, customer_count')
       .gte('created_at', iso)
-
-    if (error) throw error
+      .range(0, 199)
+      .abortSignal(signal))
 
     const totalSales = orders.reduce((s, o) => s + Number(o.total), 0)
-    const totalCustomers = orders.reduce((s, o) => s + (o.customer_count || 0), 0)
+    const totalCustomers = orders.reduce((s, o) => s + (Number(o.customer_count) || 0), 0)
 
     return { totalOrders: orders.length, totalSales, totalCustomers }
   },
 
   async getInventoryStatus() {
-    const { data, error } = await supabase
+    return queryWithTimeout((signal) => supabase
       .from('inventory')
       .select('*')
       .order('stock_quantity', { ascending: true })
       .limit(10)
-    if (error) throw error
-    return data
+      .abortSignal(signal))
   },
 
 }

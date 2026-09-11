@@ -5,24 +5,28 @@ import { db } from '../services/db';
 export default function OrderHistoryPage() {
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(null);
   const [search, setSearch] = useState('');
   const [sortField, setSortField] = useState('created_at');
   const [sortDir, setSortDir] = useState('desc');
 
   useEffect(() => {
-    loadOrders()
-  }, [])
-
-  async function loadOrders() {
-    try {
-      const data = await db.getTransactions()
-      setOrders(data)
-    } catch (err) {
-      console.error('Failed to load transactions:', err)
-    } finally {
-      setLoading(false)
+    let cancelled = false
+    async function run() {
+      setLoadError(null)
+      try {
+        const data = await db.getTransactions()
+        if (!cancelled) setOrders(data || [])
+      } catch (err) {
+        console.error('Failed to load transactions:', err)
+        if (!cancelled) setLoadError(err.message || 'Failed to load transactions. Please retry.')
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
     }
-  }
+    run()
+    return () => { cancelled = true }
+  }, [])
 
   const handleSort = (field) => {
     if (sortField === field) {
@@ -82,7 +86,11 @@ export default function OrderHistoryPage() {
   }
 
   if (loading) {
-    return <div className="page-content"><div className="card"><p className="text-muted">Loading transactions...</p></div></div>
+    return <div className="page-content"><div className="card"><p className="text-muted">Loading transactions...</p><p className="text-sm text-muted">If this takes over 8s, Supabase timed out — it will fail fast with a retry.</p></div></div>
+  }
+
+  if (loadError && orders.length === 0) {
+    return <div className="page-content"><div className="card"><p className="text-danger">Failed to load transactions: {loadError}</p><button className="btn btn-primary mt-2" onClick={() => window.location.reload()}>Retry</button></div></div>
   }
 
   return (

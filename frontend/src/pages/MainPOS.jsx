@@ -23,6 +23,7 @@ export default function MainPOS({ user }) {
   const [addProductForm, setAddProductForm] = useState({ name: '', price: '', category: '' });
   const [productCategories, setProductCategories] = useState([]);
   const [addProductLoading, setAddProductLoading] = useState(false);
+  const [checkoutLoading, setCheckoutLoading] = useState(false);
   const [toast, setToast] = useState(null);
   const [lastRemoved, setLastRemoved] = useState(null);
   const [showRemoved, setShowRemoved] = useState(false);
@@ -245,9 +246,9 @@ export default function MainPOS({ user }) {
     setToast(null);
   };
 
-  const handleCheckout = async () => {
-    if (cart.length === 0 && customerCount === 0) return;
+  const [shortfall, setShortfall] = useState(null);
 
+  const runCheckout = async (allowShortage) => {
     const subtotal = cart.reduce((sum, item) => sum + (item.price * item.qty), 0);
     let discountMultiplier = 0;
     if (discountType === 'pwd' || discountType === 'senior') discountMultiplier = 0.20;
@@ -256,6 +257,18 @@ export default function MainPOS({ user }) {
     const total = subtotal - discountAmount;
 
     try {
+      // Validate BEFORE any write so a blocked sale creates no
+      // transaction/items/traffic rows. Throws INSUFFICIENT_STOCK with
+      // .shortfalls + .required when ingredients run short.
+      let required;
+      try {
+        required = await db.computeRequiredDeductions(cart)
+      } catch (stockErr) {
+        if (stockErr?.code === 'INSUFFICIENT_STOCK' && !allowShortage) throw stockErr;
+        if (stockErr?.code === 'INSUFFICIENT_STOCK' && allowShortage) required = stockErr.required || [];
+        else throw stockErr;
+      }
+
       const txn = await db.createTransaction({
         transaction_number: `TXN-${Date.now()}`,
         idempotency_key: `${Date.now()}-${Math.random()}`,
@@ -281,6 +294,11 @@ export default function MainPOS({ user }) {
       }))
       await db.createTransactionItems(items)
 
+      // Deduct ingredients + log one adjustment per ingredient.
+      // Rolls back partial deductions on failure (see db.applyDeductions).
+      // Override path floors short lines at 0 and flags the shortfall.
+      const { shorted } = await db.applyDeductions(required, txn.transaction_number, { allowShortage })
+
       if (customerCount > 0) {
         await db.logTraffic(customerCount)
       }
@@ -299,14 +317,39 @@ export default function MainPOS({ user }) {
         total,
         customerCount,
         timestamp: new Date().toISOString(),
+        stockShortfall: (shorted || []).map((s) => s.name),
       };
-      
+
       setReceipt(receiptData);
       setShowReceipt(true);
+      if ((shorted || []).length > 0) {
+        setToast({ type: 'error', message: `Sale completed with short stock: ${(shorted || []).map((s) => s.name).join(', ')} (floored at 0).` });
+      }
+      setShortfall(null);
       resetOrder()
     } catch (err) {
-      alert('Checkout failed: ' + err.message)
+      if (err?.code === 'INSUFFICIENT_STOCK') {
+        // Choice point: show what is short and let staff proceed or cancel.
+        // No rows have been written at this point.
+        setShortfall({ items: err.shortfalls || [], required: err.required || [] });
+      } else {
+        alert('Checkout failed: ' + err.message)
+      }
+    } finally {
+      setCheckoutLoading(false)
     }
+  }
+
+  const handleCheckout = () => {
+    if ((cart.length === 0 && customerCount === 0) || checkoutLoading) return;
+    setCheckoutLoading(true)
+    runCheckout(false)
+  }
+
+  const handleProceedShortfall = () => {
+    if (checkoutLoading) return;
+    setCheckoutLoading(true)
+    runCheckout(true)
   }
 
   const removeFromCart = (cartItemId) => setCart(prev => prev.filter(i => i.cartItemId !== cartItemId));
@@ -478,8 +521,8 @@ export default function MainPOS({ user }) {
               <span>Total</span>
               <span>₱{total.toFixed(2)}</span>
             </div>
-            <button className="btn btn-primary w-full mt-2" disabled={cart.length === 0 && customerCount === 0} onClick={handleCheckout}>
-              Checkout & Log Traffic
+            <button className="btn btn-primary w-full mt-2" disabled={(cart.length === 0 && customerCount === 0) || checkoutLoading} onClick={handleCheckout}>
+              {checkoutLoading ? 'Processing...' : 'Checkout & Log Traffic'}
             </button>
           </div>
         </div>
@@ -518,6 +561,9 @@ export default function MainPOS({ user }) {
                 )}
                 <div className="receipt-total-row grand-total"><span>Total</span><span>₱{receipt.total.toFixed(2)}</span></div>
                 <div className="receipt-total-row payment"><span>Payment</span><span>Cash</span></div>
+                {(receipt.stockShortfall || []).length > 0 && (
+                  <div className="receipt-total-row discount"><span>Low stock</span><span>{receipt.stockShortfall.join(', ')}</span></div>
+                )}
               </div>
               <div className="receipt-divider"></div>
               <div className="receipt-footer">
@@ -640,6 +686,34 @@ export default function MainPOS({ user }) {
             </div>
             <div className="modal-footer">
               <button className="btn btn-primary" onClick={() => setShowRemoved(false)}>Close</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {shortfall && (
+        <div className="modal-overlay" onClick={() => !checkoutLoading && setShortfall(null)}>
+          <div className="modal-content card" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '500px', width: '100%' }}>
+            <div className="modal-header">
+              <h3>Ingredients running low</h3>
+              <button className="btn-icon-small" disabled={checkoutLoading} onClick={() => setShortfall(null)}><X size={18} /></button>
+            </div>
+            <div className="modal-body">
+              <p className="text-sm text-muted mb-3">These ingredients don't cover this order. Nothing has been charged yet.</p>
+              {(shortfall.items || []).map((s) => (
+                <div key={s.inventory_id} className="cart-item">
+                  <div className="item-info">
+                    <h5>{s.name}</h5>
+                    <p className="item-price">Need {s.required}, have {s.available}</p>
+                  </div>
+                </div>
+              ))}
+              <p className="text-sm text-muted">Proceeding completes the sale and floors short stock at 0.</p>
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-secondary" disabled={checkoutLoading} onClick={() => setShortfall(null)}>Cancel sale</button>
+              <button className="btn btn-primary" disabled={checkoutLoading} onClick={handleProceedShortfall}>
+                {checkoutLoading ? 'Processing...' : 'Proceed anyway'}
+              </button>
             </div>
           </div>
         </div>

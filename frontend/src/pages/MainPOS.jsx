@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useEffect as useLayoutEffect } from "react";
-import { ShoppingCart, Plus, Minus, Users, Tag, X, Search, Coffee, CakeSlice, RefreshCcw, Printer, AlertCircle, CheckCircle } from 'lucide-react';
+import { ShoppingCart, Plus, Minus, Users, Tag, X, Search, Coffee, CakeSlice, RefreshCcw, Printer, AlertCircle, CheckCircle, Edit, Trash2 } from 'lucide-react';
 import { db } from '../services/db';
 import { productAPI } from '../services/productAPI';
 
@@ -19,10 +19,25 @@ export default function MainPOS({ user }) {
   const [receipt, setReceipt] = useState(null);
   const [showReceipt, setShowReceipt] = useState(false);
   const [showAddProductModal, setShowAddProductModal] = useState(false);
+  const [editingProductId, setEditingProductId] = useState(null);
   const [addProductForm, setAddProductForm] = useState({ name: '', price: '', category: '' });
   const [productCategories, setProductCategories] = useState([]);
   const [addProductLoading, setAddProductLoading] = useState(false);
   const [toast, setToast] = useState(null);
+  const [lastRemoved, setLastRemoved] = useState(null);
+  const [showRemoved, setShowRemoved] = useState(false);
+  const [removedItems, setRemovedItems] = useState([]);
+  const [removedLoading, setRemovedLoading] = useState(false);
+
+  // Auto-dismiss success toasts (Undo window) after 8s.
+  useEffect(() => {
+    if (!toast || toast.type !== 'success' || showAddProductModal) return;
+    const t = setTimeout(() => {
+      setToast(null);
+      setLastRemoved(null);
+    }, 8000);
+    return () => clearTimeout(t);
+  }, [toast, showAddProductModal]);
 
   useEffect(() => {
     let cancelled = false
@@ -101,6 +116,24 @@ export default function MainPOS({ user }) {
     setProductNote('');
   };
 
+  const refreshMenu = async () => {
+    const [prodsResult, catsResult] = await Promise.allSettled([
+      db.getProducts(),
+      db.getCategories(),
+    ])
+    if (prodsResult.status === 'rejected') throw prodsResult.reason
+    const prods = prodsResult.value || []
+    const cats = catsResult.status === 'fulfilled' ? (catsResult.value || []) : []
+    setProducts(prods.map(p => ({
+      id: p.id,
+      name: p.product_name,
+      price: Number(p.selling_price),
+      category: p.product_categories?.name || 'Other',
+    })));
+    setCategories(['All', ...new Set(prods.map(p => p.product_categories?.name || 'Other'))]);
+    setProductCategories(cats.map(c => c.name));
+  };
+
   const handleAddProductSubmit = async (e) => {
     e.preventDefault();
     if (!addProductForm.name || !addProductForm.price || !addProductForm.category) {
@@ -109,29 +142,94 @@ export default function MainPOS({ user }) {
     }
     setAddProductLoading(true);
     try {
-      await productAPI.createProduct({
-        product_name: addProductForm.name,
-        selling_price: Number(addProductForm.price),
-        category: addProductForm.category,
-      });
-      setToast({ type: 'success', message: 'Product added successfully!' });
-      setAddProductForm(prev => ({ ...prev, name: '', price: '' }));
-      const [prods, cats] = await Promise.all([
-        db.getProducts(),
-        db.getCategories(),
-      ]);
-      setProducts(prods.map(p => ({
+      if (editingProductId) {
+        await productAPI.updateProduct(editingProductId, {
+          product_name: addProductForm.name,
+          selling_price: Number(addProductForm.price),
+          category: addProductForm.category,
+        });
+        setToast({ type: 'success', message: 'Product updated successfully!' });
+      } else {
+        await productAPI.createProduct({
+          product_name: addProductForm.name,
+          selling_price: Number(addProductForm.price),
+          category: addProductForm.category,
+        });
+        setToast({ type: 'success', message: 'Product added successfully!' });
+      }
+      setAddProductForm({ name: '', price: '', category: '' });
+      setEditingProductId(null);
+      await refreshMenu();
+    } catch (err) {
+      setToast({ type: 'error', message: err.message || (editingProductId ? 'Failed to update product' : 'Failed to add product') });
+    } finally {
+      setAddProductLoading(false);
+    }
+  };
+
+  const openEditProduct = (item) => {
+    setAddProductForm({ name: item.name, price: String(item.price), category: item.category });
+    setEditingProductId(item.id);
+    setToast(null);
+    setShowAddProductModal(true);
+  };
+
+  const handleDeactivateProduct = async (item) => {
+    if (!window.confirm(`Remove "${item.name}" from the menu? Past orders are kept.`)) return;
+    try {
+      await productAPI.deactivateProduct(item.id);
+      setLastRemoved({ id: item.id, name: item.name });
+      setToast({ type: 'success', message: `"${item.name}" removed from menu.`, action: { label: 'Undo' } });
+      await refreshMenu();
+    } catch (err) {
+      setToast({ type: 'error', message: err.message || 'Failed to remove product' });
+    }
+  };
+
+  const handleUndoRemove = async () => {
+    if (!lastRemoved) return;
+    try {
+      await productAPI.reactivateProduct(lastRemoved.id);
+      setToast({ type: 'success', message: `"${lastRemoved.name}" restored to menu.` });
+      setLastRemoved(null);
+      await refreshMenu();
+      if (showRemoved) await loadRemoved();
+    } catch (err) {
+      setToast({ type: 'error', message: err.message || 'Failed to restore product' });
+    }
+  };
+
+  const loadRemoved = async () => {
+    setRemovedLoading(true);
+    try {
+      const data = await productAPI.getInactive();
+      setRemovedItems((data || []).map(p => ({
         id: p.id,
         name: p.product_name,
         price: Number(p.selling_price),
         category: p.product_categories?.name || 'Other',
       })));
-      setCategories(['All', ...new Set(prods.map(p => p.product_categories?.name || 'Other'))]);
-      setProductCategories(cats.map(c => c.name));
     } catch (err) {
-      setToast({ type: 'error', message: err.message || 'Failed to add product' });
+      setToast({ type: 'error', message: err.message || 'Failed to load removed products' });
     } finally {
-      setAddProductLoading(false);
+      setRemovedLoading(false);
+    }
+  };
+
+  const openRemoved = () => {
+    setShowRemoved(true);
+    loadRemoved();
+  };
+
+  const handleRestoreRemoved = async (item) => {
+    try {
+      await productAPI.reactivateProduct(item.id);
+      setToast({ type: 'success', message: `"${item.name}" restored to menu.` });
+      if (lastRemoved?.id === item.id) setLastRemoved(null);
+      await refreshMenu();
+      await loadRemoved();
+    } catch (err) {
+      setToast({ type: 'error', message: err.message || 'Failed to restore product' });
     }
   };
 
@@ -143,6 +241,7 @@ export default function MainPOS({ user }) {
   const handleCloseAddProductModal = () => {
     setShowAddProductModal(false);
     setAddProductForm({ name: '', price: '', category: '' });
+    setEditingProductId(null);
     setToast(null);
   };
 
@@ -294,7 +393,13 @@ export default function MainPOS({ user }) {
             <>
               <div className="product-grid">
                 {filteredMenu.map(item => (
-                  <div key={item.id} className="product-card" onClick={() => openProductModal(item)}>
+                  <div key={item.id} className="product-card" onClick={() => openProductModal(item)} style={{ position: 'relative' }}>
+                    {user?.role === 'admin' && (
+                      <div className="flex gap-1" style={{ position: 'absolute', top: '6px', right: '6px' }} onClick={(e) => e.stopPropagation()}>
+                        <button className="btn-icon-small" title={`Edit ${item.name}`} onClick={() => openEditProduct(item)}><Edit size={14} /></button>
+                        <button className="btn-icon-small danger" title={`Remove ${item.name}`} onClick={() => handleDeactivateProduct(item)}><Trash2 size={14} /></button>
+                      </div>
+                    )}
                     <Coffee size={32} className="product-icon" />
                     <h4>{item.name}</h4>
                     <p className="price">₱{item.price.toFixed(2)}</p>
@@ -309,12 +414,21 @@ export default function MainPOS({ user }) {
             </div>
           )}
           {user?.role === 'admin' && (
-            <button 
-              className="add-product-fab" 
+            <button
+              className="add-product-fab"
               onClick={() => setShowAddProductModal(true)}
               title="Add Product"
             >
               <Plus size={24} />
+            </button>
+          )}
+          {user?.role === 'admin' && (
+            <button
+              className="btn btn-secondary mt-2"
+              onClick={openRemoved}
+              title="View removed products"
+            >
+              Removed products
             </button>
           )}
         </div>
@@ -426,7 +540,7 @@ export default function MainPOS({ user }) {
         <div className="modal-overlay" onClick={handleCloseAddProductModal}>
           <div className="modal-content card add-product-modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <h3>Add New Product</h3>
+              <h3>{editingProductId ? 'Edit Product' : 'Add New Product'}</h3>
               <button className="btn-icon-small" onClick={handleCloseAddProductModal}><X size={18} /></button>
             </div>
             <form onSubmit={handleAddProductSubmit} className="add-product-form">
@@ -482,7 +596,7 @@ export default function MainPOS({ user }) {
               <div className="modal-footer">
                 <button type="button" className="btn btn-secondary" onClick={handleCloseAddProductModal}>Cancel</button>
                 <button type="submit" className="btn btn-primary" disabled={addProductLoading}>
-                  {addProductLoading ? 'Adding...' : 'Add Product'}
+                  {addProductLoading ? (editingProductId ? 'Saving...' : 'Adding...') : (editingProductId ? 'Save Changes' : 'Add Product')}
                 </button>
               </div>
             </form>
@@ -493,6 +607,41 @@ export default function MainPOS({ user }) {
         <div className={`toast toast-${toast.type} toast-global`}>
           {toast.type === 'success' ? <CheckCircle size={16} /> : <AlertCircle size={16} />}
           <span>{toast.message}</span>
+          {toast.action?.label === 'Undo' && lastRemoved && (
+            <button className="btn btn-secondary" style={{ marginLeft: '0.5rem' }} onClick={handleUndoRemove}>Undo</button>
+          )}
+        </div>
+      )}
+      {showRemoved && (
+        <div className="modal-overlay" onClick={() => setShowRemoved(false)}>
+          <div className="modal-content card" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '500px', width: '100%' }}>
+            <div className="modal-header">
+              <h3>Removed products</h3>
+              <button className="btn-icon-small" onClick={() => setShowRemoved(false)}><X size={18} /></button>
+            </div>
+            <div className="modal-body" style={{ maxHeight: '60vh', overflowY: 'auto' }}>
+              {removedLoading ? (
+                <p className="text-muted">Loading removed products...</p>
+              ) : removedItems.length === 0 ? (
+                <p className="text-muted">No removed products.</p>
+              ) : (
+                removedItems.map(item => (
+                  <div key={item.id} className="cart-item">
+                    <div className="item-info">
+                      <h5>{item.name}</h5>
+                      <p className="item-price">₱{item.price.toFixed(2)} · {item.category}</p>
+                    </div>
+                    <div className="item-controls">
+                      <button className="btn btn-secondary" onClick={() => handleRestoreRemoved(item)}>Restore</button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-primary" onClick={() => setShowRemoved(false)}>Close</button>
+            </div>
+          </div>
         </div>
       )}
     </div>

@@ -90,6 +90,79 @@ export const db = {
     })
   },
 
+  // Whitelisted update — only real products columns, never id/created_at.
+  async updateProduct(id, { product_name, selling_price, category_id }) {
+    if (!id) throw new Error('Product id is required')
+    const updates = {}
+    if (typeof product_name !== 'undefined') {
+      const name = (product_name || '').trim()
+      if (!name) throw new Error('Product name is required')
+      updates.product_name = name
+    }
+    if (typeof selling_price !== 'undefined') {
+      const price = Number(selling_price)
+      if (!Number.isFinite(price) || price < 0) throw new Error('Price must be a number >= 0')
+      updates.selling_price = price
+    }
+    if (typeof category_id !== 'undefined') {
+      if (!category_id) throw new Error('Unknown category — pick an existing category')
+      updates.category_id = category_id
+    }
+    if (Object.keys(updates).length === 0) throw new Error('Nothing to update')
+    return offlineSafe(async () => {
+      const { data, error } = await supabase
+        .from('products')
+        .update(updates)
+        .eq('id', id)
+        .select()
+        .single()
+      if (error) throw error
+      return data
+    })
+  },
+
+  // Soft-deactivate so past transaction_items (FK RESTRICT) stay intact.
+  // Row disappears from menu because getProducts() filters status='ACTIVE'.
+  async deactivateProduct(id) {
+    if (!id) throw new Error('Product id is required')
+    return offlineSafe(async () => {
+      const { data, error } = await supabase
+        .from('products')
+        .update({ status: 'INACTIVE' })
+        .eq('id', id)
+        .select()
+        .single()
+      if (error) throw error
+      return data
+    })
+  },
+
+  // Undo for deactivate — row reappears in getProducts().
+  async reactivateProduct(id) {
+    if (!id) throw new Error('Product id is required')
+    return offlineSafe(async () => {
+      const { data, error } = await supabase
+        .from('products')
+        .update({ status: 'ACTIVE' })
+        .eq('id', id)
+        .select()
+        .single()
+      if (error) throw error
+      return data
+    })
+  },
+
+  // Durable removed list (INACTIVE only).
+  async getInactiveProducts() {
+    return queryWithTimeout((signal) => supabase
+      .from('products')
+      .select('*, product_categories(name)')
+      .eq('status', 'INACTIVE')
+      .order('product_name')
+      .range(0, 99)
+      .abortSignal(signal))
+  },
+
   // ── Transactions ───────────────────────────────────────
   async getTransactions() {
     return queryWithTimeout((signal) => supabase

@@ -12,8 +12,15 @@ export const productAPI = {
       body: JSON.stringify(payload)
     });
     if (!response.ok) {
-      const err = await response.json();
-      throw new Error(err.error || 'Failed to create product');
+      let errMsg = 'Failed to create product';
+      try {
+        const err = await response.json();
+        errMsg = err.error || errMsg;
+      } catch {
+        const text = await response.text();
+        if (text) errMsg = text;
+      }
+      throw new Error(errMsg);
     }
     return response.json();
   }

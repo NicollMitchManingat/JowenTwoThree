@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useEffect as useLayoutEffect } from "react";
-import { ShoppingCart, Plus, Minus, Users, Tag, X, Search, Coffee, CakeSlice, RefreshCcw, Printer, AlertCircle, CheckCircle, Edit, Trash2 } from 'lucide-react';
+import { ShoppingCart, Plus, Minus, Users, Tag, X, Search, Coffee, CakeSlice, RefreshCcw, Printer, AlertCircle, CheckCircle, Edit, Trash2, Archive } from 'lucide-react';
 import { db } from '../services/db';
 import { productAPI } from '../services/productAPI';
 
@@ -29,6 +29,24 @@ export default function MainPOS({ user }) {
   const [showRemoved, setShowRemoved] = useState(false);
   const [removedItems, setRemovedItems] = useState([]);
   const [removedLoading, setRemovedLoading] = useState(false);
+  // Speed-dial + select modes (admin product management)
+  const [fabOpen, setFabOpen] = useState(false);
+  const [manageMode, setManageMode] = useState('idle'); // idle | edit | delete
+  const [selectedIds, setSelectedIds] = useState([]);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [batchRemoving, setBatchRemoving] = useState(false);
+
+  // Esc exits speed-dial / select modes.
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key !== 'Escape') return;
+      if (showDeleteConfirm || showAddProductModal || showRemoved) return;
+      if (manageMode !== 'idle') exitManageMode();
+      else if (fabOpen) setFabOpen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [manageMode, fabOpen, showDeleteConfirm, showAddProductModal, showRemoved]);
 
   // Auto-dismiss success toasts (Undo window) after 8s.
   useEffect(() => {
@@ -168,6 +186,20 @@ export default function MainPOS({ user }) {
     }
   };
 
+  const enterManageMode = (mode) => {
+    setManageMode(mode);
+    setSelectedIds([]);
+    setShowDeleteConfirm(false);
+    setFabOpen(false);
+    setToast(null);
+  };
+
+  const exitManageMode = () => {
+    setManageMode('idle');
+    setSelectedIds([]);
+    setShowDeleteConfirm(false);
+  };
+
   const openEditProduct = (item) => {
     setAddProductForm({ name: item.name, price: String(item.price), category: item.category });
     setEditingProductId(item.id);
@@ -175,23 +207,64 @@ export default function MainPOS({ user }) {
     setShowAddProductModal(true);
   };
 
-  const handleDeactivateProduct = async (item) => {
-    if (!window.confirm(`Remove "${item.name}" from the menu? Past orders are kept.`)) return;
+  // Routes card taps based on active mode: order by default,
+  // single-tap edit in edit mode, multi-select toggle in delete mode.
+  const handleCardClick = (item) => {
+    if (manageMode === 'edit') {
+      exitManageMode();
+      openEditProduct(item);
+      return;
+    }
+    if (manageMode === 'delete') {
+      setSelectedIds((prev) => prev.includes(item.id) ? prev.filter((id) => id !== item.id) : [...prev, item.id]);
+      return;
+    }
+    openProductModal(item);
+  };
+
+  const selectedItems = products.filter((p) => selectedIds.includes(p.id));
+
+  const executeBatchRemove = async () => {
+    if (selectedIds.length === 0 || batchRemoving) return;
+    setBatchRemoving(true);
     try {
-      await productAPI.deactivateProduct(item.id);
-      setLastRemoved({ id: item.id, name: item.name });
-      setToast({ type: 'success', message: `"${item.name}" removed from menu.`, action: { label: 'Undo' } });
+      const targets = selectedItems.map((p) => ({ id: p.id, name: p.name }));
+      const results = await Promise.allSettled(targets.map((t) => productAPI.deactivateProduct(t.id)));
+      const ok = targets.filter((_, i) => results[i].status === 'fulfilled');
+      const failed = targets.filter((_, i) => results[i].status === 'rejected');
+      if (ok.length > 0) {
+        setLastRemoved({ items: ok });
+        setToast({
+          type: 'success',
+          message: failed.length === 0
+            ? `${ok.length} product${ok.length > 1 ? 's' : ''} removed from menu.`
+            : `${ok.length} removed, ${failed.length} failed (${failed.map((f) => f.name).join(', ')}).`,
+          action: { label: 'Undo' },
+        });
+      } else {
+        setToast({ type: 'error', message: `Failed to remove: ${failed.map((f) => f.name).join(', ')}` });
+      }
+      setShowDeleteConfirm(false);
+      exitManageMode();
       await refreshMenu();
-    } catch (err) {
-      setToast({ type: 'error', message: err.message || 'Failed to remove product' });
+      if (showRemoved) await loadRemoved();
+    } finally {
+      setBatchRemoving(false);
     }
   };
 
   const handleUndoRemove = async () => {
-    if (!lastRemoved) return;
+    const items = lastRemoved?.items || (lastRemoved?.id ? [{ id: lastRemoved.id, name: lastRemoved.name }] : []);
+    if (items.length === 0) return;
     try {
-      await productAPI.reactivateProduct(lastRemoved.id);
-      setToast({ type: 'success', message: `"${lastRemoved.name}" restored to menu.` });
+      const results = await Promise.allSettled(items.map((t) => productAPI.reactivateProduct(t.id)));
+      const okCount = results.filter((r) => r.status === 'fulfilled').length;
+      setToast({
+        type: okCount === items.length ? 'success' : 'error',
+        message: okCount === items.length
+          ? (items.length === 1 ? `"${items[0].name}" restored to menu.` : `${okCount} products restored to menu.`)
+          : `Restored ${okCount} of ${items.length}. Check Removed products for the rest.`,
+      });
       setLastRemoved(null);
       await refreshMenu();
       if (showRemoved) await loadRemoved();
@@ -226,7 +299,10 @@ export default function MainPOS({ user }) {
     try {
       await productAPI.reactivateProduct(item.id);
       setToast({ type: 'success', message: `"${item.name}" restored to menu.` });
-      if (lastRemoved?.id === item.id) setLastRemoved(null);
+      setLastRemoved((prev) => {
+        const items = (prev?.items || []).filter((t) => t.id !== item.id);
+        return items.length > 0 ? { items } : null;
+      });
       await refreshMenu();
       await loadRemoved();
     } catch (err) {
@@ -432,22 +508,57 @@ export default function MainPOS({ user }) {
 
       <div className="pos-grid mt-2">
         <div className="menu-section">
+          {user?.role === 'admin' && manageMode !== 'idle' && (
+            <div className="card" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem', padding: '0.5rem 0.75rem' }}>
+              <span className="font-semibold">
+                {manageMode === 'edit' ? 'Edit mode — tap a product to edit' : `Delete mode — ${selectedIds.length} selected`}
+              </span>
+              <span style={{ flex: 1 }} />
+              {manageMode === 'delete' && (
+                <>
+                  <button className="btn btn-secondary" onClick={() => setSelectedIds(filteredMenu.map((i) => i.id))}>Select all</button>
+                  <button className="btn btn-secondary" onClick={() => setSelectedIds([])}>Clear</button>
+                </>
+              )}
+              <button className="btn btn-secondary" onClick={exitManageMode}>Exit</button>
+            </div>
+          )}
           {filteredMenu.length > 0 ? (
             <>
               <div className="product-grid">
-                {filteredMenu.map(item => (
-                  <div key={item.id} className="product-card" onClick={() => openProductModal(item)} style={{ position: 'relative' }}>
-                    {user?.role === 'admin' && (
-                      <div className="flex gap-1" style={{ position: 'absolute', top: '6px', right: '6px' }} onClick={(e) => e.stopPropagation()}>
-                        <button className="btn-icon-small" title={`Edit ${item.name}`} onClick={() => openEditProduct(item)}><Edit size={14} /></button>
-                        <button className="btn-icon-small danger" title={`Remove ${item.name}`} onClick={() => handleDeactivateProduct(item)}><Trash2 size={14} /></button>
-                      </div>
+                {filteredMenu.map(item => {
+                  const selected = selectedIds.includes(item.id);
+                  return (
+                  <div
+                    key={item.id}
+                    className={`product-card${manageMode === 'delete' && selected ? ' product-card-selected' : ''}`}
+                    onClick={() => handleCardClick(item)}
+                    style={{ position: 'relative' }}
+                    role="button"
+                    aria-pressed={manageMode === 'delete' ? selected : undefined}
+                  >
+                    {manageMode === 'delete' && (
+                      <span
+                        className="product-select-check"
+                        aria-hidden="true"
+                        style={{
+                          position: 'absolute', top: '6px', right: '6px', width: '22px', height: '22px',
+                          borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          background: selected ? 'var(--color-primary)' : 'rgba(255,255,255,0.85)',
+                          color: selected ? '#fff' : 'transparent', border: '2px solid var(--color-primary)',
+                          fontWeight: 700, fontSize: '14px',
+                        }}
+                      >✓</span>
+                    )}
+                    {manageMode === 'edit' && user?.role === 'admin' && (
+                      <span style={{ position: 'absolute', top: '6px', right: '6px' }} className="btn-icon-small" aria-hidden="true"><Edit size={14} /></span>
                     )}
                     <Coffee size={32} className="product-icon" />
                     <h4>{item.name}</h4>
                     <p className="price">₱{item.price.toFixed(2)}</p>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             </>
           ) : (
@@ -456,23 +567,68 @@ export default function MainPOS({ user }) {
               <p className="text-lg">No products found</p>
             </div>
           )}
-          {user?.role === 'admin' && (
-            <button
-              className="add-product-fab"
-              onClick={() => setShowAddProductModal(true)}
-              title="Add Product"
-            >
-              <Plus size={24} />
-            </button>
+          {user?.role === 'admin' && manageMode === 'delete' && selectedIds.length > 0 && (
+            <div className="card" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.5rem', padding: '0.5rem 0.75rem' }}>
+              <span className="font-semibold">{selectedIds.length} selected</span>
+              <span style={{ flex: 1 }} />
+              <button className="btn btn-secondary" onClick={() => setSelectedIds([])}>Clear</button>
+              <button className="btn btn-primary" disabled={batchRemoving} onClick={() => setShowDeleteConfirm(true)}>
+                {batchRemoving ? 'Removing...' : `Remove ${selectedIds.length} product${selectedIds.length > 1 ? 's' : ''}`}
+              </button>
+            </div>
           )}
           {user?.role === 'admin' && (
-            <button
-              className="btn btn-secondary mt-2"
-              onClick={openRemoved}
-              title="View removed products"
-            >
-              Removed products
-            </button>
+            <div className="fab-speed-dial">
+              {fabOpen && (
+                <div className="fab-speed-dial-actions">
+                  <button className="fab-mini" title="Add product" onClick={() => { setFabOpen(false); setAddProductForm({ name: '', price: '', category: '' }); setEditingProductId(null); setToast(null); setShowAddProductModal(true); }}>
+                    <Plus size={18} /><span>Add</span>
+                  </button>
+                  <button className="fab-mini" title="Edit a product" onClick={() => enterManageMode('edit')}>
+                    <Edit size={18} /><span>Edit</span>
+                  </button>
+                  <button className="fab-mini" title="Remove products" onClick={() => enterManageMode('delete')}>
+                    <Trash2 size={18} /><span>Delete</span>
+                  </button>
+                  <button className="fab-mini" title="View removed products" onClick={() => { setFabOpen(false); openRemoved(); }}>
+                    <Archive size={18} /><span>Removed</span>
+                  </button>
+                </div>
+              )}
+              <button
+                className="add-product-fab"
+                onClick={() => (manageMode !== 'idle' ? exitManageMode() : setFabOpen((v) => !v))}
+                title={manageMode !== 'idle' ? 'Exit select mode' : (fabOpen ? 'Close' : 'Manage products')}
+                aria-expanded={fabOpen}
+                aria-label={manageMode !== 'idle' ? 'Exit select mode' : (fabOpen ? 'Close product options' : 'Open product options')}
+              >
+                {manageMode !== 'idle' || fabOpen ? <X size={24} /> : <Plus size={24} />}
+              </button>
+            </div>
+          )}
+          {showDeleteConfirm && (
+            <div className="modal-overlay" onClick={() => !batchRemoving && setShowDeleteConfirm(false)}>
+              <div className="modal-content card" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '500px', width: '100%' }}>
+                <div className="modal-header">
+                  <h3>Remove {selectedItems.length} product{selectedItems.length > 1 ? 's' : ''}?</h3>
+                  <button className="btn-icon-small" disabled={batchRemoving} onClick={() => setShowDeleteConfirm(false)}><X size={18} /></button>
+                </div>
+                <div className="modal-body" style={{ maxHeight: '50vh', overflowY: 'auto' }}>
+                  <p className="text-sm text-muted mb-3">They will be hidden from the menu. Past orders are kept, and you can undo or restore them later.</p>
+                  {selectedItems.map((p) => (
+                    <div key={p.id} className="cart-item">
+                      <div className="item-info"><h5>{p.name}</h5><p className="item-price">₱{p.price.toFixed(2)} · {p.category}</p></div>
+                    </div>
+                  ))}
+                </div>
+                <div className="modal-footer">
+                  <button className="btn btn-secondary" disabled={batchRemoving} onClick={() => setShowDeleteConfirm(false)}>Cancel</button>
+                  <button className="btn btn-primary" disabled={batchRemoving || selectedItems.length === 0} onClick={executeBatchRemove}>
+                    {batchRemoving ? 'Removing...' : 'Confirm removal'}
+                  </button>
+                </div>
+              </div>
+            </div>
           )}
         </div>
 

@@ -2113,6 +2113,60 @@
     width: 20px;
     height: 20px;
   }
+  .fab-speed-dial {
+    position: fixed;
+    bottom: 16px;
+    right: 16px;
+    z-index: 100;
+  }
+}
+
+.fab-speed-dial {
+  position: absolute;
+  bottom: 24px;
+  right: 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.5rem;
+  z-index: 10;
+}
+
+.fab-speed-dial .add-product-fab {
+  position: static;
+}
+
+.fab-speed-dial-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.5rem;
+  animation: toastSlideIn 0.2s ease-out;
+}
+
+.fab-mini {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.9rem;
+  border-radius: 999px;
+  border: 1px solid var(--color-border, #e5e0d5);
+  background: #fff;
+  color: var(--color-text, #333);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 0.875rem;
+}
+
+.fab-mini:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+.product-card-selected {
+  outline: 3px solid var(--color-primary);
+  outline-offset: -3px;
 }
 
 .add-product-modal {

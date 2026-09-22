@@ -56,6 +56,29 @@ describe("CustomerTrafficHeatmap", () => {
     expect(screen.queryByTestId("traffic-tooltip-13")).not.toBeInTheDocument();
   });
 
+  it("should style the tooltip like the Chart.js tooltips with title, color chip and caret", async () => {
+    db.getHourlyTraffic.mockResolvedValue(toHourly(FALLBACK_TRAFFIC));
+    render(<CustomerTrafficHeatmap />);
+
+    await waitFor(() => expect(screen.getByTestId("traffic-cell-13")).toBeInTheDocument());
+    const cell = screen.getByTestId("traffic-cell-13");
+    // No native title bubble doubling up over the custom one (Chart.js canvases have none)
+    expect(cell).not.toHaveAttribute("title");
+
+    fireEvent.mouseEnter(cell);
+    const tip = screen.getByTestId("traffic-tooltip-13");
+    expect(tip.style.background).toBe("rgba(0, 0, 0, 0.8)");
+    expect(tip.style.color).toBe("rgb(255, 255, 255)");
+    expect(tip.style.borderRadius).toBe("6px");
+    // Bold title row + body row with the count
+    expect(tip).toHaveTextContent("1pm");
+    expect(tip).toHaveTextContent(/22 customers \(.+% of day\)/);
+    // Caret pointer sits on the cell-facing edge (bubble is above for hour 13)
+    const caret = screen.getByTestId("traffic-tooltip-caret-13");
+    expect(caret.style.bottom).toBe("-5px");
+    fireEvent.mouseLeave(cell);
+  });
+
   it("should fall back to sample data and offer retry on fetch failure", async () => {
     db.getHourlyTraffic.mockRejectedValueOnce(new Error("Supabase waking up"));
     render(<CustomerTrafficHeatmap />);
@@ -123,13 +146,16 @@ describe("CustomerTrafficHeatmap", () => {
     fireEvent.mouseEnter(screen.getByTestId("traffic-cell-2"));
     const belowTip = screen.getByTestId("traffic-tooltip-2");
     expect(belowTip).toHaveAttribute("data-placement", "below-center");
-    expect(belowTip.style.top).toBe("calc(100% + 6px)");
+    expect(belowTip.style.top).toBe("calc(100% + 8px)");
+    // Same enter animation as the Chart.js tooltips on the other charts
+    expect(belowTip).toHaveClass("traffic-tooltip-animated-below");
     fireEvent.mouseLeave(screen.getByTestId("traffic-cell-2"));
 
     fireEvent.mouseEnter(screen.getByTestId("traffic-cell-20"));
     const aboveTip = screen.getByTestId("traffic-tooltip-20");
     expect(aboveTip).toHaveAttribute("data-placement", "above-center");
-    expect(aboveTip.style.bottom).toBe("calc(100% + 6px)");
+    expect(aboveTip.style.bottom).toBe("calc(100% + 8px)");
+    expect(aboveTip).toHaveClass("traffic-tooltip-animated-above");
     fireEvent.mouseLeave(screen.getByTestId("traffic-cell-20"));
 
     // Corner cell combines both flips and stays inside the card

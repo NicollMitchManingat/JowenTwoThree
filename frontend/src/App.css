@@ -1869,6 +1869,35 @@
   box-sizing: border-box;
 }
 
+/* Customer traffic heatmap tooltip — mirrors the Chart.js tooltip animation
+   used by the other analytics charts (opacity linear 200ms + 4px settle glide).
+   Margin offsets are animated instead of transform so the centering
+   translateX(-50%) on edge-flipped bubbles is never overridden. */
+@keyframes traffic-tip-below-in {
+  from { opacity: 0; margin-top: -4px; }
+  to { opacity: 1; margin-top: 0; }
+}
+
+@keyframes traffic-tip-above-in {
+  from { opacity: 0; margin-bottom: -4px; }
+  to { opacity: 1; margin-bottom: 0; }
+}
+
+.traffic-tooltip-animated-below {
+  animation: traffic-tip-below-in 200ms linear;
+}
+
+.traffic-tooltip-animated-above {
+  animation: traffic-tip-above-in 200ms linear;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .traffic-tooltip-animated-below,
+  .traffic-tooltip-animated-above {
+    animation: none;
+  }
+}
+
 .card {
   background: var(--bg-card);
   border: 1px solid var(--border-color);

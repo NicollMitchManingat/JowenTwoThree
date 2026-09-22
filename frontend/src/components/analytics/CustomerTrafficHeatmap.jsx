@@ -160,7 +160,6 @@ export default function CustomerTrafficHeatmap({ startDate, endDate }) {
               tabIndex={0}
               data-testid={`traffic-cell-${hour}`}
               aria-label={`${label} — ${customers} customers (${pct}% of day)${isPeak ? ", peak hour" : ""}`}
-              title={`${label} — ${customers} customers (${pct}% of day)`}
               onMouseEnter={() => setHoveredHour(hour)}
               onMouseLeave={() => setHoveredHour((h) => (h === hour ? null : h))}
               onFocus={() => setHoveredHour(hour)}
@@ -196,18 +195,19 @@ export default function CustomerTrafficHeatmap({ startDate, endDate }) {
                   data-align={tooltipAlign}
                   data-placement={tooltipPlacement}
                   role="tooltip"
+                  className={tooltipBelow ? "traffic-tooltip-animated-below" : "traffic-tooltip-animated-above"}
                   style={{
                     position: "absolute",
-                    top: tooltipBelow ? "calc(100% + 6px)" : "auto",
-                    bottom: tooltipBelow ? "auto" : "calc(100% + 6px)",
+                    top: tooltipBelow ? "calc(100% + 8px)" : "auto",
+                    bottom: tooltipBelow ? "auto" : "calc(100% + 8px)",
                     left: tooltipAlign === "left" ? "0" : tooltipAlign === "right" ? "auto" : "50%",
                     right: tooltipAlign === "right" ? "0" : "auto",
                     transform: tooltipAlign === "center" ? "translateX(-50%)" : "none",
-                    background: "#111827",
-                    color: "#f9fafb",
-                    fontSize: "0.7rem",
-                    fontWeight: 500,
-                    padding: "4px 8px",
+                    background: "rgba(0, 0, 0, 0.8)",
+                    color: "#fff",
+                    fontSize: "12px",
+                    lineHeight: 1.4,
+                    padding: "6px 10px",
                     borderRadius: "6px",
                     whiteSpace: "normal",
                     overflowWrap: "anywhere",
@@ -218,7 +218,39 @@ export default function CustomerTrafficHeatmap({ startDate, endDate }) {
                     pointerEvents: "none",
                   }}
                 >
-                  {label} — {customers} customers ({pct}% of day)
+                  <span style={{ display: "block", fontWeight: 700 }}>
+                    {label}
+                    {isPeak ? " • Peak" : ""}
+                  </span>
+                  <span style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "6px", marginTop: "2px" }}>
+                    <span
+                      aria-hidden="true"
+                      style={{
+                        width: "8px",
+                        height: "8px",
+                        borderRadius: "2px",
+                        background: bg,
+                        border: "1px solid rgba(255, 255, 255, 0.6)",
+                        flexShrink: 0,
+                      }}
+                    />
+                    <span>{customers} customers ({pct}% of day)</span>
+                  </span>
+                  <span
+                    data-testid={`traffic-tooltip-caret-${hour}`}
+                    aria-hidden="true"
+                    style={{
+                      position: "absolute",
+                      top: tooltipBelow ? "-5px" : "auto",
+                      bottom: tooltipBelow ? "auto" : "-5px",
+                      left: tooltipAlign === "left" ? "14px" : tooltipAlign === "right" ? "auto" : "50%",
+                      right: tooltipAlign === "right" ? "14px" : "auto",
+                      transform: tooltipAlign === "center" ? "translateX(-50%) rotate(45deg)" : "rotate(45deg)",
+                      width: "10px",
+                      height: "10px",
+                      background: "rgba(0, 0, 0, 0.8)",
+                    }}
+                  />
                 </span>
               )}
             </div>

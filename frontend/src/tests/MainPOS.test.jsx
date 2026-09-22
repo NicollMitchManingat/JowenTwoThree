@@ -69,4 +69,28 @@ describe('MainPOS', () => {
       expect(screen.getByText('Total')).toBeInTheDocument()
     })
   })
+
+  it('should hide the radial FAB for non-admin staff', async () => {
+    render(<MainPOS user={mockUser} />)
+
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText('Search menu...')).toBeInTheDocument()
+    })
+    expect(screen.queryByTestId('radial-fab')).not.toBeInTheDocument()
+  })
+
+  it('should open the radial menu and launch the add-product modal for admins', async () => {
+    const user = userEvent.setup()
+    render(<MainPOS user={{ username: 'admin', role: 'admin' }} />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('radial-fab-main')).toBeInTheDocument()
+    })
+    await user.click(screen.getByTestId('radial-fab-main'))
+    expect(screen.getByTestId('radial-fab-add')).toBeInTheDocument()
+    expect(screen.getByTestId('radial-fab-delete')).toBeInTheDocument()
+
+    await user.click(screen.getByTestId('radial-fab-add'))
+    expect(screen.getByText('Add New Product')).toBeInTheDocument()
+  })
 })

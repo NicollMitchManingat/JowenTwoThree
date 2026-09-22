@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef, useEffect as useLayoutEffect } from "react";
-import { ShoppingCart, Plus, Minus, Users, Tag, X, Search, Coffee, CakeSlice, RefreshCcw, Printer, AlertCircle, CheckCircle, Edit, Trash2, Archive } from 'lucide-react';
+import { ShoppingCart, Plus, Minus, Users, Tag, X, Search, Coffee, CakeSlice, RefreshCcw, Printer, AlertCircle, CheckCircle, Edit } from 'lucide-react';
 import { db } from '../services/db';
 import { productAPI } from '../services/productAPI';
+import RadialFabMenu from '../components/pos/RadialFabMenu';
 
 export default function MainPOS({ user }) {
   const [customerCount, setCustomerCount] = useState(0);
@@ -578,33 +579,15 @@ export default function MainPOS({ user }) {
             </div>
           )}
           {user?.role === 'admin' && (
-            <div className="fab-speed-dial">
-              {fabOpen && (
-                <div className="fab-speed-dial-actions">
-                  <button className="fab-mini" title="Add product" onClick={() => { setFabOpen(false); setAddProductForm({ name: '', price: '', category: '' }); setEditingProductId(null); setToast(null); setShowAddProductModal(true); }}>
-                    <Plus size={18} /><span>Add</span>
-                  </button>
-                  <button className="fab-mini" title="Edit a product" onClick={() => enterManageMode('edit')}>
-                    <Edit size={18} /><span>Edit</span>
-                  </button>
-                  <button className="fab-mini" title="Remove products" onClick={() => enterManageMode('delete')}>
-                    <Trash2 size={18} /><span>Delete</span>
-                  </button>
-                  <button className="fab-mini" title="View removed products" onClick={() => { setFabOpen(false); openRemoved(); }}>
-                    <Archive size={18} /><span>Removed</span>
-                  </button>
-                </div>
-              )}
-              <button
-                className="add-product-fab"
-                onClick={() => (manageMode !== 'idle' ? exitManageMode() : setFabOpen((v) => !v))}
-                title={manageMode !== 'idle' ? 'Exit select mode' : (fabOpen ? 'Close' : 'Manage products')}
-                aria-expanded={fabOpen}
-                aria-label={manageMode !== 'idle' ? 'Exit select mode' : (fabOpen ? 'Close product options' : 'Open product options')}
-              >
-                {manageMode !== 'idle' || fabOpen ? <X size={24} /> : <Plus size={24} />}
-              </button>
-            </div>
+            <RadialFabMenu
+              open={fabOpen}
+              manageMode={manageMode}
+              onToggle={() => (manageMode !== 'idle' ? exitManageMode() : setFabOpen((v) => !v))}
+              onAdd={() => { setFabOpen(false); setAddProductForm({ name: '', price: '', category: '' }); setEditingProductId(null); setToast(null); setShowAddProductModal(true); }}
+              onEdit={() => enterManageMode('edit')}
+              onDelete={() => enterManageMode('delete')}
+              onRemoved={() => { setFabOpen(false); openRemoved(); }}
+            />
           )}
           {showDeleteConfirm && (
             <div className="modal-overlay" onClick={() => !batchRemoving && setShowDeleteConfirm(false)}>

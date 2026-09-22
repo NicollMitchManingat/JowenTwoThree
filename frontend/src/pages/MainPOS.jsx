@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useEffect as useLayoutEffect } from "react";
-import { ShoppingCart, Plus, Minus, Users, Tag, X, Search, Coffee, CakeSlice, RefreshCcw, Printer, AlertCircle, CheckCircle, Edit } from 'lucide-react';
+import { ShoppingCart, Plus, Minus, Users, Tag, X, Search, Coffee, CakeSlice, RefreshCcw, Printer, AlertCircle, CheckCircle, Edit, Pencil } from 'lucide-react';
 import { db } from '../services/db';
 import { productAPI } from '../services/productAPI';
 import RadialFabMenu from '../components/pos/RadialFabMenu';
@@ -9,8 +9,8 @@ export default function MainPOS({ user }) {
   const [cart, setCart] = useState([]);
   const [discountType, setDiscountType] = useState('none');
   const [selectedProduct, setSelectedProduct] = useState(null);
+  const [noteLineId, setNoteLineId] = useState(null);
   const [productNote, setProductNote] = useState('');
-  const [selectedSize, setSelectedSize] = useState('Small');
   const [activeCategory, setActiveCategory] = useState('All');
   const [searchQuery, setSearchQuery] = useState('');
   const [products, setProducts] = useState([]);
@@ -112,27 +112,41 @@ export default function MainPOS({ user }) {
 
   const resetOrder = () => { setCart([]); setCustomerCount(0); setDiscountType('none'); };
 
-  const openProductModal = (item) => {
-    setSelectedProduct(item);
-    setProductNote('');
-    setSelectedSize(null);
-  };
-
-  const handleConfirmAdd = () => {
-    if (!selectedProduct) return;
-    const finalPrice = selectedProduct.price;
-    const displayName = selectedProduct.name;
-
+  // Tapping a card adds straight to the cart (no modal). Lines without notes
+  // merge by product; annotated lines stay separate.
+  const quickAdd = (item) => {
     setCart(prev => {
-      const existing = prev.find(i => i.productId === selectedProduct.id && i.note === productNote.trim());
+      const existing = prev.find(i => i.productId === item.id && i.note === '');
       if (existing) {
         return prev.map(i => i.cartItemId === existing.cartItemId ? { ...i, qty: i.qty + 1 } : i);
       }
-      return [...prev, { productId: selectedProduct.id, name: displayName, price: finalPrice, qty: 1, note: productNote.trim(), cartItemId: Date.now() + Math.random() }];
+      return [...prev, { productId: item.id, name: item.name, price: item.price, qty: 1, note: '', cartItemId: Date.now() + Math.random() }];
     });
 
     if (customerCount === 0) setCustomerCount(1);
+  };
+
+  // Opens the notes modal for one cart line (prefilled with its current note).
+  const openNoteModal = (cartItemId) => {
+    const line = cart.find(i => i.cartItemId === cartItemId);
+    if (!line) return;
+    setSelectedProduct({ id: line.productId, name: line.name, price: line.price });
+    setNoteLineId(cartItemId);
+    setProductNote(line.note || '');
+  };
+
+  const handleSaveNote = () => {
+    if (!selectedProduct || noteLineId == null) return;
+    const note = productNote.trim();
+    setCart(prev => prev.map(i => i.cartItemId === noteLineId ? { ...i, note } : i));
     setSelectedProduct(null);
+    setNoteLineId(null);
+    setProductNote('');
+  };
+
+  const closeNoteModal = () => {
+    setSelectedProduct(null);
+    setNoteLineId(null);
     setProductNote('');
   };
 
@@ -220,7 +234,7 @@ export default function MainPOS({ user }) {
       setSelectedIds((prev) => prev.includes(item.id) ? prev.filter((id) => id !== item.id) : [...prev, item.id]);
       return;
     }
-    openProductModal(item);
+    quickAdd(item);
   };
 
   const selectedItems = products.filter((p) => selectedIds.includes(p.id));
@@ -368,6 +382,7 @@ export default function MainPOS({ user }) {
         quantity: item.qty,
         unit_price: item.price,
         subtotal: item.price * item.qty,
+        note: item.note || null,
       }))
       await db.createTransactionItems(items)
 
@@ -387,6 +402,7 @@ export default function MainPOS({ user }) {
           qty: item.qty,
           price: item.price,
           subtotal: item.price * item.qty,
+          note: item.note || '',
         })),
         subtotal,
         discountAmount,
@@ -456,20 +472,20 @@ export default function MainPOS({ user }) {
   return (
     <div className="pos-container relative">
       {selectedProduct && (
-        <div className="modal-overlay" onClick={() => setSelectedProduct(null)}>
+        <div className="modal-overlay" onClick={closeNoteModal}>
           <div className="modal-content card" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <h3>Add {selectedProduct.name}</h3>
-              <button className="btn-icon-small" onClick={() => setSelectedProduct(null)}><X size={18} /></button>
+              <h3>Notes for {selectedProduct.name}</h3>
+              <button className="btn-icon-small" onClick={closeNoteModal} aria-label="Close notes"><X size={18} /></button>
             </div>
             <div className="modal-body">
-              <label className="font-semibold text-muted text-sm block mb-1">Special Instructions</label>
-              <textarea placeholder="e.g., Less sugar, warm..." value={productNote} onChange={(e) => setProductNote(e.target.value)} className="note-input" />
+              <label className="font-semibold text-muted text-sm block mb-1" htmlFor="cart-line-note">Special Instructions</label>
+              <textarea id="cart-line-note" data-testid="note-textarea" placeholder="e.g., Less sugar, warm..." value={productNote} onChange={(e) => setProductNote(e.target.value)} className="note-input" />
             </div>
             <div className="modal-footer">
-              <button className="btn btn-secondary" onClick={() => setSelectedProduct(null)}>Cancel</button>
-              <button className="btn btn-primary" onClick={handleConfirmAdd}>
-                Add to Order - ₱{selectedProduct.price.toFixed(2)}
+              <button className="btn btn-secondary" onClick={closeNoteModal}>Cancel</button>
+              <button className="btn btn-primary" data-testid="save-note-btn" onClick={handleSaveNote}>
+                Save Note
               </button>
             </div>
           </div>
@@ -638,6 +654,13 @@ export default function MainPOS({ user }) {
                     <button className="btn-icon-small" onClick={() => updateQty(item.cartItemId, -1)}><Minus size={12} /></button>
                     <span className="qty">{item.qty}</span>
                     <button className="btn-icon-small" onClick={() => updateQty(item.cartItemId, 1)}><Plus size={12} /></button>
+                    <button
+                      className="btn-icon-small"
+                      title={item.note ? "Edit special instructions" : "Add special instructions"}
+                      aria-label={`${item.note ? "Edit" : "Add"} special instructions for ${item.name}`}
+                      data-testid={`cart-note-${item.cartItemId}`}
+                      onClick={() => openNoteModal(item.cartItemId)}
+                    ><Pencil size={12} /></button>
                     <button className="btn-icon-small danger" onClick={() => removeFromCart(item.cartItemId)}><X size={12} /></button>
                   </div>
                 </div>

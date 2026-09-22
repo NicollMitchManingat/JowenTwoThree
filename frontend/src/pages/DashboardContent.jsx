@@ -58,6 +58,44 @@ const aiPredictions = [
   { metric: "Wastage Risk", value: "Strawberries", insight: "Use in promos today", impact: "Medium" },
 ];
 
+// Group { 'YYYY-MM-DD': amount } daily sales into ISO-week buckets (Monday start).
+// Returns [{ key: 'YYYY-Www', label: 'Www MMM d', weekStart: Date, total }] sorted by week.
+export function aggregateWeeklySales(salesData) {
+  if (!salesData || typeof salesData !== "object") return [];
+  const buckets = new Map();
+  for (const [day, amount] of Object.entries(salesData)) {
+    const d = new Date(`${day}T12:00:00`);
+    if (Number.isNaN(d.getTime())) continue;
+    const n = Number(amount);
+    if (!Number.isFinite(n) || n < 0) continue;
+    // ISO week: shift to Thursday, then derive Monday + week number.
+    const tmp = new Date(d);
+    const dayIdx = (tmp.getDay() + 6) % 7; // Mon=0..Sun=6
+    tmp.setDate(tmp.getDate() - dayIdx + 3); // Thursday
+    const isoYear = tmp.getFullYear();
+    const firstThursday = new Date(isoYear, 0, 4);
+    const fIdx = (firstThursday.getDay() + 6) % 7;
+    firstThursday.setDate(firstThursday.getDate() - fIdx + 3);
+    const weekNum = 1 + Math.round((tmp - firstThursday) / (7 * 24 * 3600 * 1000));
+    const key = `${isoYear}-W${String(weekNum).padStart(2, "0")}`;
+    const monday = new Date(d);
+    monday.setDate(monday.getDate() - dayIdx);
+    const prev = buckets.get(key);
+    if (prev) {
+      prev.total += n;
+      if (monday < prev.weekStart) prev.weekStart = monday;
+    } else {
+      buckets.set(key, { key, weekStart: monday, total: n });
+    }
+  }
+  return [...buckets.values()]
+    .sort((a, b) => a.weekStart - b.weekStart)
+    .map((b) => ({
+      ...b,
+      label: `W${b.key.slice(-2)} ${b.weekStart.toLocaleDateString("en-US", { month: "short", day: "numeric" })}`,
+    }));
+}
+
 export default function DashboardContent({ activeTab, user }) {
   const { dateFilter, setDateFilter } = useContext(AnalyticsContext);
   const [customStartDate, setCustomStartDate] = useState("");
@@ -66,6 +104,8 @@ export default function DashboardContent({ activeTab, user }) {
   const [lowStock, setLowStock] = useState([]);
   const [adjustments, setAdjustments] = useState([]);
   const [salesData, setSalesData] = useState(null);
+  const [salesError, setSalesError] = useState(null);
+  const [salesRetryKey, setSalesRetryKey] = useState(0);
   const [loading, setLoading] = useState(false);
   const [showAddProductModal, setShowAddProductModal] = useState(false);
   const [addProductForm, setAddProductForm] = useState({ name: '', price: '', category: '' });
@@ -120,29 +160,37 @@ export default function DashboardContent({ activeTab, user }) {
   // Load sales data for charts when date range changes
   useEffect(() => {
     if (!dateRange) return;
-    
+    let cancelled = false;
+
     async function loadSalesData() {
       setLoading(true);
+      setSalesError(null);
       try {
         const dailySales = await db.getDailySales(dateRange.start, dateRange.end);
-        setSalesData(dailySales);
+        if (!cancelled) setSalesData(dailySales);
       } catch (err) {
         console.error('Sales data load error:', err);
-        setSalesData(null);
+        if (!cancelled) {
+          setSalesData(null);
+          setSalesError(err?.message || 'Failed to load sales data.');
+        }
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     }
     loadSalesData();
-  }, [dateRange]);
+    return () => {
+      cancelled = true;
+    };
+  }, [dateRange, salesRetryKey]);
 
   // Transform daily sales data for chart
   const chartData = useMemo(() => {
     if (!salesData || Object.keys(salesData).length === 0) return { labels: [], datasets: [{ data: [] }] };
-    
+
     const labels = Object.keys(salesData).sort();
     const data = labels.map(label => salesData[label] || 0);
-    
+
     return {
       labels: labels.map(d => {
         const date = new Date(d);
@@ -155,6 +203,21 @@ export default function DashboardContent({ activeTab, user }) {
         backgroundColor: "#16a34a",
         tension: 0.4,
         fill: false,
+      }],
+    };
+  }, [salesData]);
+
+  // Aggregate the same daily sales into ISO-week buckets for the Weekly card.
+  const weeklyChartData = useMemo(() => {
+    const buckets = aggregateWeeklySales(salesData);
+    if (buckets.length === 0) return { labels: [], datasets: [{ data: [] }] };
+    return {
+      labels: buckets.map(b => b.label),
+      datasets: [{
+        label: "Weekly Revenue",
+        data: buckets.map(b => b.total),
+        borderColor: "#2563eb",
+        backgroundColor: "#2563eb",
       }],
     };
   }, [salesData]);
@@ -257,7 +320,13 @@ export default function DashboardContent({ activeTab, user }) {
             <h3 className="m-0">Revenue Trend</h3>
           </div>
           <div className="chart-container" style={{ height: "250px" }}>
-            <SalesTrendChart data={chartData} />
+            <SalesTrendChart
+              data={chartData}
+              variant="line"
+              loading={loading && !salesData}
+              error={salesError}
+              onRetry={() => setSalesRetryKey((k) => k + 1)}
+            />
           </div>
         </div>
         <div className="card">
@@ -265,26 +334,33 @@ export default function DashboardContent({ activeTab, user }) {
             <h3 className="m-0">Weekly Revenue</h3>
           </div>
           <div className="chart-container" style={{ height: "250px" }}>
-            <SalesTrendChart data={chartData} />
+            <SalesTrendChart
+              data={weeklyChartData}
+              variant="bar"
+              loading={loading && !salesData}
+              error={salesError}
+              onRetry={() => setSalesRetryKey((k) => k + 1)}
+              summaryPrefix="Best week"
+            />
           </div>
         </div>
       </div>
 
       <div className="charts-grid">
-        <div className="card">
+        <div className="card" style={{ display: "flex", flexDirection: "column" }}>
           <div className="card-header">
             <h3 className="m-0">Stock Movement</h3>
           </div>
-          <div className="chart-container" style={{ height: "250px" }}>
-            <StockMovementChart />
+          <div className="chart-container" style={{ height: "100%", minHeight: "280px", flex: 1, display: "flex", flexDirection: "column" }}>
+            <StockMovementChart startDate={dateRange?.start} endDate={dateRange?.end} />
           </div>
         </div>
         <div className="card">
           <div className="card-header">
             <h3 className="m-0">Customer Traffic Heatmap</h3>
           </div>
-          <div className="chart-container" style={{ height: "280px" }}>
-            <CustomerTrafficHeatmap />
+          <div className="chart-container" style={{ height: "auto", minHeight: "340px" }}>
+            <CustomerTrafficHeatmap startDate={dateRange?.start} endDate={dateRange?.end} />
           </div>
         </div>
       </div>

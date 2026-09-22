@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef, useEffect as useLayoutEffect } from "react";
-import { ShoppingCart, Plus, Minus, Users, Tag, X, Search, Coffee, CakeSlice, RefreshCcw, Printer, AlertCircle, CheckCircle, Edit, Pencil } from 'lucide-react';
+import { ShoppingCart, Plus, Minus, Users, Tag, X, Search, RefreshCcw, Printer, AlertCircle, CheckCircle, Edit, Pencil } from 'lucide-react';
 import { db } from '../services/db';
 import { productAPI } from '../services/productAPI';
 import RadialFabMenu from '../components/pos/RadialFabMenu';
+import { getProductIcon } from '../components/pos/productIcons';
 
 export default function MainPOS({ user }) {
   const [customerCount, setCustomerCount] = useState(0);
@@ -545,6 +546,7 @@ export default function MainPOS({ user }) {
               <div className="product-grid">
                 {filteredMenu.map(item => {
                   const selected = selectedIds.includes(item.id);
+                  const { Icon: ProductIcon, tint } = getProductIcon(item.name, item.category);
                   return (
                   <div
                     key={item.id}
@@ -570,7 +572,7 @@ export default function MainPOS({ user }) {
                     {manageMode === 'edit' && user?.role === 'admin' && (
                       <span style={{ position: 'absolute', top: '6px', right: '6px' }} className="btn-icon-small" aria-hidden="true"><Edit size={14} /></span>
                     )}
-                    <Coffee size={32} className="product-icon" />
+                    <ProductIcon size={32} className="product-icon" style={tint ? { color: tint } : undefined} />
                     <h4>{item.name}</h4>
                     <p className="price">₱{item.price.toFixed(2)}</p>
                   </div>

@@ -355,6 +355,64 @@ export const db = {
     return offlineWrite('transaction_items', items)
   },
 
+  // Top-selling products for the Stock Movement chart.
+  // Aggregates transaction_items.quantity by product in range.
+  // Falls back to transactions.cart JSONB [{name, qty}] when the join is unavailable.
+  // Returns [{ name, sold }] sorted desc, up to `limit`.
+  async getTopSellingItems(startDate, endDate, limit = 5) {
+    const totals = new Map()
+    const addSale = (name, qty) => {
+      const label = (name || '').trim() || 'Unknown'
+      const n = Number(qty)
+      if (!Number.isFinite(n) || n <= 0) return
+      totals.set(label, (totals.get(label) || 0) + n)
+    }
+    let start = startDate
+    let end = endDate
+    if (!start || !end) {
+      const today = new Date()
+      today.setHours(0, 0, 0, 0)
+      start = start || today.toISOString()
+      end = end || new Date().toISOString()
+    }
+    try {
+      const rows = await queryWithTimeout((signal) => supabase
+        .from('transaction_items')
+        .select('quantity, product_id, products(product_name), transactions!inner(created_at)')
+        .gte('transactions.created_at', start)
+        .lte('transactions.created_at', end)
+        .range(0, 499)
+        .abortSignal(signal))
+      ;(rows || []).forEach((r) => {
+        addSale(r?.products?.product_name || r?.product_id, r?.quantity)
+      })
+      if (totals.size > 0) {
+        return [...totals.entries()]
+          .map(([name, sold]) => ({ name, sold }))
+          .sort((a, b) => b.sold - a.sold)
+          .slice(0, limit)
+      }
+    } catch {
+      // Fall through to cart-JSONB fallback below.
+    }
+    const txns = await queryWithTimeout((signal) => supabase
+      .from('transactions')
+      .select('created_at, cart')
+      .gte('created_at', start)
+      .lte('created_at', end)
+      .order('created_at', { ascending: true })
+      .range(0, 499)
+      .abortSignal(signal))
+    ;(txns || []).forEach((t) => {
+      const cart = Array.isArray(t?.cart) ? t.cart : []
+      cart.forEach((line) => addSale(line?.name || line?.product_name, line?.qty ?? line?.quantity))
+    })
+    return [...totals.entries()]
+      .map(([name, sold]) => ({ name, sold }))
+      .sort((a, b) => b.sold - a.sold)
+      .slice(0, limit)
+  },
+
   // ── Inventory ──────────────────────────────────────────
   async getInventory() {
     return queryWithTimeout((signal) => supabase
@@ -432,6 +490,52 @@ export const db = {
       .range(0, 199)
       .abortSignal(signal))
     return data.reduce((sum, r) => sum + (Number(r.number_of_customer) || 0), 0)
+  },
+
+  // Hourly customer-traffic bins for the analytics heatmap.
+  // Sums transactions.customer_count + customer_traffic.number_of_customer
+  // per local hour. Returns [{ hour: 0-23, customers }] (always 24 entries).
+  async getHourlyTraffic(startDate, endDate) {
+    let start = startDate
+    let end = endDate
+    if (!start || !end) {
+      const today = new Date()
+      today.setHours(0, 0, 0, 0)
+      start = start || today.toISOString()
+      end = end || new Date().toISOString()
+    }
+    const hourly = Array.from({ length: 24 }, (_, hour) => ({ hour, customers: 0 }))
+    const addRecord = (timestamp, count) => {
+      if (!timestamp) return
+      const d = new Date(timestamp)
+      if (Number.isNaN(d.getTime())) return
+      const n = Number(count)
+      if (!Number.isFinite(n) || n <= 0) return
+      hourly[d.getHours()].customers += n
+    }
+    const txns = await queryWithTimeout((signal) => supabase
+      .from('transactions')
+      .select('created_at, customer_count')
+      .gte('created_at', start)
+      .lte('created_at', end)
+      .order('created_at', { ascending: true })
+      .range(0, 499)
+      .abortSignal(signal))
+    ;(txns || []).forEach((t) => addRecord(t.created_at, t.customer_count ?? 1))
+    try {
+      const traffic = await queryWithTimeout((signal) => supabase
+        .from('customer_traffic')
+        .select('created_at, number_of_customer')
+        .gte('created_at', start)
+        .lte('created_at', end)
+        .order('created_at', { ascending: true })
+        .range(0, 499)
+        .abortSignal(signal))
+      ;(traffic || []).forEach((r) => addRecord(r.created_at, r.number_of_customer))
+    } catch {
+      // customer_traffic table may not exist yet — transactions alone suffice.
+    }
+    return hourly
   },
 
   // ── Inventory Adjustments / Wastage ────────────────────

@@ -35,4 +35,16 @@ describe("SummaryCard", () => {
 
     expect(screen.getByText("₱250,000.50")).toBeInTheDocument();
   });
+
+  it("should render an optional subtitle and omit it when absent", () => {
+    const { rerender } = render(
+      <SummaryCard title="Customers" value={8} sub="♂ 3 · ♀ 4 · ? 1" />
+    );
+
+    expect(screen.getByText("8")).toBeInTheDocument();
+    expect(screen.getByText("♂ 3 · ♀ 4 · ? 1")).toBeInTheDocument();
+
+    rerender(<SummaryCard title="Customers" value={8} />);
+    expect(screen.queryByText("♂ 3 · ♀ 4 · ? 1")).not.toBeInTheDocument();
+  });
 });

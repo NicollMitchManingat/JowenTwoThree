@@ -112,10 +112,12 @@ describe('RefundModal', () => {
     expect(screen.getByTestId('refund-manager-password')).toBeInTheDocument()
     expect(screen.getByTestId('refund-confirm')).toBeDisabled()
 
-    // Wrong password → error, no write
+    // Wrong password → error, no write (approval is async: backend, then offline fallback)
     await user.type(screen.getByTestId('refund-manager-password'), 'wrongpass')
     await user.click(screen.getByTestId('refund-confirm'))
-    expect(screen.getByTestId('refund-error')).toHaveTextContent(/Manager approval failed/)
+    await waitFor(() => {
+      expect(screen.getByTestId('refund-error')).toHaveTextContent(/Manager approval failed/)
+    })
     expect(db.createRefund).not.toHaveBeenCalled()
 
     // Correct admin password → approved_by admin, created_by cashier

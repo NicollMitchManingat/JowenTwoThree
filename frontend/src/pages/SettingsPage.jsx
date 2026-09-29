@@ -1,6 +1,7 @@
 import { useState } from 'react';
-import { UserCog, ShieldAlert, RefreshCcw, Tag } from 'lucide-react';
+import { UserCog, RefreshCcw, Tag, Users } from 'lucide-react';
 import DiscountManager from '../components/settings/DiscountManager';
+import AccountManager from '../components/settings/AccountManager';
 
 export default function SettingsPage({ currentUser, onLogout }) {
   const [isSessionActive, setIsSessionActive] = useState(false);
@@ -72,37 +73,14 @@ export default function SettingsPage({ currentUser, onLogout }) {
           <div className="card" style={{ gridColumn: '1 / -1' }}>
             <div className="card-header">
               <h3 className="m-0 flex items-center gap-2">
-                <ShieldAlert size={20} className="text-danger" /> Access Control
+                <Users size={20} className="text-primary" /> User Accounts
               </h3>
             </div>
             <div className="card-body">
               <p className="text-sm text-muted desc-mb">
-                Manage employee access levels. Cashiers run the POS, stockists manage inventory, and only admins view analytics or approve refunds.
+                Cashiers run the POS, stockists manage inventory, and only admins view analytics or approve refunds.
               </p>
-              <div className="table-responsive">
-              <table className="data-table">
-                <thead>
-                  <tr><th>User</th><th>Username</th><th>Role</th></tr>
-                </thead>
-                <tbody>
-                  <tr>
-                    <td className="font-semibold">Admin</td>
-                    <td className="text-muted">admin</td>
-                    <td><span className="badge badge-success">ADMIN</span></td>
-                  </tr>
-                  <tr>
-                    <td className="font-semibold">Cashier</td>
-                    <td className="text-muted">cashier</td>
-                    <td><span className="badge badge-neutral">CASHIER</span></td>
-                  </tr>
-                  <tr>
-                    <td className="font-semibold">Stockist</td>
-                    <td className="text-muted">stockist</td>
-                    <td><span className="badge badge-neutral">STOCKIST</span></td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
+              <AccountManager currentUser={currentUser} />
             </div>
           </div>
         )}

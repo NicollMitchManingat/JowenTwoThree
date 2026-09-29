@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react'
 import { X, Lock } from 'lucide-react'
 import { db } from '../../services/db'
-import { verifyManagerPassword } from '../../services/managerApproval'
+import { authAPI } from '../../services/authAPI'
 
 export const REFUND_REASONS = [
   'Wrong item served',
@@ -97,12 +97,15 @@ export default function RefundModal({ order, user, existingRefunds = [], onClose
     setError('')
     let approvedBy = user?.username
     if (!isAdmin) {
-      const check = verifyManagerPassword(managerPassword)
-      if (!check.success) {
-        setError(check.error)
+      // Backend bcrypt check (falls back to built-in admin password offline).
+      // Session never changes; approval is recorded as approved_by.
+      try {
+        const check = await authAPI.verifyManager(managerPassword)
+        approvedBy = check.username
+      } catch (err) {
+        setError(err?.message || 'Manager approval failed')
         return
       }
-      approvedBy = check.username
     }
     setSaving(true)
     try {

@@ -11,6 +11,7 @@ const consolidatedDataRouter = require("./routes/consolidatedDataRoute")
 const csvExportRouter = require("./routes/csvExportRoute")
 const transactionRouter = require("./routes/transactionRoute") // NEW
 const productRouter = require("./routes/productRoute");
+const authRouter = require("./routes/auth");
 
 const app = express()
 
@@ -33,5 +34,6 @@ app.use("/api/consolidated-data", consolidatedDataRouter)
 app.use("/api/export/csv", csvExportRouter)
 app.use("/api/transactions", transactionRouter) // NEW
 app.use("/api/products", productRouter);
+app.use("/api/auth", authRouter);
 
 module.exports = app

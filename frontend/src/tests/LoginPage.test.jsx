@@ -99,13 +99,36 @@ describe('LoginPage - Authentication', () => {
 
   it('should disable form inputs during login', async () => {
     const user = userEvent.setup()
-    render(<LoginPage onLogin={mockOnLogin} />)
+    // Hold the backend response so the loading state is observable.
+    let resolveFetch
+    const realFetch = globalThis.fetch
+    globalThis.fetch = vi.fn().mockImplementation(
+      () => new Promise((res) => { resolveFetch = res })
+    )
+    try {
+      render(<LoginPage onLogin={mockOnLogin} />)
 
-    await user.type(screen.getByTestId('username-input'), 'admin')
-    await user.type(screen.getByTestId('password-input'), 'admin123')
-    await user.click(screen.getByTestId('login-button'))
+      await user.type(screen.getByTestId('username-input'), 'admin')
+      await user.type(screen.getByTestId('password-input'), 'admin123')
+      // Fire without awaiting: the submit handler is still waiting on fetch.
+      const click = user.click(screen.getByTestId('login-button'))
 
-    expect(screen.getByTestId('login-button')).toBeDisabled()
+      await waitFor(() => {
+        expect(screen.getByTestId('login-button')).toBeDisabled()
+      })
+      expect(screen.getByTestId('login-button')).toHaveTextContent('Signing in...')
+
+      resolveFetch({
+        ok: true,
+        json: async () => ({ success: true, user: { username: 'admin', role: 'admin' } }),
+      })
+      await click
+      await waitFor(() => {
+        expect(mockOnLogin).toHaveBeenCalledWith({ username: 'admin', role: 'admin' })
+      })
+    } finally {
+      globalThis.fetch = realFetch
+    }
   })
 
   it('should display demo credentials for testing', () => {

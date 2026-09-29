@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Coffee, Lock, User, Mail } from 'lucide-react'
 import '../styles/LoginPage.css'
+import { authAPI } from '../services/authAPI'
 
 export default function LoginPage({ onLogin }) {
   const [username, setUsername] = useState('')
@@ -8,7 +9,7 @@ export default function LoginPage({ onLogin }) {
   const [error, setError] = useState('')
   const [isLoading, setIsLoading] = useState(false)
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault()
     setError('')
     setIsLoading(true)
@@ -19,18 +20,15 @@ export default function LoginPage({ onLogin }) {
       return
     }
 
-    setTimeout(() => {
-      if (username === 'admin' && password === 'admin123') {
-        onLogin({ username: 'admin', role: 'admin' })
-      } else if (username === 'cashier' && password === 'cashier123') {
-        onLogin({ username: 'cashier', role: 'cashier' })
-      } else if (username === 'stockist' && password === 'stockist123') {
-        onLogin({ username: 'stockist', role: 'stockist' })
-      } else {
-        setError('Invalid username or password')
-      }
+    try {
+      // Backend (bcrypt) first; falls back to built-in accounts when offline.
+      const user = await authAPI.login({ username, password })
+      onLogin({ username: user.username, role: user.role })
+    } catch (err) {
+      setError(err?.message || 'Invalid username or password')
+    } finally {
       setIsLoading(false)
-    }, 500)
+    }
   }
 
   return (

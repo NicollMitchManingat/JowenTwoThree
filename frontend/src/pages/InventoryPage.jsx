@@ -75,12 +75,14 @@ export default function InventoryPage({ userRole }) {
           name: formData.name,
           category: formData.category,
           stock_quantity: Number(formData.stock_quantity),
+          unit: formData.unit || 'units',
         })
       } else {
         await db.createInventoryItem({
           name: formData.name,
           category: formData.category,
           stock_quantity: Number(formData.stock_quantity),
+          unit: formData.unit || 'units',
         })
       }
       setShowModal(false)

@@ -13,6 +13,7 @@ import SettingsPage from './pages/SettingsPage';
 import OrderHistoryPage from './pages/OrderHistoryPage';
 import { AnalyticsProvider } from './pages/AnalyticsContext';
 import DashboardContent from './pages/DashboardContent';
+import { USERS } from './services/managerApproval';
 
 function App() {
   const [currentUser, setCurrentUser] = useState(() => {
@@ -22,10 +23,9 @@ function App() {
   const [currentPage, setCurrentPage] = useState('pos');
   const [isDesktopCollapsed, setIsDesktopCollapsed] = useState(false);
   const [isMobileOpen, setIsMobileOpen] = useState(false);
-  const [users] = useState([
-    { id: 1, username: 'admin', password: 'admin123', email: 'admin@jowen.com', role: 'admin' },
-    { id: 2, username: 'staff', password: 'staff123', email: 'staff@jowen.com', role: 'staff' }
-  ]);
+  // Credentials live in managerApproval.js so manager-approval checks
+  // always verify against the same admin password used at login.
+  const [users] = useState(USERS);
 
   const handleLogin = (credentials) => {
     if (credentials && credentials.username) {
@@ -75,7 +75,7 @@ function App() {
       case 'inventory':
         return <InventoryPage userRole={currentUser.role} />;
       case 'orders':
-        return <OrderHistoryPage />;
+        return <OrderHistoryPage user={currentUser} />;
       case 'reports':
         return currentUser.role === 'admin' ? <AnalyticsProvider><DashboardContent activeTab="Sales" user={currentUser} /></AnalyticsProvider> : <MainPOS user={currentUser} />;
       case 'settings':

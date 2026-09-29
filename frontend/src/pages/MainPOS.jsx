@@ -4,6 +4,34 @@ import { db } from '../services/db';
 import { productAPI } from '../services/productAPI';
 import RadialFabMenu from '../components/pos/RadialFabMenu';
 import { getProductIcon } from '../components/pos/productIcons';
+import { formatDiscountLabel } from '../components/settings/DiscountManager';
+
+// Resolves a discount selection to a peso amount. Selections are
+// 'none', legacy 'pwd' | 'senior' | 'promo' (pre-migration fallback), or
+// 'voucher:<id>' for DB-driven vouchers (percent or flat). Unknown or
+// inactive vouchers resolve to 0 so a deactivated voucher can never discount.
+export function resolveDiscount(subtotal, discountType, vouchers = []) {
+  const base = Math.max(0, Number(subtotal) || 0)
+  if (!discountType || discountType === 'none') {
+    return { amount: 0, rate: 0, voucherId: null, label: 'None' }
+  }
+  if (discountType === 'pwd' || discountType === 'senior') {
+    const label = discountType === 'pwd' ? 'PWD' : 'Senior'
+    return { amount: base * 0.20, rate: 20, voucherId: null, label: `${label} 20%` }
+  }
+  if (discountType === 'promo') {
+    return { amount: base * 0.10, rate: 10, voucherId: null, label: 'Promo 10%' }
+  }
+  if (discountType.startsWith('voucher:')) {
+    const id = discountType.slice('voucher:'.length)
+    const v = (vouchers || []).find((x) => String(x.id) === String(id) && x.is_active)
+    if (!v) return { amount: 0, rate: 0, voucherId: null, label: 'None' }
+    const rate = Number(v.value) || 0
+    const amount = v.type === 'flat' ? Math.min(rate, base) : (base * rate) / 100
+    return { amount: Math.max(0, Math.min(amount, base)), rate, voucherId: v.id, label: formatDiscountLabel(v) }
+  }
+  return { amount: 0, rate: 0, voucherId: null, label: 'None' }
+}
 
 export default function MainPOS({ user }) {
   const [maleCount, setMaleCount] = useState(0);
@@ -14,6 +42,10 @@ export default function MainPOS({ user }) {
   const customerCount = clampCount(maleCount) + clampCount(femaleCount) + clampCount(unspecifiedCount);
   const [cart, setCart] = useState([]);
   const [discountType, setDiscountType] = useState('none');
+  const [vouchers, setVouchers] = useState([]);
+  // DB-driven discounts (seeded PWD/Senior/Promo + custom vouchers).
+  // Empty pre-migration → legacy hardcoded options below take over.
+  const useDbDiscounts = vouchers.length > 0;
   const [selectedProduct, setSelectedProduct] = useState(null);
   const [noteLineId, setNoteLineId] = useState(null);
   const [productNote, setProductNote] = useState('');
@@ -72,15 +104,18 @@ export default function MainPOS({ user }) {
       setLoadError(null)
       try {
         // Fetch independently so a categories failure never blanks the menu.
-        const [prodsResult, catsResult] = await Promise.allSettled([
+        const [prodsResult, catsResult, vouchersResult] = await Promise.allSettled([
           db.getProducts(),
           db.getCategories(),
+          typeof db.getActiveDiscounts === 'function' ? db.getActiveDiscounts() : Promise.resolve([]),
         ])
         if (cancelled) return
         if (prodsResult.status === 'rejected') throw prodsResult.reason
         const prods = prodsResult.value || []
         const cats = catsResult.status === 'fulfilled' ? (catsResult.value || []) : []
         if (catsResult.status === 'rejected') console.error('Failed to load categories:', catsResult.reason)
+        if (vouchersResult.status === 'fulfilled') setVouchers(vouchersResult.value || [])
+        else console.error('Failed to load discounts:', vouchersResult.reason)
         setProducts(prods.map(p => ({
           id: p.id,
           name: p.product_name,
@@ -162,10 +197,12 @@ export default function MainPOS({ user }) {
   };
 
   const refreshMenu = async () => {
-    const [prodsResult, catsResult] = await Promise.allSettled([
+    const [prodsResult, catsResult, vouchersResult] = await Promise.allSettled([
       db.getProducts(),
       db.getCategories(),
+      typeof db.getActiveDiscounts === 'function' ? db.getActiveDiscounts() : Promise.resolve([]),
     ])
+    if (vouchersResult.status === 'fulfilled') setVouchers(vouchersResult.value || [])
     if (prodsResult.status === 'rejected') throw prodsResult.reason
     const prods = prodsResult.value || []
     const cats = catsResult.status === 'fulfilled' ? (catsResult.value || []) : []
@@ -350,12 +387,18 @@ export default function MainPOS({ user }) {
 
   const [shortfall, setShortfall] = useState(null);
 
+  // A deactivated/deleted voucher selection reverts to none.
+  useEffect(() => {
+    if (discountType.startsWith('voucher:') && useDbDiscounts) {
+      const id = discountType.slice('voucher:'.length);
+      if (!vouchers.some((v) => String(v.id) === String(id))) setDiscountType('none');
+    }
+  }, [vouchers, discountType, useDbDiscounts]);
+
   const runCheckout = async (allowShortage) => {
     const subtotal = cart.reduce((sum, item) => sum + (item.price * item.qty), 0);
-    let discountMultiplier = 0;
-    if (discountType === 'pwd' || discountType === 'senior') discountMultiplier = 0.20;
-    if (discountType === 'promo') discountMultiplier = 0.10;
-    const discountAmount = subtotal * discountMultiplier;
+    const resolved = resolveDiscount(subtotal, discountType, vouchers);
+    const discountAmount = resolved.amount;
     const total = subtotal - discountAmount;
 
     try {
@@ -385,8 +428,9 @@ export default function MainPOS({ user }) {
         female: clampCount(femaleCount),
         unspecified: clampCount(unspecifiedCount),
         special_instructions: '',
-        discount_type: discountType !== 'none' ? discountType : null,
-        discount_value: discountAmount,
+        discount_type: resolved.voucherId ? 'voucher' : (discountType !== 'none' ? discountType : null),
+        discount_value: resolved.voucherId ? resolved.rate : discountAmount,
+        discount_id: resolved.voucherId,
         cart,
       })
 
@@ -425,6 +469,7 @@ export default function MainPOS({ user }) {
         subtotal,
         discountAmount,
         discountType,
+        discountLabel: resolved.label,
         total,
         customerCount,
         maleCount: clampCount(maleCount),
@@ -476,10 +521,8 @@ export default function MainPOS({ user }) {
   }));
 
   const subtotal = cart.reduce((sum, item) => sum + (item.price * item.qty), 0);
-  let discountMultiplier = 0;
-  if (discountType === 'pwd' || discountType === 'senior') discountMultiplier = 0.20;
-  if (discountType === 'promo') discountMultiplier = 0.10;
-  const discountAmount = subtotal * discountMultiplier;
+  const resolvedDiscount = resolveDiscount(subtotal, discountType, vouchers);
+  const discountAmount = resolvedDiscount.amount;
   const total = subtotal - discountAmount;
 
   if (loading) {
@@ -708,11 +751,28 @@ export default function MainPOS({ user }) {
           <div className="order-summary">
             <div className="discount-selector">
               <label><Tag size={14} /> Discount</label>
-              <select value={discountType} onChange={(e) => setDiscountType(e.target.value)}>
+              <select value={discountType} onChange={(e) => setDiscountType(e.target.value)} data-testid="discount-select">
                 <option value="none">None</option>
-                <option value="pwd">PWD (20%)</option>
-                <option value="senior">Senior (20%)</option>
-                <option value="promo">Promo (10%)</option>
+                {useDbDiscounts ? (
+                  <>
+                    <optgroup label="Statutory">
+                      {vouchers.filter((v) => v.is_system).map((v) => (
+                        <option key={v.id} value={`voucher:${v.id}`}>{formatDiscountLabel(v)}</option>
+                      ))}
+                    </optgroup>
+                    <optgroup label="Vouchers">
+                      {vouchers.filter((v) => !v.is_system).map((v) => (
+                        <option key={v.id} value={`voucher:${v.id}`}>{formatDiscountLabel(v)}</option>
+                      ))}
+                    </optgroup>
+                  </>
+                ) : (
+                  <>
+                    <option value="pwd">PWD (20%)</option>
+                    <option value="senior">Senior (20%)</option>
+                    <option value="promo">Promo (10%)</option>
+                  </>
+                )}
               </select>
             </div>
             <div className="summary-row"><span>Subtotal</span><span>₱{subtotal.toFixed(2)}</span></div>
@@ -757,7 +817,7 @@ export default function MainPOS({ user }) {
               <div className="receipt-totals">
                 <div className="receipt-total-row"><span>Subtotal</span><span>₱{receipt.subtotal.toFixed(2)}</span></div>
                 {receipt.discountAmount > 0 && (
-                  <div className="receipt-total-row discount"><span>Discount ({receipt.discountType === 'pwd' ? 'PWD' : receipt.discountType === 'senior' ? 'Senior' : 'Promo'} {receipt.discountType === 'promo' ? '10%' : '20%'})</span><span>- ₱{receipt.discountAmount.toFixed(2)}</span></div>
+                  <div className="receipt-total-row discount"><span>Discount ({receipt.discountLabel || (receipt.discountType === 'pwd' ? 'PWD 20%' : receipt.discountType === 'senior' ? 'Senior 20%' : receipt.discountType === 'promo' ? 'Promo 10%' : 'Voucher')})</span><span>- ₱{receipt.discountAmount.toFixed(2)}</span></div>
                 )}
                 <div className="receipt-total-row grand-total"><span>Total</span><span>₱{receipt.total.toFixed(2)}</span></div>
                 <div className="receipt-total-row payment"><span>Payment</span><span>Cash</span></div>

@@ -1,8 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import MainPOS from '../pages/MainPOS'
+import MainPOS, { resolveDiscount } from '../pages/MainPOS'
 import { db } from '../services/db'
+
+const VOUCHERS = [
+  { id: 'v-pwd', name: 'PWD', type: 'percent', value: 20, is_active: true, is_system: true },
+  { id: 'v-senior', name: 'Senior', type: 'percent', value: 20, is_active: true, is_system: true },
+  { id: 'v-weekend', name: 'Weekend 15%', type: 'percent', value: 15, is_active: true, is_system: false },
+  { id: 'v-flat50', name: '₱50 Off', type: 'flat', value: 50, is_active: true, is_system: false },
+]
 
 vi.mock('../services/db', () => ({
   db: {
@@ -18,6 +25,7 @@ vi.mock('../services/db', () => ({
     createTransaction: vi.fn().mockResolvedValue({ id: 'txn-1', transaction_number: 'TXN-1' }),
     createTransactionItems: vi.fn().mockResolvedValue([]),
     logTraffic: vi.fn(),
+    getActiveDiscounts: vi.fn().mockResolvedValue([]),
   }
 }))
 
@@ -29,6 +37,7 @@ describe('MainPOS', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    db.getActiveDiscounts.mockResolvedValue([])
   })
 
   it('should render main POS layout', async () => {
@@ -196,6 +205,96 @@ describe('MainPOS', () => {
       expect(screen.getByPlaceholderText('Search menu...')).toBeInTheDocument()
     })
     expect(screen.queryByTestId('radial-fab')).not.toBeInTheDocument()
+  })
+
+  it('should resolve legacy discounts the same as before', () => {
+    expect(resolveDiscount(1000, 'none')).toMatchObject({ amount: 0 })
+    expect(resolveDiscount(1000, 'pwd')).toMatchObject({ amount: 200 })
+    expect(resolveDiscount(1000, 'senior')).toMatchObject({ amount: 200 })
+    expect(resolveDiscount(1000, 'promo')).toMatchObject({ amount: 100 })
+  })
+
+  it('should resolve percent and flat vouchers and cap flat at the subtotal', () => {
+    expect(resolveDiscount(1000, 'voucher:v-weekend', VOUCHERS)).toMatchObject({ amount: 150, rate: 15, voucherId: 'v-weekend' })
+    expect(resolveDiscount(1000, 'voucher:v-flat50', VOUCHERS)).toMatchObject({ amount: 50, rate: 50, voucherId: 'v-flat50' })
+    // Flat ₱50 on a ₱30 order caps at ₱30
+    expect(resolveDiscount(30, 'voucher:v-flat50', VOUCHERS)).toMatchObject({ amount: 30 })
+    // Unknown or inactive voucher → no discount
+    expect(resolveDiscount(1000, 'voucher:missing', VOUCHERS)).toMatchObject({ amount: 0 })
+    expect(resolveDiscount(1000, 'voucher:v-weekend', VOUCHERS.map(v => ({ ...v, is_active: false })))).toMatchObject({ amount: 0 })
+  })
+
+  it('should list vouchers grouped under Statutory and Vouchers', async () => {
+    db.getActiveDiscounts.mockResolvedValue(VOUCHERS)
+    render(<MainPOS user={mockUser} />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('discount-select')).toBeInTheDocument()
+    })
+    const select = screen.getByTestId('discount-select')
+    expect(select).toHaveTextContent('PWD (20%)')
+    expect(select).toHaveTextContent('Weekend 15% (15%)')
+    expect(select).toHaveTextContent('₱50 Off')
+  })
+
+  it('should checkout with a percent voucher and store its rate', async () => {
+    const user = userEvent.setup()
+    db.getActiveDiscounts.mockResolvedValue(VOUCHERS)
+    render(<MainPOS user={mockUser} />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Espresso')).toBeInTheDocument()
+    })
+    await user.click(screen.getAllByText('Espresso')[0])
+    await user.click(screen.getAllByText('Espresso')[0])
+    // 2 × ₱150 = ₱300
+    await user.selectOptions(screen.getByTestId('discount-select'), 'voucher:v-weekend')
+
+    expect(screen.getByTestId('discount-select')).toHaveValue('voucher:v-weekend')
+    await user.click(screen.getByText('Checkout & Log Traffic'))
+
+    await waitFor(() => {
+      expect(db.createTransaction).toHaveBeenCalledWith(
+        expect.objectContaining({
+          subtotal: 300,
+          discount: 45,
+          total: 255,
+          discount_type: 'voucher',
+          discount_id: 'v-weekend',
+          discount_value: 15,
+        })
+      )
+    })
+    await waitFor(() => {
+      expect(screen.getByTestId('receipt')).toBeInTheDocument()
+    })
+    expect(screen.getByTestId('receipt')).toHaveTextContent('Weekend 15%')
+  })
+
+  it('should checkout with a flat voucher capped at the subtotal', async () => {
+    const user = userEvent.setup()
+    db.getActiveDiscounts.mockResolvedValue(VOUCHERS)
+    render(<MainPOS user={mockUser} />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Espresso')).toBeInTheDocument()
+    })
+    await user.click(screen.getByText('Espresso'))
+    // 1 × ₱150, ₱50 flat → ₱100 total
+    await user.selectOptions(screen.getByTestId('discount-select'), 'voucher:v-flat50')
+    await user.click(screen.getByText('Checkout & Log Traffic'))
+
+    await waitFor(() => {
+      expect(db.createTransaction).toHaveBeenCalledWith(
+        expect.objectContaining({
+          subtotal: 150,
+          discount: 50,
+          total: 100,
+          discount_type: 'voucher',
+          discount_id: 'v-flat50',
+        })
+      )
+    })
   })
 
   it('should open the radial menu and launch the add-product modal for admins', async () => {

@@ -27,6 +27,14 @@ FROM cats c, (
 ) AS p(cat_name, name, price)
 WHERE c.name = p.cat_name;
 
+INSERT INTO discounts (name, type, value, is_active, is_system, created_by) VALUES
+  ('PWD', 'percent', 20, true, true, 'seed'),
+  ('Senior', 'percent', 20, true, true, 'seed'),
+  ('Promo', 'percent', 10, true, false, 'seed'),
+  ('Weekend 15%', 'percent', 15, true, false, 'seed'),
+  ('₱50 Off', 'flat', 50, true, false, 'seed')
+ON CONFLICT (name) DO NOTHING;
+
 INSERT INTO inventory (name, category, stock_quantity) VALUES
   ('Arabica Beans (Dark)', 'Ingredients', 12), ('Whole Milk', 'Dairy', 8),
   ('Oat Milk', 'Dairy', 15), ('Vanilla Syrup', 'Syrups', 2),

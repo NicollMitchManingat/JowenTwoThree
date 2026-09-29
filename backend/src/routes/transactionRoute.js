@@ -75,6 +75,33 @@ router.get("/", async (req, res) => {
   }
 });
 
+// Record a refund (money-only; inventory is never restocked).
+// Body: { transaction_id, items, refund_amount, reason, notes?, approved_by, created_by?, fullRefund? }
+router.post("/:id/refund", async (req, res) => {
+  try {
+    const refund = await TransactionService.recordRefund(
+      { ...req.body, transaction_id: req.params.id },
+      req.body.fullRefund === true
+    );
+
+    return res.status(201).json({
+      success: true,
+      message: "Refund recorded successfully",
+      refund,
+    });
+  } catch (error) {
+    const status = /required|greater than 0|at least one/i.test(error.message)
+      ? 400
+      : 500;
+    console.error("Refund Error:", error);
+
+    return res.status(status).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
 // Generate receipt
 router.get("/:id/receipt", async (req, res) => {
   try {

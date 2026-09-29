@@ -130,6 +130,67 @@ function formatReceipt(transaction) {
   };
 }
 
+// Refund validation (pure — throws before any Supabase call).
+// Money-only refunds: inventory is never restocked.
+function validateRefundInput(data) {
+  if (!data || typeof data !== "object") {
+    throw new Error("Invalid refund data");
+  }
+  const { transaction_id, items, refund_amount, reason, approved_by } = data;
+  if (!transaction_id) {
+    throw new Error("Transaction id is required");
+  }
+  if (!Array.isArray(items) || items.length === 0) {
+    throw new Error("Select at least one item to refund");
+  }
+  const amount = Number(refund_amount);
+  if (!Number.isFinite(amount) || amount <= 0) {
+    throw new Error("Refund amount must be greater than 0");
+  }
+  if (!String(reason || "").trim()) {
+    throw new Error("A reason for the refund is required");
+  }
+  if (!String(approved_by || "").trim()) {
+    throw new Error("Manager approval is required");
+  }
+  return {
+    transaction_id,
+    items,
+    refund_amount: amount,
+    reason: String(reason).trim(),
+    notes: String(data.notes || "").trim() || null,
+    approved_by: String(approved_by).trim(),
+    created_by: data.created_by || null,
+  };
+}
+
+// Append-only refund record + flip the transaction status.
+// fullRefund=true → REFUNDED, otherwise PARTIALLY_REFUNDED.
+async function recordRefund(data, fullRefund = false) {
+  const clean = validateRefundInput(data);
+
+  const { data: refund, error: refundError } = await supabase
+    .from("refunds")
+    .insert([clean])
+    .select()
+    .single();
+
+  if (refundError) {
+    throw refundError;
+  }
+
+  const { error: statusError } = await supabase
+    .from("transactions")
+    .update({ status: fullRefund ? "REFUNDED" : "PARTIALLY_REFUNDED" })
+    .eq("id", clean.transaction_id);
+
+  if (statusError) {
+    throw statusError;
+  }
+
+  return refund;
+}
+
 // Used for tests only
 function clearHistory() {
   transactionHistory = [];
@@ -140,5 +201,7 @@ module.exports = {
   getTransactionHistory,
   getTransactionById,
   formatReceipt,
+  validateRefundInput,
+  recordRefund,
   clearHistory,
 };

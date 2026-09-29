@@ -80,7 +80,7 @@ export default function DiscountManager({ currentUser }) {
 
   return (
     <div data-testid="discount-manager">
-      <div className="flex justify-between items-center mb-3">
+      <div className="discount-manager-header">
         <p className="text-sm text-muted m-0">Vouchers appear in the POS discount dropdown. PWD/Senior rates are locked by law.</p>
         <button className="btn btn-primary" onClick={openAdd} data-testid="discount-add-btn">
           <Plus size={16} /> Add voucher

@@ -15,6 +15,14 @@ const mockUsers = [
     role: 'cashier',
     fullName: 'Cashier One'
   },
+  {
+    id: '3',
+    username: 'stockist1',
+    email: 'stockist1@jowen.com',
+    password: 'stockist123',
+    role: 'stockist',
+    fullName: 'Stockist One'
+  },
 ]
 
 module.exports = {

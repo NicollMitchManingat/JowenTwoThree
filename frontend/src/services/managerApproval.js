@@ -4,9 +4,12 @@
 // (no second PIN/secret to drift out of sync). Session is never switched:
 // approval only returns { success, username } for audit (approved_by).
 
+export const ROLES = ['admin', 'cashier', 'stockist']
+
 export const USERS = [
   { id: 1, username: 'admin', password: 'admin123', email: 'admin@jowen.com', role: 'admin' },
-  { id: 2, username: 'staff', password: 'staff123', email: 'staff@jowen.com', role: 'staff' },
+  { id: 2, username: 'cashier', password: 'cashier123', email: 'cashier@jowen.com', role: 'cashier' },
+  { id: 3, username: 'stockist', password: 'stockist123', email: 'stockist@jowen.com', role: 'stockist' },
 ]
 
 export const ADMIN_USERNAME = 'admin'

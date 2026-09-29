@@ -67,7 +67,7 @@ describe('OrderHistoryPage refunds', () => {
 
   it('should hide the refund button on fully refunded orders and open the modal otherwise', async () => {
     const user = userEvent.setup()
-    render(<OrderHistoryPage user={{ username: 'staff', role: 'staff' }} />)
+    render(<OrderHistoryPage user={{ username: 'cashier', role: 'cashier' }} />)
 
     await waitFor(() => {
       expect(screen.getByTestId('order-row-t1')).toBeInTheDocument()
@@ -77,5 +77,17 @@ describe('OrderHistoryPage refunds', () => {
 
     await user.click(screen.getByTestId('refund-btn-t1'))
     expect(screen.getByTestId('refund-modal-mock')).toBeInTheDocument()
+  })
+
+  it('should hide all refund buttons from stockists', async () => {
+    render(<OrderHistoryPage user={{ username: 'stockist', role: 'stockist' }} />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('order-row-t1')).toBeInTheDocument()
+    })
+    expect(screen.queryByTestId('refund-btn-t1')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('refund-btn-t3')).not.toBeInTheDocument()
+    // History itself stays visible
+    expect(screen.getByTestId('order-row-t2')).toHaveTextContent('Refunded')
   })
 })

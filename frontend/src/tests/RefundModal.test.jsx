@@ -21,7 +21,7 @@ const ORDER = {
 }
 
 const ADMIN = { username: 'admin', role: 'admin' }
-const STAFF = { username: 'staff', role: 'staff' }
+const STAFF = { username: 'cashier', role: 'cashier' }
 
 describe('RefundModal', () => {
   beforeEach(() => {
@@ -101,14 +101,14 @@ describe('RefundModal', () => {
     expect(screen.getByText(/1 already refunded/)).toBeInTheDocument()
   })
 
-  it('should require the manager password for staff but keep their session', async () => {
+  it('should require the manager password for cashiers but keep their session', async () => {
     const user = userEvent.setup()
     render(<RefundModal order={ORDER} user={STAFF} onClose={() => {}} />)
 
     await user.click(screen.getByTestId('refund-full-btn'))
     await user.selectOptions(screen.getByTestId('refund-reason'), 'Customer complaint')
 
-    // Password field shown for staff, confirm still disabled
+    // Password field shown for cashiers, confirm still disabled
     expect(screen.getByTestId('refund-manager-password')).toBeInTheDocument()
     expect(screen.getByTestId('refund-confirm')).toBeDisabled()
 
@@ -118,14 +118,14 @@ describe('RefundModal', () => {
     expect(screen.getByTestId('refund-error')).toHaveTextContent(/Manager approval failed/)
     expect(db.createRefund).not.toHaveBeenCalled()
 
-    // Correct admin password → approved_by admin, created_by staff
+    // Correct admin password → approved_by admin, created_by cashier
     await user.clear(screen.getByTestId('refund-manager-password'))
     await user.type(screen.getByTestId('refund-manager-password'), 'admin123')
     await user.click(screen.getByTestId('refund-confirm'))
 
     await waitFor(() => {
       expect(db.createRefund).toHaveBeenCalledWith(
-        expect.objectContaining({ approved_by: 'admin', created_by: 'staff' })
+        expect.objectContaining({ approved_by: 'admin', created_by: 'cashier' })
       )
     })
   })

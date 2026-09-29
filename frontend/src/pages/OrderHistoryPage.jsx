@@ -207,7 +207,8 @@ export default function OrderHistoryPage({ user }) {
                 <td>{order.customer_count || 0}{((order.male_count ?? 0) + (order.female_count ?? 0) + (order.unspecified_count ?? 0) > 0) ? ` (M${order.male_count ?? 0}/F${order.female_count ?? 0}${(order.unspecified_count ?? 0) > 0 ? `/U${order.unspecified_count}` : ''})` : ''}</td>
                 <td className="text-muted">{new Date(order.created_at).toLocaleString()}</td>
                 <td>
-                  {!fullyRefunded && (
+                  {/* Refunds are cash-handling: cashier (with manager approval) + admin only. */}
+                  {!fullyRefunded && user?.role !== 'stockist' && (
                     <button className="btn btn-secondary" onClick={() => setRefundOrder(order)}
                       data-testid={`refund-btn-${order.id}`} title={user?.role === 'admin' ? 'Refund (admin)' : 'Refund (requires manager approval)'}>
                       <Undo2 size={14} /> Refund

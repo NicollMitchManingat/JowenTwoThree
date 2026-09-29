@@ -3,6 +3,7 @@ import { ShoppingCart, Plus, Minus, Users, Tag, X, Search, RefreshCcw, Printer, 
 import { db } from '../services/db';
 import { productAPI } from '../services/productAPI';
 import RadialFabMenu from '../components/pos/RadialFabMenu';
+import LowStockBell from '../components/inventory/LowStockBell';
 import { getProductIcon } from '../components/pos/productIcons';
 import { formatDiscountLabel } from '../components/settings/DiscountManager';
 
@@ -559,7 +560,9 @@ export default function MainPOS({ user }) {
       <div className="pos-header">
         <div className="flex justify-between items-center w-full">
           <h3 className="m-0">Menu</h3>
-          <div className="customer-count-widget m-0" data-testid="traffic-widget">
+          <div className="flex items-center gap-2">
+            <LowStockBell />
+            <div className="customer-count-widget m-0" data-testid="traffic-widget">
             <div className="flex items-center gap-2">
               <Users size={18} className="text-primary" />
               <span className="font-semibold">Traffic:</span>
@@ -584,6 +587,7 @@ export default function MainPOS({ user }) {
                 <button className="btn-icon-small" onClick={unspecified.increment} aria-label="Increase unspecified count"><Plus size={14} /></button>
               </div>
               <span className="traffic-total" data-testid="traffic-total" title="Male + Female + Unspecified">Total: {customerCount}</span>
+            </div>
             </div>
           </div>
         </div>

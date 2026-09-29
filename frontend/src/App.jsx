@@ -64,12 +64,12 @@ function App() {
     return <LoginPage onLogin={handleLogin} />;
   }
 
-  // Cashier: POS + Transactions (+ read-only Inventory).
+  // Cashier: POS + Transactions (stock alerts via the POS bell).
   // Stockist: Inventory + Transactions (no POS, no refunds).
   // Admin: everything.
   const menuItems = [
     { id: 'pos', label: 'POS & Traffic', icon: ShoppingCart, allowedRoles: ['admin', 'cashier'] },
-    { id: 'inventory', label: 'Inventory', icon: Package, allowedRoles: ['admin', 'cashier', 'stockist'] },
+    { id: 'inventory', label: 'Inventory', icon: Package, allowedRoles: ['admin', 'stockist'] },
     { id: 'orders', label: 'Transactions', icon: ClipboardList, allowedRoles: ['admin', 'cashier', 'stockist'] },
     { id: 'reports', label: 'Analytics', icon: Sparkles, allowedRoles: ['admin'] },
     { id: 'settings', label: 'Settings', icon: Settings, allowedRoles: ['admin', 'cashier', 'stockist'] },

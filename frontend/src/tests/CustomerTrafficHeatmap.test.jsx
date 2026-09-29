@@ -163,6 +163,42 @@ describe("CustomerTrafficHeatmap", () => {
     expect(screen.getByTestId("traffic-tooltip-23")).toHaveAttribute("data-placement", "above-right");
   });
 
+  it("should display male/female/unspecified breakdowns per hour", async () => {
+    db.getHourlyTraffic.mockResolvedValue(
+      Array.from({ length: 24 }, (_, hour) => ({
+        hour,
+        customers: hour === 13 ? 5 : 0,
+        male: hour === 13 ? 2 : 0,
+        female: hour === 13 ? 2 : 0,
+        unspecified: hour === 13 ? 1 : 0,
+      }))
+    );
+    render(<CustomerTrafficHeatmap />);
+
+    await waitFor(() => expect(screen.getByTestId("traffic-cell-13")).toBeInTheDocument());
+    expect(screen.getByTestId("traffic-split-13")).toHaveTextContent("2M / 2F / 1U");
+    expect(screen.getByTestId("traffic-gender-summary")).toHaveTextContent("M:");
+    expect(screen.getByTestId("traffic-gender-summary")).toHaveTextContent("F:");
+    expect(screen.getByTestId("traffic-cell-13")).toHaveAttribute(
+      "aria-label",
+      expect.stringContaining("2M / 2F / 1U")
+    );
+
+    fireEvent.mouseEnter(screen.getByTestId("traffic-cell-13"));
+    expect(screen.getByTestId("traffic-tooltip-13")).toHaveTextContent(/5 customers \(.+% of day\)/);
+    expect(screen.getByTestId("traffic-tooltip-13")).toHaveTextContent("2M / 2F / 1U");
+    fireEvent.mouseLeave(screen.getByTestId("traffic-cell-13"));
+  });
+
+  it("should treat legacy totals without a split as unspecified", async () => {
+    db.getHourlyTraffic.mockResolvedValue(toHourly(FALLBACK_TRAFFIC));
+    render(<CustomerTrafficHeatmap />);
+
+    await waitFor(() => expect(screen.getByTestId("traffic-cell-13")).toBeInTheDocument());
+    // Legacy shape normalizes the remainder into the unspecified bucket
+    expect(screen.getByTestId("traffic-split-13")).toHaveTextContent("0M / 0F / 22U");
+  });
+
   it("should wrap long error text instead of spilling outside", async () => {
     db.getHourlyTraffic.mockRejectedValueOnce(
       new Error("SupabaseMediawigwamMediawigwamMediawigwamMediawigwamMediawigwamTimeout".repeat(4))

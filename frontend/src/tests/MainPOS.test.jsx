@@ -40,13 +40,66 @@ describe('MainPOS', () => {
     expect(screen.getByText('Espresso')).toBeInTheDocument()
   })
 
-  it('should display customer traffic controls', async () => {
+  it('should display gender-split customer traffic controls', async () => {
     render(<MainPOS user={mockUser} />)
 
     await waitFor(() => {
       expect(screen.getByText('Traffic:')).toBeInTheDocument()
     })
-    expect(screen.getByDisplayValue('0')).toBeInTheDocument()
+    expect(screen.getByTestId('male-count-input')).toHaveValue(0)
+    expect(screen.getByTestId('female-count-input')).toHaveValue(0)
+    expect(screen.getByTestId('unspecified-count-input')).toHaveValue(0)
+    expect(screen.getByTestId('traffic-total')).toHaveTextContent('Total: 0')
+  })
+
+  it('should sum male + female + unspecified into the traffic total', async () => {
+    const user = userEvent.setup()
+    render(<MainPOS user={mockUser} />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('male-count-input')).toBeInTheDocument()
+    })
+    await user.click(screen.getByLabelText('Increase male count'))
+    await user.click(screen.getByLabelText('Increase male count'))
+    await user.click(screen.getByLabelText('Increase female count'))
+
+    expect(screen.getByTestId('traffic-total')).toHaveTextContent('Total: 3')
+  })
+
+  it('should checkout with the gender split and log gendered traffic', async () => {
+    const user = userEvent.setup()
+    render(<MainPOS user={mockUser} />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Espresso')).toBeInTheDocument()
+    })
+    await user.click(screen.getByLabelText('Increase male count'))
+    await user.click(screen.getByLabelText('Increase female count'))
+    await user.click(screen.getByLabelText('Increase female count'))
+    await user.click(screen.getByText('Espresso'))
+    await user.click(screen.getByText('Checkout & Log Traffic'))
+
+    await waitFor(() => {
+      expect(db.createTransaction).toHaveBeenCalledWith(
+        expect.objectContaining({ customer_count: 3, male: 1, female: 2, unspecified: 0 })
+      )
+    })
+    expect(db.logTraffic).toHaveBeenCalledWith({ male: 1, female: 2, unspecified: 0 })
+    expect(screen.getByTestId('receipt-customer-breakdown')).toHaveTextContent('3')
+    expect(screen.getByTestId('receipt-customer-breakdown')).toHaveTextContent('M1/F2')
+  })
+
+  it('should default quick-add traffic to unspecified when no gender tapped', async () => {
+    const user = userEvent.setup()
+    render(<MainPOS user={mockUser} />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Espresso')).toBeInTheDocument()
+    })
+    await user.click(screen.getByText('Espresso'))
+
+    expect(screen.getByTestId('unspecified-count-input')).toHaveValue(1)
+    expect(screen.getByTestId('traffic-total')).toHaveTextContent('Total: 1')
   })
 
   it('should quick-add item to order without a modal when product is clicked', async () => {

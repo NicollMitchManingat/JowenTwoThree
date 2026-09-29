@@ -67,12 +67,13 @@ export default function OrderHistoryPage() {
   };
 
   const handleExport = () => {
-    const headers = ["Transaction #", "Subtotal", "Discount", "Total", "Payment", "Customers", "Date"]
+    const headers = ["Transaction #", "Subtotal", "Discount", "Total", "Payment", "Customers", "Male", "Female", "Unspecified", "Date"]
     const csvRows = [headers.join(",")]
     for (const order of filtered) {
       csvRows.push([
         order.transaction_number, order.subtotal, order.discount, order.total,
         order.payment_method, order.customer_count || 0,
+        order.male_count ?? "", order.female_count ?? "", order.unspecified_count ?? "",
         new Date(order.created_at).toLocaleString()
       ].join(","))
     }
@@ -139,7 +140,7 @@ export default function OrderHistoryPage() {
                 <td>{Number(order.discount) > 0 ? `-₱${Number(order.discount).toFixed(2)}` : '-'}</td>
                 <td className="font-semibold">₱{Number(order.total).toFixed(2)}</td>
                 <td>{order.payment_method || 'Cash'}</td>
-                <td>{order.customer_count || 0}</td>
+                <td>{order.customer_count || 0}{((order.male_count ?? 0) + (order.female_count ?? 0) + (order.unspecified_count ?? 0) > 0) ? ` (M${order.male_count ?? 0}/F${order.female_count ?? 0}${(order.unspecified_count ?? 0) > 0 ? `/U${order.unspecified_count}` : ''})` : ''}</td>
                 <td className="text-muted">{new Date(order.created_at).toLocaleString()}</td>
               </tr>
             ))}

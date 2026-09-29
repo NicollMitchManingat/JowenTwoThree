@@ -33,6 +33,18 @@ async function saveTransaction(data) {
 
   const totalAmount = subtotal - discountAmount;
   const transactionNumber = `TXN-${Date.now()}`;
+  const toCount = (n) => (Number.isFinite(Number(n)) && Number(n) > 0 ? Math.floor(Number(n)) : 0);
+  let male = toCount(data.male ?? data.male_count);
+  let female = toCount(data.female ?? data.female_count);
+  let unspecified = toCount(data.unspecified ?? data.unspecified_count);
+  let customerCount = toCount(data.customerCount ?? data.customer_count);
+  if (male + female + unspecified === 0 && customerCount > 0) {
+    unspecified = customerCount;
+  } else if (customerCount === 0) {
+    customerCount = male + female + unspecified || 1;
+  } else if (male + female + unspecified !== customerCount) {
+    unspecified = Math.max(0, customerCount - male - female);
+  }
 
   const transaction = {
     transaction_number: transactionNumber,
@@ -43,7 +55,10 @@ async function saveTransaction(data) {
     payment_method: data.paymentMethod || "CASH",
     cash_received: Number(data.cashReceived || 0),
     change_amount: Number(data.changeAmount || 0),
-    customer_count: Number(data.customerCount || 1),
+    customer_count: customerCount,
+    male_count: male,
+    female_count: female,
+    unspecified_count: unspecified,
     special_instructions: data.specialInstructions || "",
     discount_type: discountType,
     discount_value: discountValue,
@@ -102,6 +117,9 @@ function formatReceipt(transaction) {
     receiptId: transaction.transaction_number,
     createdAt: transaction.created_at,
     customerCount: transaction.customer_count,
+    maleCount: transaction.male_count ?? 0,
+    femaleCount: transaction.female_count ?? 0,
+    unspecifiedCount: transaction.unspecified_count ?? 0,
     items: transaction.cart,
     subtotal: transaction.subtotal,
     discountType: transaction.discount_type,

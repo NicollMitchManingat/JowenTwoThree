@@ -30,16 +30,44 @@ export function formatHour(hour) {
   return h < 12 ? `${h}am` : `${h - 12}pm`;
 }
 
+function toCount(n) {
+  const v = Number(n);
+  return Number.isFinite(v) && v > 0 ? Math.floor(v) : 0;
+}
+
 function normalizeHourly(input) {
   if (Array.isArray(input) && input.length === 24) {
-    // Accept [{hour, customers}] or [numbers]
-    return input.map((entry, idx) =>
-      typeof entry === "number"
-        ? entry
-        : Number(entry?.customers ?? entry?.value ?? 0) || 0
-    ).map((n, i) => ({ hour: i, customers: Number.isFinite(n) && n > 0 ? n : 0 }));
+    // Accept [{hour, customers, male, female, unspecified}] or [numbers].
+    // Legacy rows without a split count toward unspecified so totals balance.
+    return input.map((entry, i) => {
+      if (typeof entry === "number") {
+        const customers = toCount(entry);
+        return { hour: i, customers, male: 0, female: 0, unspecified: customers };
+      }
+      const male = toCount(entry?.male ?? entry?.male_count);
+      const female = toCount(entry?.female ?? entry?.female_count);
+      let unspecified = toCount(entry?.unspecified ?? entry?.unspecified_count);
+      let customers = toCount(entry?.customers ?? entry?.value);
+      if (male + female + unspecified === 0 && customers > 0) {
+        unspecified = customers;
+      } else if (customers === 0) {
+        customers = male + female + unspecified;
+      } else if (male + female + unspecified !== customers) {
+        unspecified = Math.max(0, customers - male - female);
+      }
+      return { hour: i, customers, male, female, unspecified };
+    });
   }
-  return FALLBACK_TRAFFIC.map((value, hour) => ({ hour, customers: value }));
+  return FALLBACK_TRAFFIC.map((value, hour) => {
+    const customers = toCount(value);
+    return { hour, customers, male: 0, female: 0, unspecified: customers };
+  });
+}
+
+export function formatGenderSplit({ male = 0, female = 0, unspecified = 0 } = {}) {
+  const parts = [`${male}M`, `${female}F`];
+  if (unspecified > 0) parts.push(`${unspecified}U`);
+  return parts.join(" / ");
 }
 
 export default function CustomerTrafficHeatmap({ startDate, endDate }) {
@@ -73,18 +101,24 @@ export default function CustomerTrafficHeatmap({ startDate, endDate }) {
     };
   }, [startDate, endDate, retryKey]);
 
-  const { total, max, peakHour, avg } = useMemo(() => {
+  const { total, max, peakHour, avg, maleTotal, femaleTotal, unspecifiedTotal } = useMemo(() => {
     const list = hourly || [];
     const t = list.reduce((s, h) => s + (Number(h.customers) || 0), 0);
     let m = 0;
     let peak = 0;
+    let maleT = 0;
+    let femaleT = 0;
+    let unspecifiedT = 0;
     list.forEach((h) => {
       if (h.customers > m) {
         m = h.customers;
         peak = h.hour;
       }
+      maleT += Number(h.male) || 0;
+      femaleT += Number(h.female) || 0;
+      unspecifiedT += Number(h.unspecified) || 0;
     });
-    return { total: t, max: m, peakHour: peak, avg: list.length ? t / list.length : 0 };
+    return { total: t, max: m, peakHour: peak, avg: list.length ? t / list.length : 0, maleTotal: maleT, femaleTotal: femaleT, unspecifiedTotal: unspecifiedT };
   }, [hourly]);
 
   if (loading && !hourly) {
@@ -110,6 +144,13 @@ export default function CustomerTrafficHeatmap({ startDate, endDate }) {
         </span>
         <span>
           Total: <strong style={{ color: "var(--text-main, #111827)" }}>{total.toLocaleString()}</strong>
+        </span>
+        <span data-testid="traffic-gender-summary">
+          M: <strong style={{ color: "var(--text-main, #111827)" }}>{maleTotal.toLocaleString()}</strong>
+          {" / "}F: <strong style={{ color: "var(--text-main, #111827)" }}>{femaleTotal.toLocaleString()}</strong>
+          {unspecifiedTotal > 0 && (
+            <span> / U: <strong style={{ color: "var(--text-main, #111827)" }}>{unspecifiedTotal.toLocaleString()}</strong></span>
+          )}
         </span>
         <span>
           Avg/hr: <strong style={{ color: "var(--text-main, #111827)" }}>{avg.toFixed(1)}</strong>
@@ -141,10 +182,11 @@ export default function CustomerTrafficHeatmap({ startDate, endDate }) {
         aria-label="Customer traffic by hour"
         style={{ display: "grid", gridTemplateColumns: "repeat(6, minmax(0, 1fr))", gap: "6px", width: "100%", maxWidth: "100%", minWidth: 0, boxSizing: "border-box", overflow: "visible" }}
       >
-        {cells.map(({ hour, customers }) => {
+        {cells.map(({ hour, customers, male, female, unspecified }) => {
           const bg = getColor(customers, max);
           const pct = total > 0 ? Math.round((customers / total) * 100) : 0;
           const label = formatHour(hour);
+          const split = formatGenderSplit({ male, female, unspecified });
           const isPeak = customers === max && max > 0;
           const isHovered = hoveredHour === hour;
           const col = ((Number(hour) % 6) + 6) % 6;
@@ -159,7 +201,7 @@ export default function CustomerTrafficHeatmap({ startDate, endDate }) {
               role="gridcell"
               tabIndex={0}
               data-testid={`traffic-cell-${hour}`}
-              aria-label={`${label} — ${customers} customers (${pct}% of day)${isPeak ? ", peak hour" : ""}`}
+              aria-label={`${label} — ${customers} customers (${pct}% of day, ${split})${isPeak ? ", peak hour" : ""}`}
               onMouseEnter={() => setHoveredHour(hour)}
               onMouseLeave={() => setHoveredHour((h) => (h === hour ? null : h))}
               onFocus={() => setHoveredHour(hour)}
@@ -189,6 +231,11 @@ export default function CustomerTrafficHeatmap({ startDate, endDate }) {
                 {isPeak ? " • Peak" : ""}
               </strong>
               <span style={{ fontSize: "1rem", fontWeight: "600", minWidth: 0 }}>{customers}</span>
+              {(male > 0 || female > 0 || unspecified > 0) && (
+                <span data-testid={`traffic-split-${hour}`} style={{ fontSize: "0.65rem", fontWeight: "500", minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                  {split}
+                </span>
+              )}
               {isHovered && (
                 <span
                   data-testid={`traffic-tooltip-${hour}`}
@@ -236,6 +283,7 @@ export default function CustomerTrafficHeatmap({ startDate, endDate }) {
                     />
                     <span>{customers} customers ({pct}% of day)</span>
                   </span>
+                  <span style={{ display: "block", marginTop: "2px", opacity: 0.9 }}>{split}</span>
                   <span
                     data-testid={`traffic-tooltip-caret-${hour}`}
                     aria-hidden="true"

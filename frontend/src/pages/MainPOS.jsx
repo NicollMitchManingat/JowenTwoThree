@@ -6,7 +6,12 @@ import RadialFabMenu from '../components/pos/RadialFabMenu';
 import { getProductIcon } from '../components/pos/productIcons';
 
 export default function MainPOS({ user }) {
-  const [customerCount, setCustomerCount] = useState(0);
+  const [maleCount, setMaleCount] = useState(0);
+  const [femaleCount, setFemaleCount] = useState(0);
+  const [unspecifiedCount, setUnspecifiedCount] = useState(0);
+  const clampCount = (n) => (Number.isFinite(Number(n)) && Number(n) > 0 ? Math.floor(Number(n)) : 0);
+  // Coerced sum so a mid-typing '' field counts as 0 instead of string-concat.
+  const customerCount = clampCount(maleCount) + clampCount(femaleCount) + clampCount(unspecifiedCount);
   const [cart, setCart] = useState([]);
   const [discountType, setDiscountType] = useState('none');
   const [selectedProduct, setSelectedProduct] = useState(null);
@@ -101,17 +106,22 @@ export default function MainPOS({ user }) {
     return matchesCategory && matchesSearch;
   });
 
-  const handleCustomerCount = (e) => {
-    const val = e.target.value;
-    if (val === '') { setCustomerCount(''); return; }
-    const num = parseInt(val);
-    if (!isNaN(num) && num >= 0) setCustomerCount(num);
-  };
-  const handleCustomerBlur = () => { if (customerCount === '') setCustomerCount(0); };
-  const incrementCount = () => setCustomerCount(prev => (prev || 0) + 1);
-  const decrementCount = () => setCustomerCount(prev => (prev > 0 ? prev - 1 : 0));
+  const makeCountHandlers = (setter) => ({
+    increment: () => setter(prev => clampCount(prev) + 1),
+    decrement: () => setter(prev => Math.max(0, clampCount(prev) - 1)),
+    input: (e) => {
+      const val = e.target.value;
+      if (val === '') { setter(''); return; }
+      const num = parseInt(val, 10);
+      if (!isNaN(num) && num >= 0) setter(Math.floor(num));
+    },
+    blur: () => setter(prev => (prev === '' ? 0 : clampCount(prev))),
+  });
+  const male = makeCountHandlers(setMaleCount);
+  const female = makeCountHandlers(setFemaleCount);
+  const unspecified = makeCountHandlers(setUnspecifiedCount);
 
-  const resetOrder = () => { setCart([]); setCustomerCount(0); setDiscountType('none'); };
+  const resetOrder = () => { setCart([]); setMaleCount(0); setFemaleCount(0); setUnspecifiedCount(0); setDiscountType('none'); };
 
   // Tapping a card adds straight to the cart (no modal). Lines without notes
   // merge by product; annotated lines stay separate.
@@ -124,7 +134,7 @@ export default function MainPOS({ user }) {
       return [...prev, { productId: item.id, name: item.name, price: item.price, qty: 1, note: '', cartItemId: Date.now() + Math.random() }];
     });
 
-    if (customerCount === 0) setCustomerCount(1);
+    if (customerCount === 0) setUnspecifiedCount(1);
   };
 
   // Opens the notes modal for one cart line (prefilled with its current note).
@@ -371,6 +381,9 @@ export default function MainPOS({ user }) {
         cash_received: total,
         change_amount: 0,
         customer_count: customerCount,
+        male: clampCount(maleCount),
+        female: clampCount(femaleCount),
+        unspecified: clampCount(unspecifiedCount),
         special_instructions: '',
         discount_type: discountType !== 'none' ? discountType : null,
         discount_value: discountAmount,
@@ -393,7 +406,11 @@ export default function MainPOS({ user }) {
       const { shorted } = await db.applyDeductions(required, txn.transaction_number, { allowShortage })
 
       if (customerCount > 0) {
-        await db.logTraffic(customerCount)
+        await db.logTraffic({
+          male: clampCount(maleCount),
+          female: clampCount(femaleCount),
+          unspecified: clampCount(unspecifiedCount),
+        })
       }
 
       const receiptData = {
@@ -410,6 +427,9 @@ export default function MainPOS({ user }) {
         discountType,
         total,
         customerCount,
+        maleCount: clampCount(maleCount),
+        femaleCount: clampCount(femaleCount),
+        unspecifiedCount: clampCount(unspecifiedCount),
         timestamp: new Date().toISOString(),
         stockShortfall: (shorted || []).map((s) => s.name),
       };
@@ -496,15 +516,31 @@ export default function MainPOS({ user }) {
       <div className="pos-header">
         <div className="flex justify-between items-center w-full">
           <h3 className="m-0">Menu</h3>
-          <div className="customer-count-widget m-0">
+          <div className="customer-count-widget m-0" data-testid="traffic-widget">
             <div className="flex items-center gap-2">
               <Users size={18} className="text-primary" />
               <span className="font-semibold">Traffic:</span>
             </div>
-            <div className="count-controls ml-2">
-              <button className="btn-icon-small" onClick={decrementCount}><Minus size={14} /></button>
-              <input type="number" className="count-input" value={customerCount} onChange={handleCustomerCount} onBlur={handleCustomerBlur} min="0" />
-              <button className="btn-icon-small" onClick={incrementCount}><Plus size={14} /></button>
+            <div className="traffic-steppers">
+              <div className="count-controls" data-testid="male-stepper">
+                <span className="traffic-label" title="Male customers">M</span>
+                <button className="btn-icon-small" onClick={male.decrement} aria-label="Decrease male count"><Minus size={14} /></button>
+                <input type="number" className="count-input" data-testid="male-count-input" aria-label="Male customers" value={maleCount} onChange={male.input} onBlur={male.blur} min="0" />
+                <button className="btn-icon-small" onClick={male.increment} aria-label="Increase male count"><Plus size={14} /></button>
+              </div>
+              <div className="count-controls" data-testid="female-stepper">
+                <span className="traffic-label" title="Female customers">F</span>
+                <button className="btn-icon-small" onClick={female.decrement} aria-label="Decrease female count"><Minus size={14} /></button>
+                <input type="number" className="count-input" data-testid="female-count-input" aria-label="Female customers" value={femaleCount} onChange={female.input} onBlur={female.blur} min="0" />
+                <button className="btn-icon-small" onClick={female.increment} aria-label="Increase female count"><Plus size={14} /></button>
+              </div>
+              <div className="count-controls" data-testid="unspecified-stepper">
+                <span className="traffic-label" title="Unspecified — use when unsure or rushed">?</span>
+                <button className="btn-icon-small" onClick={unspecified.decrement} aria-label="Decrease unspecified count"><Minus size={14} /></button>
+                <input type="number" className="count-input" data-testid="unspecified-count-input" aria-label="Unspecified customers" value={unspecifiedCount} onChange={unspecified.input} onBlur={unspecified.blur} min="0" />
+                <button className="btn-icon-small" onClick={unspecified.increment} aria-label="Increase unspecified count"><Plus size={14} /></button>
+              </div>
+              <span className="traffic-total" data-testid="traffic-total" title="Male + Female + Unspecified">Total: {customerCount}</span>
             </div>
           </div>
         </div>
@@ -703,7 +739,7 @@ export default function MainPOS({ user }) {
                 <div className="receipt-meta-row"><span>Transaction #</span><span>{receipt.transaction.transaction_number}</span></div>
                 <div className="receipt-meta-row"><span>Date</span><span>{new Date(receipt.timestamp).toLocaleString()}</span></div>
                 <div className="receipt-meta-row"><span>Cashier</span><span>{user?.name || 'Cashier'}</span></div>
-                {receipt.customerCount > 0 && <div className="receipt-meta-row"><span>Customers</span><span>{receipt.customerCount}</span></div>}
+                {receipt.customerCount > 0 && <div className="receipt-meta-row"><span>Customers</span><span data-testid="receipt-customer-breakdown">{receipt.customerCount}{((receipt.maleCount || 0) + (receipt.femaleCount || 0) + (receipt.unspecifiedCount || 0) > 0) ? ` (M${receipt.maleCount || 0}/F${receipt.femaleCount || 0}${(receipt.unspecifiedCount || 0) > 0 ? `/U${receipt.unspecifiedCount}` : ''})` : ''}</span></div>}
               </div>
               <div className="receipt-divider"></div>
               <div className="receipt-items">

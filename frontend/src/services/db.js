@@ -53,6 +53,58 @@ async function offlineWrite(table, body) {
   }
 }
 
+// ── Gender-split traffic helpers ───────────────────────────
+// Accepts a legacy total (number) or { male, female, unspecified [, customer_count/total] }.
+// Always returns non-negative ints with total === male + female + unspecified.
+// Legacy totals with no split land in `unspecified` so old rows still balance.
+function toNonNegativeInt(n) {
+  const v = Number(n)
+  return Number.isFinite(v) && v > 0 ? Math.floor(v) : 0
+}
+
+function normalizeGenderCounts(input, totalFallback) {
+  if (typeof input === 'number' || typeof input === 'string') {
+    const total = toNonNegativeInt(input)
+    return { male: 0, female: 0, unspecified: total, total }
+  }
+  const src = input || {}
+  const male = toNonNegativeInt(src.male ?? src.male_count)
+  const female = toNonNegativeInt(src.female ?? src.female_count)
+  let unspecified = toNonNegativeInt(src.unspecified ?? src.unspecified_count)
+  let total = toNonNegativeInt(
+    src.total ?? src.customer_count ?? src.number_of_customer ?? totalFallback
+  )
+  if (male + female + unspecified === 0 && total > 0) {
+    unspecified = total
+  } else if (total === 0) {
+    total = male + female + unspecified
+  } else if (male + female + unspecified !== total) {
+    unspecified = Math.max(0, total - male - female)
+  }
+  return { male, female, unspecified, total }
+}
+
+// Derives a balanced { male, female, unspecified, total } split from a DB row
+// that may predate the gender columns. Remainder always lands in unspecified.
+function splitRowToGender(row, totalKey) {
+  const male = toNonNegativeInt(row?.male_count)
+  const female = toNonNegativeInt(row?.female_count)
+  const unspecifiedRaw = toNonNegativeInt(row?.unspecified_count)
+  const total = toNonNegativeInt(row?.[totalKey] ?? (male + female + unspecifiedRaw))
+  let unspecified = unspecifiedRaw
+  if (male + female + unspecified === 0 && total > 0) {
+    unspecified = total
+  } else if (male + female + unspecified !== total) {
+    unspecified = Math.max(0, total - male - female)
+  }
+  return { male, female, unspecified, total }
+}
+
+function isMissingColumnError(err) {
+  const msg = `${err?.message || ''} ${err?.details || ''} ${err?.hint || ''}`
+  return /male_count|female_count|unspecified_count/i.test(msg)
+}
+
 export const db = {
   // ── Products ──────────────────────────────────────────
   async getProducts() {
@@ -334,7 +386,8 @@ export const db = {
   },
 
   async createTransaction(transaction) {
-    return offlineWrite('transactions', {
+    const split = normalizeGenderCounts(transaction, transaction.customer_count)
+    const fullBody = {
       transaction_number: transaction.transaction_number,
       idempotency_key: transaction.idempotency_key,
       subtotal: transaction.subtotal,
@@ -343,12 +396,25 @@ export const db = {
       payment_method: transaction.payment_method,
       cash_received: transaction.cash_received,
       change_amount: transaction.change_amount,
-      customer_count: transaction.customer_count,
+      customer_count: split.total,
+      male_count: split.male,
+      female_count: split.female,
+      unspecified_count: split.unspecified,
       special_instructions: transaction.special_instructions,
       discount_type: transaction.discount_type,
       discount_value: transaction.discount_value,
       cart: transaction.cart,
-    })
+    }
+    try {
+      return await offlineWrite('transactions', fullBody)
+    } catch (err) {
+      if (isMissingColumnError(err)) {
+        // Pre-migration DB without gender columns — fall back to total only.
+        const { male_count, female_count, unspecified_count, ...legacyBody } = fullBody
+        return offlineWrite('transactions', legacyBody)
+      }
+      throw err
+    }
   },
 
   async createTransactionItems(items) {
@@ -476,25 +542,61 @@ export const db = {
   },
 
   // ── Customer Traffic ───────────────────────────────────
+  // Accepts a legacy total (number) or { male, female, unspecified }.
+  // Legacy totals land in `unspecified` so M + F + U always equals the total.
   async logTraffic(count) {
-    return offlineWrite('customer_traffic', { number_of_customer: count })
+    const split = normalizeGenderCounts(count)
+    const fullBody = {
+      number_of_customer: split.total,
+      male_count: split.male,
+      female_count: split.female,
+      unspecified_count: split.unspecified,
+    }
+    try {
+      return await offlineWrite('customer_traffic', fullBody)
+    } catch (err) {
+      if (isMissingColumnError(err)) {
+        return offlineWrite('customer_traffic', { number_of_customer: split.total })
+      }
+      throw err
+    }
   },
 
   async getTrafficToday() {
     const today = new Date()
     today.setHours(0, 0, 0, 0)
-    const data = await queryWithTimeout((signal) => supabase
-      .from('customer_traffic')
-      .select('number_of_customer')
-      .gte('created_at', today.toISOString())
-      .range(0, 199)
-      .abortSignal(signal))
-    return data.reduce((sum, r) => sum + (Number(r.number_of_customer) || 0), 0)
+    let data
+    try {
+      data = await queryWithTimeout((signal) => supabase
+        .from('customer_traffic')
+        .select('number_of_customer, male_count, female_count, unspecified_count')
+        .gte('created_at', today.toISOString())
+        .range(0, 199)
+        .abortSignal(signal))
+    } catch (err) {
+      if (!isMissingColumnError(err)) throw err
+      data = await queryWithTimeout((signal) => supabase
+        .from('customer_traffic')
+        .select('number_of_customer')
+        .gte('created_at', today.toISOString())
+        .range(0, 199)
+        .abortSignal(signal))
+    }
+    const totals = { total: 0, male: 0, female: 0, unspecified: 0 }
+    ;(data || []).forEach((r) => {
+      const s = splitRowToGender(r, 'number_of_customer')
+      totals.total += s.total
+      totals.male += s.male
+      totals.female += s.female
+      totals.unspecified += s.unspecified
+    })
+    return totals
   },
 
   // Hourly customer-traffic bins for the analytics heatmap.
   // Sums transactions.customer_count + customer_traffic.number_of_customer
-  // per local hour. Returns [{ hour: 0-23, customers }] (always 24 entries).
+  // per local hour. Returns [{ hour: 0-23, customers, male, female, unspecified }]
+  // (always 24 entries). Legacy rows without a split count toward unspecified.
   async getHourlyTraffic(startDate, endDate) {
     let start = startDate
     let end = endDate
@@ -504,34 +606,69 @@ export const db = {
       start = start || today.toISOString()
       end = end || new Date().toISOString()
     }
-    const hourly = Array.from({ length: 24 }, (_, hour) => ({ hour, customers: 0 }))
-    const addRecord = (timestamp, count) => {
+    const hourly = Array.from({ length: 24 }, (_, hour) => ({ hour, customers: 0, male: 0, female: 0, unspecified: 0 }))
+    const addSplit = (timestamp, split) => {
       if (!timestamp) return
       const d = new Date(timestamp)
       if (Number.isNaN(d.getTime())) return
-      const n = Number(count)
-      if (!Number.isFinite(n) || n <= 0) return
-      hourly[d.getHours()].customers += n
+      if (split.total <= 0) return
+      const bin = hourly[d.getHours()]
+      bin.customers += split.total
+      bin.male += split.male
+      bin.female += split.female
+      bin.unspecified += split.unspecified
     }
-    const txns = await queryWithTimeout((signal) => supabase
-      .from('transactions')
-      .select('created_at, customer_count')
-      .gte('created_at', start)
-      .lte('created_at', end)
-      .order('created_at', { ascending: true })
-      .range(0, 499)
-      .abortSignal(signal))
-    ;(txns || []).forEach((t) => addRecord(t.created_at, t.customer_count ?? 1))
+    let txns
     try {
-      const traffic = await queryWithTimeout((signal) => supabase
-        .from('customer_traffic')
-        .select('created_at, number_of_customer')
+      txns = await queryWithTimeout((signal) => supabase
+        .from('transactions')
+        .select('created_at, customer_count, male_count, female_count, unspecified_count')
         .gte('created_at', start)
         .lte('created_at', end)
         .order('created_at', { ascending: true })
         .range(0, 499)
         .abortSignal(signal))
-      ;(traffic || []).forEach((r) => addRecord(r.created_at, r.number_of_customer))
+    } catch (err) {
+      if (!isMissingColumnError(err)) throw err
+      txns = await queryWithTimeout((signal) => supabase
+        .from('transactions')
+        .select('created_at, customer_count')
+        .gte('created_at', start)
+        .lte('created_at', end)
+        .order('created_at', { ascending: true })
+        .range(0, 499)
+        .abortSignal(signal))
+    }
+    ;(txns || []).forEach((t) => {
+      const hasSplit = t.male_count != null || t.female_count != null || t.unspecified_count != null
+      const split = hasSplit
+        ? splitRowToGender(t, 'customer_count')
+        : normalizeGenderCounts(t.customer_count ?? 1)
+      addSplit(t.created_at, split)
+    })
+    try {
+      let traffic
+      try {
+        traffic = await queryWithTimeout((signal) => supabase
+          .from('customer_traffic')
+          .select('created_at, number_of_customer, male_count, female_count, unspecified_count')
+          .gte('created_at', start)
+          .lte('created_at', end)
+          .order('created_at', { ascending: true })
+          .range(0, 499)
+          .abortSignal(signal))
+      } catch (err) {
+        if (!isMissingColumnError(err)) throw err
+        traffic = await queryWithTimeout((signal) => supabase
+          .from('customer_traffic')
+          .select('created_at, number_of_customer')
+          .gte('created_at', start)
+          .lte('created_at', end)
+          .order('created_at', { ascending: true })
+          .range(0, 499)
+          .abortSignal(signal))
+      }
+      ;(traffic || []).forEach((r) => addSplit(r.created_at, splitRowToGender(r, 'number_of_customer')))
     } catch {
       // customer_traffic table may not exist yet — transactions alone suffice.
     }
@@ -565,17 +702,35 @@ export const db = {
     today.setHours(0, 0, 0, 0)
     const iso = today.toISOString()
 
-    const orders = await queryWithTimeout((signal) => supabase
-      .from('transactions')
-      .select('total, customer_count')
-      .gte('created_at', iso)
-      .range(0, 199)
-      .abortSignal(signal))
+    let orders
+    try {
+      orders = await queryWithTimeout((signal) => supabase
+        .from('transactions')
+        .select('total, customer_count, male_count, female_count, unspecified_count')
+        .gte('created_at', iso)
+        .range(0, 199)
+        .abortSignal(signal))
+    } catch (err) {
+      if (!isMissingColumnError(err)) throw err
+      orders = await queryWithTimeout((signal) => supabase
+        .from('transactions')
+        .select('total, customer_count')
+        .gte('created_at', iso)
+        .range(0, 199)
+        .abortSignal(signal))
+    }
 
     const totalSales = orders.reduce((s, o) => s + Number(o.total), 0)
-    const totalCustomers = orders.reduce((s, o) => s + (Number(o.customer_count) || 0), 0)
+    const totals = { totalCustomers: 0, maleCustomers: 0, femaleCustomers: 0, unspecifiedCustomers: 0 }
+    ;(orders || []).forEach((o) => {
+      const s = splitRowToGender(o, 'customer_count')
+      totals.totalCustomers += s.total
+      totals.maleCustomers += s.male
+      totals.femaleCustomers += s.female
+      totals.unspecifiedCustomers += s.unspecified
+    })
 
-    return { totalOrders: orders.length, totalSales, totalCustomers }
+    return { totalOrders: orders.length, totalSales, ...totals }
   },
 
   async getInventoryStatus() {

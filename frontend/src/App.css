@@ -646,6 +646,27 @@
   margin: 0;
 }
 
+.traffic-steppers {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.traffic-label {
+  font-weight: 700;
+  font-size: 0.8rem;
+  color: var(--color-primary);
+  min-width: 1rem;
+  text-align: center;
+}
+
+.traffic-total {
+  font-weight: 700;
+  font-size: 0.9rem;
+  white-space: nowrap;
+}
+
 .pos-grid {
   display: grid;
   grid-template-columns: 1fr 380px;
@@ -1351,7 +1372,8 @@
   .pos-grid { display: flex; flex-direction: column; overflow: visible; }
   .order-section { height: 100%; min-height: 400px; max-height: 50vh; margin-top: 1rem; }
   .pos-header { flex-direction: column; align-items: stretch; }
-  .customer-count-widget { justify-content: space-between; }
+  .customer-count-widget { justify-content: space-between; flex-wrap: wrap; }
+  .traffic-steppers { flex-wrap: wrap; }
   .metrics-grid { grid-template-columns: 1fr; gap: 1rem; }
   .settings-grid { grid-template-columns: 1fr; }
   .action-bar { flex-direction: column; align-items: stretch; }

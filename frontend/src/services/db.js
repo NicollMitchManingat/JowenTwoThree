@@ -102,7 +102,7 @@ function splitRowToGender(row, totalKey) {
 
 function isMissingColumnError(err) {
   const msg = `${err?.message || ''} ${err?.details || ''} ${err?.hint || ''}`
-  return /male_count|female_count|unspecified_count/i.test(msg)
+  return /male_count|female_count|unspecified_count|discount_id|'status'|"status"|refunds|discounts/i.test(msg)
 }
 
 export const db = {
@@ -366,21 +366,49 @@ export const db = {
   },
 
   async getDailySales(startDate, endDate) {
-    const data = await queryWithTimeout((signal) => supabase
-      .from('transactions')
-      .select('created_at, total')
-      .gte('created_at', startDate)
-      .lte('created_at', endDate)
-      .order('created_at', { ascending: true })
-      .range(0, 499)
-      .abortSignal(signal))
+    let data
+    try {
+      data = await queryWithTimeout((signal) => supabase
+        .from('transactions')
+        .select('id, created_at, total, status')
+        .gte('created_at', startDate)
+        .lte('created_at', endDate)
+        .order('created_at', { ascending: true })
+        .range(0, 499)
+        .abortSignal(signal))
+    } catch (err) {
+      if (!isMissingColumnError(err)) throw err
+      data = await queryWithTimeout((signal) => supabase
+        .from('transactions')
+        .select('created_at, total')
+        .gte('created_at', startDate)
+        .lte('created_at', endDate)
+        .order('created_at', { ascending: true })
+        .range(0, 499)
+        .abortSignal(signal))
+    }
     const dailySales = {}
-    data.forEach(txn => {
-      if (!txn.created_at) return
-      const d = new Date(txn.created_at)
+    const addToDay = (timestamp, amount) => {
+      if (!timestamp) return
+      const d = new Date(timestamp)
       if (Number.isNaN(d.getTime())) return
       const date = d.toISOString().split('T')[0]
-      dailySales[date] = (dailySales[date] || 0) + Number(txn.total)
+      dailySales[date] = Math.max(0, (dailySales[date] || 0) + Number(amount))
+    }
+    // Fully refunded orders contribute nothing; partial refunds net out below.
+    // (Refunds attached to fully-refunded orders are skipped to avoid double-subtracting.)
+    const refundedIds = new Set()
+    data.forEach(txn => {
+      if (txn.status === 'REFUNDED') {
+        if (txn.id) refundedIds.add(txn.id)
+        return
+      }
+      addToDay(txn.created_at, txn.total)
+    })
+    const refunds = await this.getRefundsByDateRange(startDate, endDate)
+    ;(refunds || []).forEach((r) => {
+      if (r.transaction_id && refundedIds.has(r.transaction_id)) return
+      addToDay(r.created_at, -Number(r.refund_amount || 0))
     })
     return dailySales
   },
@@ -403,14 +431,16 @@ export const db = {
       special_instructions: transaction.special_instructions,
       discount_type: transaction.discount_type,
       discount_value: transaction.discount_value,
+      discount_id: transaction.discount_id || null,
+      status: 'COMPLETED',
       cart: transaction.cart,
     }
     try {
       return await offlineWrite('transactions', fullBody)
     } catch (err) {
       if (isMissingColumnError(err)) {
-        // Pre-migration DB without gender columns — fall back to total only.
-        const { male_count, female_count, unspecified_count, ...legacyBody } = fullBody
+        // Pre-migration DB without gender/refund/discount columns — fall back to legacy shape.
+        const { male_count, female_count, unspecified_count, discount_id, status, ...legacyBody } = fullBody
         return offlineWrite('transactions', legacyBody)
       }
       throw err
@@ -419,6 +449,182 @@ export const db = {
 
   async createTransactionItems(items) {
     return offlineWrite('transaction_items', items)
+  },
+
+  // ── Discount vouchers ────────────────────────────────
+  // Admin-managed % / flat discounts selectable in the POS dropdown.
+  // System rows (PWD/Senior) are locked: name/type/value immutable.
+  async getDiscounts() {
+    return queryWithTimeout((signal) => supabase
+      .from('discounts')
+      .select('*')
+      .order('is_system', { ascending: false })
+      .order('name')
+      .range(0, 99)
+      .abortSignal(signal))
+  },
+
+  async getActiveDiscounts() {
+    const all = await this.getDiscounts()
+    return (all || []).filter((d) => d.is_active)
+  },
+
+  validateDiscount({ name, type, value }) {
+    const label = (name || '').trim()
+    if (!label) throw new Error('Discount name is required')
+    if (type !== 'percent' && type !== 'flat') throw new Error('Discount type must be % or flat (₱)')
+    const v = Number(value)
+    if (!Number.isFinite(v) || v <= 0) throw new Error('Discount value must be greater than 0')
+    if (type === 'percent' && v >= 100) throw new Error('Percentage discount must be below 100%')
+    return { name: label, type, value: v }
+  },
+
+  async createDiscount({ name, type, value, created_by }) {
+    const clean = this.validateDiscount({ name, type, value })
+    return offlineWrite('discounts', {
+      name: clean.name,
+      type: clean.type,
+      value: clean.value,
+      is_active: true,
+      is_system: false,
+      created_by: created_by || null,
+    })
+  },
+
+  async updateDiscount(id, updates) {
+    if (!id) throw new Error('Discount id is required')
+    // System rows (PWD/Senior) are locked — only is_active may not even change.
+    const rows = await queryWithTimeout((signal) => supabase
+      .from('discounts')
+      .select('is_system')
+      .eq('id', id)
+      .limit(1)
+      .abortSignal(signal))
+    if (rows?.[0]?.is_system && ('name' in updates || 'type' in updates || 'value' in updates || 'is_active' in updates)) {
+      throw new Error('System discounts (PWD/Senior) cannot be changed')
+    }
+    const clean = {}
+    if (typeof updates.name !== 'undefined' || typeof updates.type !== 'undefined' || typeof updates.value !== 'undefined') {
+      const current = await queryWithTimeout((signal) => supabase
+        .from('discounts')
+        .select('name, type, value')
+        .eq('id', id)
+        .limit(1)
+        .abortSignal(signal))
+      const merged = this.validateDiscount({
+        name: updates.name ?? current?.[0]?.name,
+        type: updates.type ?? current?.[0]?.type,
+        value: updates.value ?? current?.[0]?.value,
+      })
+      Object.assign(clean, merged)
+    }
+    if (typeof updates.is_active !== 'undefined') clean.is_active = !!updates.is_active
+    if (Object.keys(clean).length === 0) throw new Error('Nothing to update')
+    clean.updated_at = new Date().toISOString()
+    return offlineSafe(async () => {
+      const { data, error } = await supabase
+        .from('discounts')
+        .update(clean)
+        .eq('id', id)
+        .select()
+        .single()
+      if (error) throw error
+      return data
+    })
+  },
+
+  // ── Refunds (money-only; inventory is never restocked) ──
+  async getRefundsByTransaction(transactionId) {
+    if (!transactionId) return []
+    try {
+      return await queryWithTimeout((signal) => supabase
+        .from('refunds')
+        .select('*')
+        .eq('transaction_id', transactionId)
+        .order('created_at', { ascending: true })
+        .range(0, 49)
+        .abortSignal(signal))
+    } catch (err) {
+      if (isMissingColumnError(err)) return []
+      throw err
+    }
+  },
+
+  async getRefundsByDateRange(startDate, endDate) {
+    try {
+      return await queryWithTimeout((signal) => supabase
+        .from('refunds')
+        .select('refund_amount, created_at, transaction_id')
+        .gte('created_at', startDate)
+        .lte('created_at', endDate)
+        .order('created_at', { ascending: true })
+        .range(0, 499)
+        .abortSignal(signal))
+    } catch (err) {
+      if (isMissingColumnError(err)) return []
+      throw err
+    }
+  },
+
+  async getRefundsForTransactions(transactionIds) {
+    if (!Array.isArray(transactionIds) || transactionIds.length === 0) return []
+    try {
+      return await queryWithTimeout((signal) => supabase
+        .from('refunds')
+        .select('*')
+        .in('transaction_id', transactionIds)
+        .order('created_at', { ascending: true })
+        .range(0, 199)
+        .abortSignal(signal))
+    } catch (err) {
+      if (isMissingColumnError(err)) return []
+      throw err
+    }
+  },
+
+  validateRefund({ items, refund_amount, reason, approved_by }) {
+    if (!Array.isArray(items) || items.length === 0) throw new Error('Select at least one item to refund')
+    const amount = Number(refund_amount)
+    if (!Number.isFinite(amount) || amount <= 0) throw new Error('Refund amount must be greater than 0')
+    if (!(reason || '').trim()) throw new Error('A reason for the refund is required')
+    if (!(approved_by || '').trim()) throw new Error('Manager approval is required')
+    return { amount, reason: reason.trim() }
+  },
+
+  async createRefund({ transaction_id, items, refund_amount, reason, notes, approved_by, created_by }) {
+    if (!transaction_id) throw new Error('Transaction id is required')
+    const clean = this.validateRefund({ items, refund_amount, reason, approved_by })
+    return offlineWrite('refunds', {
+      transaction_id,
+      items,
+      refund_amount: clean.amount,
+      reason: clean.reason,
+      notes: notes?.trim() || null,
+      approved_by,
+      created_by: created_by || null,
+    })
+  },
+
+  async updateTransactionStatus(id, status) {
+    if (!id) throw new Error('Transaction id is required')
+    if (!['COMPLETED', 'REFUNDED', 'PARTIALLY_REFUNDED'].includes(status)) {
+      throw new Error('Invalid transaction status')
+    }
+    try {
+      return await offlineSafe(async () => {
+        const { data, error } = await supabase
+          .from('transactions')
+          .update({ status })
+          .eq('id', id)
+          .select()
+          .single()
+        if (error) throw error
+        return data
+      })
+    } catch (err) {
+      if (isMissingColumnError(err)) return null
+      throw err
+    }
   },
 
   // Top-selling products for the Stock Movement chart.
@@ -706,7 +912,7 @@ export const db = {
     try {
       orders = await queryWithTimeout((signal) => supabase
         .from('transactions')
-        .select('total, customer_count, male_count, female_count, unspecified_count')
+        .select('id, total, customer_count, male_count, female_count, unspecified_count, status')
         .gte('created_at', iso)
         .range(0, 199)
         .abortSignal(signal))
@@ -720,17 +926,31 @@ export const db = {
         .abortSignal(signal))
     }
 
-    const totalSales = orders.reduce((s, o) => s + Number(o.total), 0)
+    // Fully refunded orders are excluded from sales; partial refunds net out below.
+    const refundedIds = new Set()
+    const active = (orders || []).filter((o) => {
+      if (o.status === 'REFUNDED') {
+        if (o.id) refundedIds.add(o.id)
+        return false
+      }
+      return true
+    })
+    let totalSales = active.reduce((s, o) => s + Number(o.total), 0)
     const totals = { totalCustomers: 0, maleCustomers: 0, femaleCustomers: 0, unspecifiedCustomers: 0 }
-    ;(orders || []).forEach((o) => {
+    ;(active || []).forEach((o) => {
       const s = splitRowToGender(o, 'customer_count')
       totals.totalCustomers += s.total
       totals.maleCustomers += s.male
       totals.femaleCustomers += s.female
       totals.unspecifiedCustomers += s.unspecified
     })
+    const refunds = await this.getRefundsByDateRange(iso, new Date().toISOString())
+    ;(refunds || []).forEach((r) => {
+      if (r.transaction_id && refundedIds.has(r.transaction_id)) return
+      totalSales = Math.max(0, totalSales - Number(r.refund_amount || 0))
+    })
 
-    return { totalOrders: orders.length, totalSales, ...totals }
+    return { totalOrders: active.length, totalSales, ...totals }
   },
 
   async getInventoryStatus() {

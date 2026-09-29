@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { UserCog, ShieldAlert, RefreshCcw } from 'lucide-react';
+import { UserCog, ShieldAlert, RefreshCcw, Tag } from 'lucide-react';
+import DiscountManager from '../components/settings/DiscountManager';
 
 export default function SettingsPage({ currentUser, onLogout }) {
   const [isSessionActive, setIsSessionActive] = useState(false);
@@ -50,6 +51,19 @@ export default function SettingsPage({ currentUser, onLogout }) {
               >
                 {isSessionActive ? 'End Session' : 'Start Session'}
               </button>
+            </div>
+          </div>
+        )}
+
+        {currentUser.role === 'admin' && (
+          <div className="card" style={{ gridColumn: '1 / -1' }}>
+            <div className="card-header">
+              <h3 className="m-0 flex items-center gap-2">
+                <Tag size={20} className="text-primary" /> Discount Vouchers
+              </h3>
+            </div>
+            <div className="card-body">
+              <DiscountManager currentUser={currentUser} />
             </div>
           </div>
         )}

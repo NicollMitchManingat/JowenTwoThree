@@ -9,8 +9,12 @@ vi.mock('../services/db', () => ({
     ]),
     getLowStockItems: vi.fn().mockResolvedValue([]),
     getOutOfStockItems: vi.fn().mockResolvedValue([]),
+    deleteInventoryItem: vi.fn().mockResolvedValue({}),
   },
 }))
+
+import { db } from '../services/db'
+import userEvent from '@testing-library/user-event'
 
 describe('InventoryPage roles', () => {
   beforeEach(() => {
@@ -30,7 +34,7 @@ describe('InventoryPage roles', () => {
     expect(screen.getByTitle('Delete item')).toBeInTheDocument()
   })
 
-  it('should give stockists add, edit, and wastage controls but no delete', async () => {
+  it('should give stockists add, edit, wastage, and delete controls', async () => {
     render(<InventoryPage userRole="stockist" />)
 
     await waitFor(() => {
@@ -40,7 +44,38 @@ describe('InventoryPage roles', () => {
     expect(screen.getByText('Actions')).toBeInTheDocument()
     expect(screen.getByTitle('Log Wastage')).toBeInTheDocument()
     expect(screen.getByTitle('Edit item')).toBeInTheDocument()
-    expect(screen.queryByTitle('Delete item')).not.toBeInTheDocument()
+    expect(screen.getByTitle('Delete item')).toBeInTheDocument()
+  })
+
+  it('should ask for confirmation before deleting, and cancel without deleting', async () => {
+    const user = userEvent.setup()
+    render(<InventoryPage userRole="stockist" />)
+
+    await waitFor(() => {
+      expect(screen.getByTitle('Delete item')).toBeInTheDocument()
+    })
+    await user.click(screen.getByTestId('delete-item-i1'))
+
+    expect(screen.getByTestId('delete-confirm-modal')).toHaveTextContent('Delete Milk?')
+    await user.click(screen.getByTestId('delete-cancel-btn'))
+
+    expect(db.deleteInventoryItem).not.toHaveBeenCalled()
+    expect(screen.queryByTestId('delete-confirm-modal')).not.toBeInTheDocument()
+  })
+
+  it('should delete only after confirmation', async () => {
+    const user = userEvent.setup()
+    render(<InventoryPage userRole="admin" />)
+
+    await waitFor(() => {
+      expect(screen.getByTitle('Delete item')).toBeInTheDocument()
+    })
+    await user.click(screen.getByTestId('delete-item-i1'))
+    await user.click(screen.getByTestId('delete-confirm-btn'))
+
+    await waitFor(() => {
+      expect(db.deleteInventoryItem).toHaveBeenCalledWith('i1')
+    })
   })
 
   it('should give cashiers a read-only inventory view', async () => {

@@ -3,9 +3,11 @@ import { Search, Plus, Edit, Trash2, X, Sparkles, AlertCircle, Bell, BellOff, Lo
 import { db } from '../services/db';
 
 export default function InventoryPage({ userRole }) {
-  // Stockists manage stock day-to-day (add/edit/wastage); deleting items stays admin-only.
+  // Stockists manage stock day-to-day (add/edit/wastage/delete).
+  // Deletes always ask for confirmation first since they are permanent.
   const canManage = userRole === 'admin' || userRole === 'stockist';
-  const canDelete = userRole === 'admin';
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [deleting, setDeleting] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [showModal, setShowModal] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
@@ -116,12 +118,17 @@ export default function InventoryPage({ userRole }) {
     }
   };
 
-  const handleDelete = async (id) => {
+  const handleDeleteConfirm = async () => {
+    if (!deleteTarget || deleting) return
+    setDeleting(true)
     try {
-      await db.deleteInventoryItem(id)
+      await db.deleteInventoryItem(deleteTarget.id)
+      setDeleteTarget(null)
       await loadInventory()
     } catch (err) {
       alert('Failed to delete: ' + err.message)
+    } finally {
+      setDeleting(false)
     }
   };
 
@@ -245,6 +252,31 @@ export default function InventoryPage({ userRole }) {
         </div>
       )}
 
+      {deleteTarget && (
+        <div className="modal-overlay" onClick={() => !deleting && setDeleteTarget(null)}>
+          <div className="modal-content card" onClick={(e) => e.stopPropagation()}
+            role="dialog" aria-labelledby="delete-item-title" data-testid="delete-confirm-modal"
+            style={{ maxWidth: '440px', width: '100%' }}>
+            <div className="modal-header">
+              <h3 id="delete-item-title">Delete {deleteTarget.name}?</h3>
+              <button className="btn-icon-small" disabled={deleting} onClick={() => setDeleteTarget(null)} aria-label="Close delete confirmation"><X size={18} /></button>
+            </div>
+            <div className="modal-body">
+              <p className="text-sm text-muted m-0">
+                This permanently removes <strong>{deleteTarget.name}</strong> ({deleteTarget.stock_quantity} in stock) from inventory.
+                Past transactions are kept. This cannot be undone.
+              </p>
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-secondary" disabled={deleting} onClick={() => setDeleteTarget(null)} data-testid="delete-cancel-btn">Cancel</button>
+              <button className="btn btn-primary" disabled={deleting} onClick={handleDeleteConfirm} data-testid="delete-confirm-btn">
+                {deleting ? 'Deleting...' : 'Confirm delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="action-bar">
         <div className="search-bar">
           <Search size={18} className="text-muted" />
@@ -301,9 +333,7 @@ export default function InventoryPage({ userRole }) {
                     <div className="action-buttons">
                       <button className="btn-icon-small" onClick={() => handleOpenWastage(item)} title="Log Wastage"><AlertCircle size={14} /></button>
                       <button className="btn-icon-small" onClick={() => handleOpenEdit(item)} title="Edit item"><Edit size={14} /></button>
-                      {canDelete && (
-                        <button className="btn-icon-small danger" onClick={() => handleDelete(item.id)} title="Delete item"><Trash2 size={14} /></button>
-                      )}
+                      <button className="btn-icon-small danger" onClick={() => setDeleteTarget(item)} title="Delete item" data-testid={`delete-item-${item.id}`}><Trash2 size={14} /></button>
                     </div>
                   </td>
                 )}

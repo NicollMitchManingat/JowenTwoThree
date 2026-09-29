@@ -1,8 +1,9 @@
 import { useContext, useEffect, useState, useMemo } from "react";
 import { AnalyticsContext } from "./AnalyticsContext";
-import { Sparkles, TrendingUp, AlertTriangle, Package, BrainCircuit, BarChart3, ShoppingBag, Calendar, ChevronDown, Plus, X, AlertCircle, CheckCircle } from 'lucide-react';
+import { Sparkles, TrendingUp, AlertTriangle, Package, BrainCircuit, BarChart3, ShoppingBag, Calendar, ChevronDown, Plus, X, AlertCircle, CheckCircle, Wallet, Percent, Undo2, Receipt } from 'lucide-react';
 import { db } from '../services/db';
 import { productAPI } from '../services/productAPI';
+import { netRevenue, paymentMix, voucherStats, refundSummary } from '../services/salesAnalytics';
 
 import SummaryCard from "../components/analytics/SummaryCard";
 import SalesTrendChart from "../components/analytics/SalesTrendChart";
@@ -11,6 +12,10 @@ import DateRangeFilter from "../components/analytics/DateRangeFilter";
 import CustomerTrafficHeatmap from "../components/analytics/CustomerTrafficHeatmap";
 import LoadingSkeleton from "../components/analytics/LoadingSkeleton";
 import ConsolidatedDataTable from "../components/analytics/ConsolidatedDataTable";
+import PaymentMixChart from "../components/analytics/PaymentMixChart";
+import VoucherEffectivenessChart from "../components/analytics/VoucherEffectivenessChart";
+import RefundInsights from "../components/analytics/RefundInsights";
+import TrafficConversionChart from "../components/analytics/TrafficConversionChart";
 
 function getDateRange(filter) {
   const now = new Date();
@@ -107,6 +112,25 @@ export default function DashboardContent({ activeTab, user }) {
   const [salesError, setSalesError] = useState(null);
   const [salesRetryKey, setSalesRetryKey] = useState(0);
   const [loading, setLoading] = useState(false);
+  // One narrow-column transaction fetch per range feeds every Tier-1 widget
+  // (orders count, net revenue, payment mix, vouchers, refunds).
+  const [rangeTxns, setRangeTxns] = useState(null);
+  const [rangeRefunds, setRangeRefunds] = useState([]);
+  const [discountList, setDiscountList] = useState([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadDiscounts() {
+      try {
+        const list = typeof db.getActiveDiscounts === 'function' ? await db.getActiveDiscounts() : [];
+        if (!cancelled) setDiscountList(list || []);
+      } catch {
+        if (!cancelled) setDiscountList([]);
+      }
+    }
+    loadDiscounts();
+    return () => { cancelled = true; };
+  }, []);
   const [showAddProductModal, setShowAddProductModal] = useState(false);
   const [addProductForm, setAddProductForm] = useState({ name: '', price: '', category: '' });
   const [productCategories, setProductCategories] = useState([]);
@@ -166,12 +190,25 @@ export default function DashboardContent({ activeTab, user }) {
       setLoading(true);
       setSalesError(null);
       try {
-        const dailySales = await db.getDailySales(dateRange.start, dateRange.end);
-        if (!cancelled) setSalesData(dailySales);
+        const [dailySales, txns, refunds] = await Promise.all([
+          db.getDailySales(dateRange.start, dateRange.end),
+          typeof db.getTransactionsForAnalytics === 'function'
+            ? db.getTransactionsForAnalytics(dateRange.start, dateRange.end).catch(() => null)
+            : Promise.resolve(null),
+          typeof db.getRefundsByDateRange === 'function'
+            ? db.getRefundsByDateRange(dateRange.start, dateRange.end).catch(() => [])
+            : Promise.resolve([]),
+        ]);
+        if (cancelled) return;
+        setSalesData(dailySales);
+        setRangeTxns(txns);
+        setRangeRefunds(refunds || []);
       } catch (err) {
         console.error('Sales data load error:', err);
         if (!cancelled) {
           setSalesData(null);
+          setRangeTxns(null);
+          setRangeRefunds([]);
           setSalesError(err?.message || 'Failed to load sales data.');
         }
       } finally {
@@ -222,14 +259,22 @@ export default function DashboardContent({ activeTab, user }) {
     };
   }, [salesData]);
 
-// Calculate totals for summary cards
+// Calculate totals for summary cards.
+// Orders is the true transaction count (previously this counted days).
+// Falls back to the day count only when the transaction fetch is unavailable.
   const totals = useMemo(() => {
     if (!salesData || Object.keys(salesData).length === 0) return { revenue: 0, orders: 0, customers: 0 };
     const revenue = Object.values(salesData).reduce((sum, val) => sum + (Number(val) || 0), 0);
-    const orders = Object.keys(salesData).length;
+    const orders = Array.isArray(rangeTxns) ? rangeTxns.length : Object.keys(salesData).length;
     const customers = todayStats?.totalCustomers || 0;
     return { revenue, orders, customers };
-  }, [salesData, todayStats]);
+  }, [salesData, todayStats, rangeTxns]);
+
+  // Tier-1 aggregates share the single range fetch above.
+  const net = useMemo(() => netRevenue(rangeTxns, rangeRefunds), [rangeTxns, rangeRefunds]);
+  const mix = useMemo(() => paymentMix(rangeTxns), [rangeTxns]);
+  const vouchers = useMemo(() => voucherStats(rangeTxns, discountList), [rangeTxns, discountList]);
+  const refundInfo = useMemo(() => refundSummary(rangeTxns, rangeRefunds), [rangeTxns, rangeRefunds]);
 
   // Default dates for custom range (last 7 days)
   useEffect(() => {
@@ -314,6 +359,13 @@ export default function DashboardContent({ activeTab, user }) {
         <SummaryCard title="Avg Order" value={totals.orders > 0 ? totals.revenue / totals.orders : 0} isCurrency={true} icon={<TrendingUp />} color="#f59e0b" />
       </div>
 
+      <div className="metrics-grid">
+        <SummaryCard title="Gross Sales" value={net.gross} isCurrency={true} icon={<Receipt />} color="#2563eb" />
+        <SummaryCard title="Discounts Given" value={net.discounts} isCurrency={true} icon={<Percent />} color="#9333ea" />
+        <SummaryCard title="Refunded" value={net.refunds} isCurrency={true} icon={<Undo2 />} color="#dc2626" />
+        <SummaryCard title="Net Revenue" value={net.net} isCurrency={true} icon={<Wallet />} color="#16a34a" />
+      </div>
+
       <div className="charts-grid">
         <div className="card">
           <div className="card-header">
@@ -342,6 +394,44 @@ export default function DashboardContent({ activeTab, user }) {
               onRetry={() => setSalesRetryKey((k) => k + 1)}
               summaryPrefix="Best week"
             />
+          </div>
+        </div>
+      </div>
+
+      <div className="charts-grid">
+        <div className="card">
+          <div className="card-header">
+            <h3 className="m-0">Payment Mix</h3>
+          </div>
+          <div className="chart-container" style={{ height: "250px" }}>
+            <PaymentMixChart mix={mix} />
+          </div>
+        </div>
+        <div className="card">
+          <div className="card-header">
+            <h3 className="m-0">Voucher Effectiveness</h3>
+          </div>
+          <div className="chart-container" style={{ height: "250px" }}>
+            <VoucherEffectivenessChart stats={vouchers} />
+          </div>
+        </div>
+      </div>
+
+      <div className="charts-grid">
+        <div className="card">
+          <div className="card-header">
+            <h3 className="m-0">Refunds</h3>
+          </div>
+          <div className="chart-container" style={{ height: "250px" }}>
+            <RefundInsights summary={refundInfo} />
+          </div>
+        </div>
+        <div className="card">
+          <div className="card-header">
+            <h3 className="m-0">Walk-ins vs Buyers</h3>
+          </div>
+          <div className="chart-container" style={{ height: "250px" }}>
+            <TrafficConversionChart startDate={dateRange?.start} endDate={dateRange?.end} />
           </div>
         </div>
       </div>

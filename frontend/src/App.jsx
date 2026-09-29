@@ -17,10 +17,27 @@ import { USERS } from './services/managerApproval';
 
 function App() {
   const [currentUser, setCurrentUser] = useState(() => {
-    const saved = localStorage.getItem('jowen_user');
-    return saved ? JSON.parse(saved) : null;
+    try {
+      const saved = localStorage.getItem('jowen_user');
+      const user = saved ? JSON.parse(saved) : null;
+      // Legacy sessions stored role 'staff' — map to cashier so old logins keep working.
+      if (user && user.role === 'staff') user.role = 'cashier';
+      return user;
+    } catch {
+      return null;
+    }
   });
-  const [currentPage, setCurrentPage] = useState('pos');
+  const defaultPageFor = (role) => (role === 'stockist' ? 'inventory' : 'pos');
+  const [currentPage, setCurrentPage] = useState(() => {
+    try {
+      const saved = localStorage.getItem('jowen_user');
+      const user = saved ? JSON.parse(saved) : null;
+      const role = user?.role === 'staff' ? 'cashier' : user?.role;
+      return defaultPageFor(role);
+    } catch {
+      return 'pos';
+    }
+  });
   const [isDesktopCollapsed, setIsDesktopCollapsed] = useState(false);
   const [isMobileOpen, setIsMobileOpen] = useState(false);
   // Credentials live in managerApproval.js so manager-approval checks
@@ -30,9 +47,11 @@ function App() {
   const handleLogin = (credentials) => {
     if (credentials && credentials.username) {
       const user = users.find(u => u.username === credentials.username);
-      const loggedInUser = user || { username: credentials.username, role: 'staff' };
+      const loggedInUser = user || { username: credentials.username, role: 'cashier' };
+      if (loggedInUser.role === 'staff') loggedInUser.role = 'cashier';
       localStorage.setItem('jowen_user', JSON.stringify(loggedInUser));
       setCurrentUser(loggedInUser);
+      setCurrentPage(defaultPageFor(loggedInUser.role));
     }
   };
 
@@ -45,15 +64,18 @@ function App() {
     return <LoginPage onLogin={handleLogin} />;
   }
 
+  // Cashier: POS + Transactions (+ read-only Inventory).
+  // Stockist: Inventory + Transactions (no POS, no refunds).
+  // Admin: everything.
   const menuItems = [
-    { id: 'pos', label: 'POS & Traffic', icon: ShoppingCart, adminOnly: false },
-    { id: 'inventory', label: 'Inventory', icon: Package, adminOnly: false },
-    { id: 'orders', label: 'Transactions', icon: ClipboardList, adminOnly: false },
-    { id: 'reports', label: 'Analytics', icon: Sparkles, adminOnly: true },
-    { id: 'settings', label: 'Settings', icon: Settings, adminOnly: false },
+    { id: 'pos', label: 'POS & Traffic', icon: ShoppingCart, allowedRoles: ['admin', 'cashier'] },
+    { id: 'inventory', label: 'Inventory', icon: Package, allowedRoles: ['admin', 'cashier', 'stockist'] },
+    { id: 'orders', label: 'Transactions', icon: ClipboardList, allowedRoles: ['admin', 'cashier', 'stockist'] },
+    { id: 'reports', label: 'Analytics', icon: Sparkles, allowedRoles: ['admin'] },
+    { id: 'settings', label: 'Settings', icon: Settings, allowedRoles: ['admin', 'cashier', 'stockist'] },
   ];
 
-  const visibleMenuItems = menuItems.filter(item => !item.adminOnly || currentUser.role === 'admin');
+  const visibleMenuItems = menuItems.filter(item => item.allowedRoles.includes(currentUser.role));
 
   const handleNavClick = (id) => {
     setCurrentPage(id);
@@ -69,7 +91,10 @@ function App() {
   };
 
   const renderContent = () => {
-    switch (currentPage) {
+    // Guard: roles can only render pages in their nav (e.g. stockist has no POS).
+    const allowed = visibleMenuItems.some(item => item.id === currentPage);
+    const page = allowed ? currentPage : defaultPageFor(currentUser.role);
+    switch (page) {
       case 'pos':
         return <MainPOS user={currentUser} />;
       case 'inventory':

@@ -49,7 +49,7 @@ export function computeRefundAmount(order, selections) {
 }
 
 // Full + partial (line-item) refunds. Money-only — inventory is untouched.
-// Admin confirms directly; staff must enter the manager (admin) password.
+// Admin confirms directly; cashiers must enter the manager (admin) password.
 // The cashier session never changes; approval is recorded as approved_by.
 export default function RefundModal({ order, user, existingRefunds = [], onClose, onRefunded }) {
   const lines = useMemo(

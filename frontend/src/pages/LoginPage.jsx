@@ -22,8 +22,10 @@ export default function LoginPage({ onLogin }) {
     setTimeout(() => {
       if (username === 'admin' && password === 'admin123') {
         onLogin({ username: 'admin', role: 'admin' })
-      } else if (username === 'staff' && password === 'staff123') {
-        onLogin({ username: 'staff', role: 'staff' })
+      } else if (username === 'cashier' && password === 'cashier123') {
+        onLogin({ username: 'cashier', role: 'cashier' })
+      } else if (username === 'stockist' && password === 'stockist123') {
+        onLogin({ username: 'stockist', role: 'stockist' })
       } else {
         setError('Invalid username or password')
       }
@@ -87,8 +89,12 @@ export default function LoginPage({ onLogin }) {
             <p>admin / admin123</p>
           </div>
           <div className="demo-group">
-            <strong>Staff:</strong>
-            <p>staff / staff123</p>
+            <strong>Cashier:</strong>
+            <p>cashier / cashier123</p>
+          </div>
+          <div className="demo-group">
+            <strong>Stockist:</strong>
+            <p>stockist / stockist123</p>
           </div>
         </div>
       </div>

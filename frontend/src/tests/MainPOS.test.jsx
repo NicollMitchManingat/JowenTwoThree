@@ -32,7 +32,7 @@ vi.mock('../services/db', () => ({
 describe('MainPOS', () => {
   const mockUser = {
     username: 'testuser',
-    role: 'staff'
+    role: 'cashier'
   }
 
   beforeEach(() => {
@@ -198,7 +198,7 @@ describe('MainPOS', () => {
     })
   })
 
-  it('should hide the radial FAB for non-admin staff', async () => {
+  it('should hide the radial FAB for non-admin cashiers', async () => {
     render(<MainPOS user={mockUser} />)
 
     await waitFor(() => {

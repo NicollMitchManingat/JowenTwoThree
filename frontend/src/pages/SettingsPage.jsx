@@ -77,7 +77,7 @@ export default function SettingsPage({ currentUser, onLogout }) {
             </div>
             <div className="card-body">
               <p className="text-sm text-muted desc-mb">
-                Manage employee access levels. Only admins can view analytics and modify inventory.
+                Manage employee access levels. Cashiers run the POS, stockists manage inventory, and only admins view analytics or approve refunds.
               </p>
               <div className="table-responsive">
               <table className="data-table">
@@ -91,9 +91,14 @@ export default function SettingsPage({ currentUser, onLogout }) {
                     <td><span className="badge badge-success">ADMIN</span></td>
                   </tr>
                   <tr>
-                    <td className="font-semibold">Staff</td>
-                    <td className="text-muted">staff</td>
-                    <td><span className="badge badge-neutral">STAFF</span></td>
+                    <td className="font-semibold">Cashier</td>
+                    <td className="text-muted">cashier</td>
+                    <td><span className="badge badge-neutral">CASHIER</span></td>
+                  </tr>
+                  <tr>
+                    <td className="font-semibold">Stockist</td>
+                    <td className="text-muted">stockist</td>
+                    <td><span className="badge badge-neutral">STOCKIST</span></td>
                   </tr>
                 </tbody>
               </table>

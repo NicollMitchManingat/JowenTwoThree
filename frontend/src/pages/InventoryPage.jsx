@@ -3,6 +3,9 @@ import { Search, Plus, Edit, Trash2, X, Sparkles, AlertCircle, Bell, BellOff, Lo
 import { db } from '../services/db';
 
 export default function InventoryPage({ userRole }) {
+  // Stockists manage stock day-to-day (add/edit/wastage); deleting items stays admin-only.
+  const canManage = userRole === 'admin' || userRole === 'stockist';
+  const canDelete = userRole === 'admin';
   const [searchTerm, setSearchTerm] = useState('');
   const [showModal, setShowModal] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
@@ -249,7 +252,7 @@ export default function InventoryPage({ userRole }) {
             onChange={(e) => setSearchTerm(e.target.value)} />
         </div>
         <div className="action-buttons" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-          {userRole === 'admin' && (
+          {canManage && (
             <button className="btn btn-primary" onClick={handleOpenAdd}>
               <Plus size={18} /> Add Item
             </button>
@@ -279,7 +282,7 @@ export default function InventoryPage({ userRole }) {
           <thead>
             <tr>
               <th>Name</th><th>Category</th><th>Stock</th><th>Status</th>
-              {userRole === 'admin' && <th>Actions</th>}
+              {canManage && <th>Actions</th>}
             </tr>
           </thead>
           <tbody>
@@ -293,18 +296,20 @@ export default function InventoryPage({ userRole }) {
                     {getStatus(item.stock_quantity)}
                   </span>
                 </td>
-                {userRole === 'admin' && (
+                {canManage && (
                   <td>
                     <div className="action-buttons">
                       <button className="btn-icon-small" onClick={() => handleOpenWastage(item)} title="Log Wastage"><AlertCircle size={14} /></button>
-                      <button className="btn-icon-small" onClick={() => handleOpenEdit(item)}><Edit size={14} /></button>
-                      <button className="btn-icon-small danger" onClick={() => handleDelete(item.id)}><Trash2 size={14} /></button>
+                      <button className="btn-icon-small" onClick={() => handleOpenEdit(item)} title="Edit item"><Edit size={14} /></button>
+                      {canDelete && (
+                        <button className="btn-icon-small danger" onClick={() => handleDelete(item.id)} title="Delete item"><Trash2 size={14} /></button>
+                      )}
                     </div>
                   </td>
                 )}
               </tr>
             )) : (
-              <tr><td colSpan={userRole === 'admin' ? "5" : "4"} className="text-center py-4 text-muted">No items found.</td></tr>
+              <tr><td colSpan={canManage ? "5" : "4"} className="text-center py-4 text-muted">No items found.</td></tr>
             )}
           </tbody>
         </table>

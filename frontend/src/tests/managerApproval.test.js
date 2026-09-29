@@ -12,8 +12,9 @@ describe('managerApproval', () => {
     expect(verifyManagerPassword(undefined).success).toBe(false)
   })
 
-  it('should reject the staff password (not a manager)', () => {
-    expect(verifyManagerPassword('staff123').success).toBe(false)
+  it('should reject non-admin passwords (cashier and stockist are not managers)', () => {
+    expect(verifyManagerPassword('cashier123').success).toBe(false)
+    expect(verifyManagerPassword('stockist123').success).toBe(false)
   })
 
   it('should keep login credentials in sync with the approval list', () => {

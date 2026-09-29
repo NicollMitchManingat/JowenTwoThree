@@ -57,7 +57,33 @@ describe('LoginPage - Authentication', () => {
     })
   })
 
-  it('should successfully login staff with correct credentials', async () => {
+  it('should successfully login cashier with correct credentials', async () => {
+    const user = userEvent.setup()
+    render(<LoginPage onLogin={mockOnLogin} />)
+
+    await user.type(screen.getByTestId('username-input'), 'cashier')
+    await user.type(screen.getByTestId('password-input'), 'cashier123')
+    await user.click(screen.getByTestId('login-button'))
+
+    await waitFor(() => {
+      expect(mockOnLogin).toHaveBeenCalledWith({ username: 'cashier', role: 'cashier' })
+    })
+  })
+
+  it('should successfully login stockist with correct credentials', async () => {
+    const user = userEvent.setup()
+    render(<LoginPage onLogin={mockOnLogin} />)
+
+    await user.type(screen.getByTestId('username-input'), 'stockist')
+    await user.type(screen.getByTestId('password-input'), 'stockist123')
+    await user.click(screen.getByTestId('login-button'))
+
+    await waitFor(() => {
+      expect(mockOnLogin).toHaveBeenCalledWith({ username: 'stockist', role: 'stockist' })
+    })
+  })
+
+  it('should reject the legacy staff login', async () => {
     const user = userEvent.setup()
     render(<LoginPage onLogin={mockOnLogin} />)
 
@@ -66,8 +92,9 @@ describe('LoginPage - Authentication', () => {
     await user.click(screen.getByTestId('login-button'))
 
     await waitFor(() => {
-      expect(mockOnLogin).toHaveBeenCalledWith({ username: 'staff', role: 'staff' })
+      expect(screen.getByTestId('error-message')).toHaveTextContent('Invalid username or password')
     })
+    expect(mockOnLogin).not.toHaveBeenCalled()
   })
 
   it('should disable form inputs during login', async () => {
@@ -86,6 +113,7 @@ describe('LoginPage - Authentication', () => {
 
     expect(screen.getByText('Demo Credentials:')).toBeInTheDocument()
     expect(screen.getByText('admin / admin123')).toBeInTheDocument()
-    expect(screen.getByText('staff / staff123')).toBeInTheDocument()
+    expect(screen.getByText('cashier / cashier123')).toBeInTheDocument()
+    expect(screen.getByText('stockist / stockist123')).toBeInTheDocument()
   })
 })

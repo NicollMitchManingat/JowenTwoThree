@@ -1,7 +1,8 @@
 import { useState } from 'react';
-import { UserCog, RefreshCcw, Tag, Users } from 'lucide-react';
+import { UserCog, RefreshCcw, Tag, Users, CookingPot } from 'lucide-react';
 import DiscountManager from '../components/settings/DiscountManager';
 import AccountManager from '../components/settings/AccountManager';
+import RecipeManager from '../components/settings/RecipeManager';
 
 export default function SettingsPage({ currentUser, onLogout }) {
   const [isSessionActive, setIsSessionActive] = useState(false);
@@ -65,6 +66,22 @@ export default function SettingsPage({ currentUser, onLogout }) {
             </div>
             <div className="card-body">
               <DiscountManager currentUser={currentUser} />
+            </div>
+          </div>
+        )}
+
+        {currentUser.role === 'admin' && (
+          <div className="card" style={{ gridColumn: '1 / -1' }}>
+            <div className="card-header">
+              <h3 className="m-0 flex items-center gap-2">
+                <CookingPot size={20} className="text-primary" /> Product Recipes
+              </h3>
+            </div>
+            <div className="card-body">
+              <p className="text-sm text-muted desc-mb">
+                Each sale automatically deducts these ingredients from stock. Changes apply to the next sale.
+              </p>
+              <RecipeManager />
             </div>
           </div>
         )}

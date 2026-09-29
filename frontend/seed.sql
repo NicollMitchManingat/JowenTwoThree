@@ -35,15 +35,15 @@ INSERT INTO discounts (name, type, value, is_active, is_system, created_by) VALU
   ('₱50 Off', 'flat', 50, true, false, 'seed')
 ON CONFLICT (name) DO NOTHING;
 
-INSERT INTO inventory (name, category, stock_quantity) VALUES
-  ('Arabica Beans (Dark)', 'Ingredients', 12), ('Whole Milk', 'Dairy', 8),
-  ('Oat Milk', 'Dairy', 15), ('Vanilla Syrup', 'Syrups', 2),
-  ('Caramel Syrup', 'Syrups', 5), ('Paper Cups (12oz)', 'Packaging', 450),
-  ('Paper Cups (16oz)', 'Packaging', 300), ('Fresh Strawberries', 'Fruits', 1.5),
-  ('Blueberries', 'Fruits', 3), ('All-Purpose Flour', 'Ingredients', 10),
-  ('Sugar (White)', 'Ingredients', 8), ('Butter', 'Dairy', 4),
-  ('Cream Cheese', 'Dairy', 3), ('Chocolate Chips', 'Ingredients', 6),
-  ('Napkins', 'Packaging', 600), ('Takeaway Bags', 'Packaging', 200);
+INSERT INTO inventory (name, category, stock_quantity, unit) VALUES
+  ('Arabica Beans (Dark)', 'Ingredients', 12, 'kg'), ('Whole Milk', 'Dairy', 8, 'L'),
+  ('Oat Milk', 'Dairy', 15, 'L'), ('Vanilla Syrup', 'Syrups', 2, 'L'),
+  ('Caramel Syrup', 'Syrups', 5, 'L'), ('Paper Cups (12oz)', 'Packaging', 450, 'pcs'),
+  ('Paper Cups (16oz)', 'Packaging', 300, 'pcs'), ('Fresh Strawberries', 'Fruits', 1.5, 'kg'),
+  ('Blueberries', 'Fruits', 3, 'kg'), ('All-Purpose Flour', 'Ingredients', 10, 'kg'),
+  ('Sugar (White)', 'Ingredients', 8, 'kg'), ('Butter', 'Dairy', 4, 'kg'),
+  ('Cream Cheese', 'Dairy', 3, 'kg'), ('Chocolate Chips', 'Ingredients', 6, 'kg'),
+  ('Napkins', 'Packaging', 600, 'pcs'), ('Takeaway Bags', 'Packaging', 200, 'pcs');
 
 INSERT INTO customer_traffic (number_of_customer, male_count, female_count, unspecified_count, created_at) VALUES
   (15, 7, 8, 0, NOW() - INTERVAL '7 days' + TIME '07:00:00'),

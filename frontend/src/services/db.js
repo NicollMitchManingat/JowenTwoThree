@@ -235,6 +235,80 @@ export const db = {
     }
   },
 
+  // ── Recipe management (admin UI) ───────────────────────
+  // product_recipes has a composite PK (product_id, inventory_id) and no
+  // surrogate id: lines are addressed by the pair. Swapping an ingredient
+  // is delete + add; edits touch qty_per_sale only.
+  async getAllRecipes() {
+    try {
+      // NOTE: no `unit` in the embedded select — older databases predate
+      // the inventory.unit column and PostgREST hard-fails the whole query
+      // ("column inventory_1.unit does not exist"). Unit displays fall back
+      // to '' via `inv?.unit || ...` at every call site.
+      return await queryWithTimeout((signal) => supabase
+        .from('product_recipes')
+        .select('product_id, inventory_id, qty_per_sale, products(product_name), inventory(id, name, stock_quantity)')
+        .order('product_id')
+        .range(0, 499)
+        .abortSignal(signal))
+    } catch (err) {
+      if (err?.code === '42P01' || err?.code === 'PGRST205' || /product_recipes|relation .* does not exist/i.test(err?.message || '')) {
+        throw new Error('Recipes table not set up — run frontend/product_recipes.sql in Supabase SQL Editor first.')
+      }
+      throw err
+    }
+  },
+
+  validateRecipeLine({ product_id, inventory_id, qty_per_sale }) {
+    if (!product_id) throw new Error('Select a product')
+    if (!inventory_id) throw new Error('Select an ingredient')
+    const qty = Number(qty_per_sale)
+    if (!Number.isFinite(qty) || qty <= 0) throw new Error('Quantity per sale must be greater than 0')
+    return { product_id, inventory_id, qty_per_sale: qty }
+  },
+
+  async createRecipeLine({ product_id, inventory_id, qty_per_sale }) {
+    const clean = this.validateRecipeLine({ product_id, inventory_id, qty_per_sale })
+    try {
+      return await offlineWrite('product_recipes', clean)
+    } catch (err) {
+      const msg = `${err?.message || ''} ${err?.details || ''} ${err?.code || ''}`
+      if (/duplicate|unique|already exists|23505/i.test(msg)) {
+        throw new Error('That ingredient is already in this recipe — edit its quantity instead.')
+      }
+      throw err
+    }
+  },
+
+  async updateRecipeLine(product_id, inventory_id, qty_per_sale) {
+    if (!product_id || !inventory_id) throw new Error('Product and ingredient are required')
+    const qty = Number(qty_per_sale)
+    if (!Number.isFinite(qty) || qty <= 0) throw new Error('Quantity per sale must be greater than 0')
+    return offlineSafe(async () => {
+      const { data, error } = await supabase
+        .from('product_recipes')
+        .update({ qty_per_sale: qty })
+        .eq('product_id', product_id)
+        .eq('inventory_id', inventory_id)
+        .select()
+        .single()
+      if (error) throw error
+      return data
+    })
+  },
+
+  async deleteRecipeLine(product_id, inventory_id) {
+    if (!product_id || !inventory_id) throw new Error('Product and ingredient are required')
+    return offlineSafe(async () => {
+      const { error } = await supabase
+        .from('product_recipes')
+        .delete()
+        .eq('product_id', product_id)
+        .eq('inventory_id', inventory_id)
+      if (error) throw error
+    })
+  },
+
   // Expand cart [{productId, qty}] into per-ingredient totals and BLOCK
   // (throw, code INSUFFICIENT_STOCK with .shortfalls) on missing ingredient
   // or insufficient stock. No writes here, so calling this BEFORE creating
@@ -757,24 +831,45 @@ export const db = {
   },
 
   async createInventoryItem(item) {
-    return offlineWrite('inventory', {
+    const fullBody = {
       name: item.name,
       category: item.category,
       stock_quantity: item.stock_quantity,
-    })
+      unit: item.unit || 'units',
+    }
+    try {
+      return await offlineWrite('inventory', fullBody)
+    } catch (err) {
+      if (isMissingColumnError(err)) {
+        // Pre-migration DB without inventory.unit — retry without it.
+        const { unit, ...legacyBody } = fullBody
+        return offlineWrite('inventory', legacyBody)
+      }
+      throw err
+    }
   },
 
   async updateInventoryItem(id, updates) {
-    return offlineSafe(async () => {
+    const attempt = (body) => offlineSafe(async () => {
       const { data, error } = await supabase
         .from('inventory')
-        .update(updates)
+        .update(body)
         .eq('id', id)
         .select()
         .single()
       if (error) throw error
       return data
     })
+    try {
+      return await attempt(updates)
+    } catch (err) {
+      if (isMissingColumnError(err) && updates && typeof updates === 'object' && 'unit' in updates) {
+        // Pre-migration DB without inventory.unit — retry without it.
+        const { unit, ...legacyUpdates } = updates
+        return attempt(legacyUpdates)
+      }
+      throw err
+    }
   },
 
   async deleteInventoryItem(id) {

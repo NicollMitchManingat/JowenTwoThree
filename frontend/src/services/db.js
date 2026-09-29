@@ -365,6 +365,67 @@ export const db = {
       .abortSignal(signal))
   },
 
+  // Narrow-column transaction fetch shared by every Analytics widget.
+  // Deliberately excludes the bulky cart JSONB: list-level aggregations
+  // (payment mix, vouchers, net revenue, order counts) never need it.
+  async getTransactionsForAnalytics(startDate, endDate) {
+    return queryWithTimeout((signal) => supabase
+      .from('transactions')
+      .select('id, created_at, subtotal, discount, total, payment_method, discount_type, discount_id, status, customer_count')
+      .gte('created_at', startDate)
+      .lte('created_at', endDate)
+      .order('created_at', { ascending: true })
+      .range(0, 999)
+      .abortSignal(signal))
+  },
+
+  // Hourly walk-ins (customer_traffic) vs buyers (transaction count) for the
+  // traffic-conversion chart. Unlike getHourlyTraffic, the two sources stay
+  // split: [{ hour: 0-23, walkIns, buyers }] (always 24 entries).
+  async getHourlyTrafficSplit(startDate, endDate) {
+    let start = startDate
+    let end = endDate
+    if (!start || !end) {
+      const today = new Date()
+      today.setHours(0, 0, 0, 0)
+      start = start || today.toISOString()
+      end = end || new Date().toISOString()
+    }
+    const hourly = Array.from({ length: 24 }, (_, hour) => ({ hour, walkIns: 0, buyers: 0 }))
+    const bump = (timestamp, key, amount = 1) => {
+      if (!timestamp) return
+      const d = new Date(timestamp)
+      if (Number.isNaN(d.getTime())) return
+      hourly[d.getHours()][key] += amount
+    }
+    const txns = await queryWithTimeout((signal) => supabase
+      .from('transactions')
+      .select('created_at')
+      .gte('created_at', start)
+      .lte('created_at', end)
+      .order('created_at', { ascending: true })
+      .range(0, 999)
+      .abortSignal(signal))
+    ;(txns || []).forEach((t) => bump(t.created_at, 'buyers'))
+    try {
+      const traffic = await queryWithTimeout((signal) => supabase
+        .from('customer_traffic')
+        .select('created_at, number_of_customer')
+        .gte('created_at', start)
+        .lte('created_at', end)
+        .order('created_at', { ascending: true })
+        .range(0, 999)
+        .abortSignal(signal))
+      ;(traffic || []).forEach((r) => {
+        const n = Number(r.number_of_customer)
+        if (Number.isFinite(n) && n > 0) bump(r.created_at, 'walkIns', n)
+      })
+    } catch {
+      // customer_traffic table may not exist yet — buyers alone suffice.
+    }
+    return hourly
+  },
+
   async getDailySales(startDate, endDate) {
     let data
     try {

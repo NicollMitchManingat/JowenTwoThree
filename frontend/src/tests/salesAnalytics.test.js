@@ -5,6 +5,7 @@ import {
   paymentMix,
   voucherStats,
   refundSummary,
+  customerTotals,
 } from '../services/salesAnalytics'
 
 const TXNS = [
@@ -66,5 +67,22 @@ describe('salesAnalytics', () => {
 
   it('refundSummary should be zero-safe with no sales', () => {
     expect(refundSummary([], [])).toMatchObject({ count: 0, amount: 0, rate: 0, byReason: [] })
+  })
+
+  it('customerTotals should split M/F/U and balance legacy rows into unspecified', () => {
+    expect(customerTotals([
+      { customer_count: 5, male_count: 2, female_count: 2, unspecified_count: 1 },
+      { customer_count: 3 },
+      { customer_count: null },
+    ])).toEqual({ total: 8, male: 2, female: 2, unspecified: 4 })
+    expect(customerTotals([])).toEqual({ total: 0, male: 0, female: 0, unspecified: 0 })
+  })
+
+  it('should document Total Revenue == Gross - Discounts - Refunds (Net card removed)', () => {
+    const net = netRevenue(TXNS, REFUNDS)
+    const s = summarizeTransactions(TXNS)
+    // Total Revenue (dailySales, refund-netted) equals this by construction.
+    expect(s.total - net.refunds).toBe(net.net)
+    expect(net.gross - net.discounts - net.refunds).toBe(net.net)
   })
 })

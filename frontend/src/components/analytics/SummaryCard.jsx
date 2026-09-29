@@ -1,4 +1,4 @@
-export default function SummaryCard({ title, value, isCurrency = false, icon, color }) {
+export default function SummaryCard({ title, value, isCurrency = false, icon, color, sub }) {
   const numValue = Number(value);
   const validValue = isNaN(numValue) ? 0 : numValue;
   
@@ -15,6 +15,7 @@ export default function SummaryCard({ title, value, isCurrency = false, icon, co
       <div>
         <h3 className="kpi-title">{title}</h3>
         <h1 className="kpi-value">{formattedValue}</h1>
+        {sub && <p className="kpi-sub">{sub}</p>}
       </div>
     </div>
   );

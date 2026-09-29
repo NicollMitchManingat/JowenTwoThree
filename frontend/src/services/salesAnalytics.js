@@ -21,6 +21,34 @@ export function summarizeTransactions(txns) {
   )
 }
 
+// Range-scoped customer totals with gender split.
+// Rows without a split (legacy / missing columns) count toward unspecified
+// so total === male + female + unspecified always holds.
+export function customerTotals(txns) {
+  const totals = { total: 0, male: 0, female: 0, unspecified: 0 }
+  ;(Array.isArray(txns) ? txns : []).forEach((t) => {
+    const male = toNonNegative(t.male_count)
+    const female = toNonNegative(t.female_count)
+    let unspecified = toNonNegative(t.unspecified_count)
+    const total = toNonNegative(t.customer_count ?? (male + female + unspecified))
+    if (male + female + unspecified === 0 && total > 0) {
+      unspecified = total
+    } else if (male + female + unspecified !== total) {
+      unspecified = Math.max(0, total - male - female)
+    }
+    totals.total += total
+    totals.male += male
+    totals.female += female
+    totals.unspecified += unspecified
+  })
+  return totals
+}
+
+function toNonNegative(n) {
+  const v = Number(n)
+  return Number.isFinite(v) && v > 0 ? Math.floor(v) : 0
+}
+
 // Net revenue: gross sales minus discounts minus refunded amounts.
 // Fully-refunded orders are NOT double-subtracted: their totals stay in the
 // sum and their (equal) refund rows net them out. Refunds dated inside the

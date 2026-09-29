@@ -1,9 +1,9 @@
 import { useContext, useEffect, useState, useMemo } from "react";
 import { AnalyticsContext } from "./AnalyticsContext";
-import { Sparkles, TrendingUp, AlertTriangle, Package, BrainCircuit, BarChart3, ShoppingBag, Calendar, ChevronDown, Plus, X, AlertCircle, CheckCircle, Wallet, Percent, Undo2, Receipt } from 'lucide-react';
+import { Sparkles, TrendingUp, AlertTriangle, Package, BrainCircuit, BarChart3, ShoppingBag, Calendar, ChevronDown, Plus, X, AlertCircle, CheckCircle, Percent, Undo2 } from 'lucide-react';
 import { db } from '../services/db';
 import { productAPI } from '../services/productAPI';
-import { netRevenue, paymentMix, voucherStats, refundSummary } from '../services/salesAnalytics';
+import { netRevenue, paymentMix, voucherStats, refundSummary, customerTotals } from '../services/salesAnalytics';
 
 import SummaryCard from "../components/analytics/SummaryCard";
 import SalesTrendChart from "../components/analytics/SalesTrendChart";
@@ -261,12 +261,18 @@ export default function DashboardContent({ activeTab, user }) {
 
 // Calculate totals for summary cards.
 // Orders is the true transaction count (previously this counted days).
-// Falls back to the day count only when the transaction fetch is unavailable.
+// Customers follows the selected range (previously today-only, so it read 0
+// on any range without sales logged yet today).
+// Both fall back gracefully when the transaction fetch is unavailable.
   const totals = useMemo(() => {
-    if (!salesData || Object.keys(salesData).length === 0) return { revenue: 0, orders: 0, customers: 0 };
+    if (!salesData || Object.keys(salesData).length === 0) {
+      return { revenue: 0, orders: 0, customers: { total: 0, male: 0, female: 0, unspecified: 0 } };
+    }
     const revenue = Object.values(salesData).reduce((sum, val) => sum + (Number(val) || 0), 0);
     const orders = Array.isArray(rangeTxns) ? rangeTxns.length : Object.keys(salesData).length;
-    const customers = todayStats?.totalCustomers || 0;
+    const customers = Array.isArray(rangeTxns)
+      ? customerTotals(rangeTxns)
+      : { total: todayStats?.totalCustomers || 0, male: 0, female: 0, unspecified: 0 };
     return { revenue, orders, customers };
   }, [salesData, todayStats, rangeTxns]);
 
@@ -352,18 +358,20 @@ export default function DashboardContent({ activeTab, user }) {
         </div>
       </div>
 
+      {/* Single grid so every breakpoint fills evenly: 4+2 desktop, 3+3 tablet, 2+2+2 phone. */}
       <div className="metrics-grid">
         <SummaryCard title="Total Revenue" value={totals.revenue} isCurrency={true} icon={<ShoppingBag />} color="#16a34a" />
         <SummaryCard title="Orders" value={totals.orders} icon={<BarChart3 />} color="#2563eb" />
-        <SummaryCard title="Customers" value={totals.customers} icon={<ShoppingBag />} color="#9333ea" />
+        <SummaryCard
+          title="Customers"
+          value={totals.customers.total}
+          icon={<ShoppingBag />}
+          color="#9333ea"
+          sub={`♂ ${totals.customers.male.toLocaleString()} · ♀ ${totals.customers.female.toLocaleString()}${totals.customers.unspecified > 0 ? ` · ? ${totals.customers.unspecified.toLocaleString()}` : ''}`}
+        />
         <SummaryCard title="Avg Order" value={totals.orders > 0 ? totals.revenue / totals.orders : 0} isCurrency={true} icon={<TrendingUp />} color="#f59e0b" />
-      </div>
-
-      <div className="metrics-grid">
-        <SummaryCard title="Gross Sales" value={net.gross} isCurrency={true} icon={<Receipt />} color="#2563eb" />
         <SummaryCard title="Discounts Given" value={net.discounts} isCurrency={true} icon={<Percent />} color="#9333ea" />
         <SummaryCard title="Refunded" value={net.refunds} isCurrency={true} icon={<Undo2 />} color="#dc2626" />
-        <SummaryCard title="Net Revenue" value={net.net} isCurrency={true} icon={<Wallet />} color="#16a34a" />
       </div>
 
       <div className="charts-grid">

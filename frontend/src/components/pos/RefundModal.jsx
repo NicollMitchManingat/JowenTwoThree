@@ -151,7 +151,7 @@ export default function RefundModal({ order, user, existingRefunds = [], onClose
         <div className="modal-body">
           {error && <p className="text-danger" data-testid="refund-error">{error}</p>}
 
-          <div className="flex justify-between items-center mb-2">
+          <div className="refund-lines-header">
             <p className="font-semibold m-0">Products to refund</p>
             <button className="btn btn-secondary" disabled={saving} onClick={selectFullOrder} data-testid="refund-full-btn">
               Select full order

@@ -676,6 +676,15 @@
   margin-bottom: 1.25rem;
 }
 
+.refund-lines-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
 .pos-grid {
   display: grid;
   grid-template-columns: 1fr 380px;

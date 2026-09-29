@@ -561,7 +561,6 @@ export default function MainPOS({ user }) {
         <div className="flex justify-between items-center w-full">
           <h3 className="m-0">Menu</h3>
           <div className="flex items-center gap-2">
-            <LowStockBell />
             <div className="customer-count-widget m-0" data-testid="traffic-widget">
             <div className="flex items-center gap-2">
               <Users size={18} className="text-primary" />
@@ -589,6 +588,7 @@ export default function MainPOS({ user }) {
               <span className="traffic-total" data-testid="traffic-total" title="Male + Female + Unspecified">Total: {customerCount}</span>
             </div>
             </div>
+            <LowStockBell />
           </div>
         </div>
 

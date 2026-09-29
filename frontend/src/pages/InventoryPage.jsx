@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Search, Plus, Edit, Trash2, X, Sparkles, AlertCircle, Bell, BellOff, Loader2, Package, AlertTriangle, ChevronRight } from 'lucide-react';
+import { Search, Plus, Edit, Trash2, X, Sparkles, AlertCircle, ChevronRight } from 'lucide-react';
 import { db } from '../services/db';
+import LowStockBell from '../components/inventory/LowStockBell';
 
 export default function InventoryPage({ userRole }) {
   // Stockists manage stock day-to-day (add/edit/wastage/delete).
@@ -23,11 +24,6 @@ export default function InventoryPage({ userRole }) {
 
   const wastageReasons = ['spoiled', 'expired', 'damaged', 'overproduction', 'other'];
 
-  const [showLowStockModal, setShowLowStockModal] = useState(false);
-  const [lowStockItems, setLowStockItems] = useState([]);
-  const [outOfStockItems, setOutOfStockItems] = useState([]);
-  const [lowStockLoading, setLowStockLoading] = useState(false);
-
   const [formData, setFormData] = useState({
     name: '', category: 'Ingredients', stock_quantity: '', unit: 'kg'
   });
@@ -47,32 +43,8 @@ export default function InventoryPage({ userRole }) {
     }
   }
 
-  async function loadLowStockAlerts() {
-    try {
-      setLowStockLoading(true);
-      const [lowRes, outRes] = await Promise.allSettled([
-        db.getLowStockItems(5),
-        db.getOutOfStockItems()
-      ]);
-      setLowStockItems(lowRes.status === 'fulfilled' ? (lowRes.value || []) : []);
-      setOutOfStockItems(outRes.status === 'fulfilled' ? (outRes.value || []) : []);
-      if (lowRes.status === 'rejected') console.error('Failed to load low stock alerts:', lowRes.reason);
-      if (outRes.status === 'rejected') console.error('Failed to load low stock alerts:', outRes.reason);
-    } catch (err) {
-      console.error('Failed to load low stock alerts:', err);
-    } finally {
-      setLowStockLoading(false);
-    }
-  }
-
   useEffect(() => {
-    let cancelled = false
-    async function load() {
-      await loadInventory();
-      if (!cancelled) loadLowStockAlerts();
-    }
-    load()
-    return () => { cancelled = true }
+    loadInventory()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -289,23 +261,7 @@ export default function InventoryPage({ userRole }) {
               <Plus size={18} /> Add Item
             </button>
           )}
-          <div className="relative" style={{ position: 'relative' }}>
-            <button
-              className={`btn btn-secondary ${(lowStockItems.length > 0 || outOfStockItems.length > 0) ? 'text-danger' : ''}`}
-              onClick={() => { setShowLowStockModal(true); loadLowStockAlerts(); }}
-              title="Low Stock Alerts"
-              style={{ position: 'relative' }}
-            >
-              {(lowStockItems.length > 0 || outOfStockItems.length > 0) ? <Bell size={18} /> : <BellOff size={18} />}
-              {(lowStockItems.length > 0 || outOfStockItems.length > 0) && (
-                <span className="absolute -top-1 -right-1 bg-danger text-white text-xs rounded-full w-5 h-5 flex items-center justify-center font-bold"
-                  style={{ minWidth: '20px', height: '20px', fontSize: '10px', lineHeight: '1', top: '-6px', right: '-6px' }}>
-                  {lowStockItems.length + outOfStockItems.length}
-                </span>
-              )}
-              {lowStockLoading && <Loader2 size={16} className="animate-spin" />}
-            </button>
-          </div>
+          <LowStockBell />
         </div>
       </div>
 
@@ -345,75 +301,6 @@ export default function InventoryPage({ userRole }) {
         </table>
       </div>
 
-      {showLowStockModal && (
-        <div className="modal-overlay" onClick={() => setShowLowStockModal(false)}>
-          <div className="modal-content card" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '500px', width: '100%' }}>
-            <div className="modal-header">
-              <div className="flex items-center gap-2">
-                <AlertTriangle size={20} className="text-warning" />
-                <h3>Stock Alerts</h3>
-              </div>
-              <button className="btn-icon-small" onClick={() => setShowLowStockModal(false)}><X size={18} /></button>
-            </div>
-            <div className="modal-body" style={{ maxHeight: '60vh', overflowY: 'auto' }}>
-              {lowStockLoading ? (
-                <div className="flex items-center justify-center py-8">
-                  <Loader2 size={24} className="animate-spin text-primary" />
-                  <span className="ml-2 text-muted">Loading alerts...</span>
-                </div>
-              ) : (outOfStockItems.length === 0 && lowStockItems.length === 0) ? (
-                <div className="flex flex-col items-center justify-center py-8 text-center">
-                  <BellOff size={48} className="text-success mb-4 opacity-50" />
-                  <p className="font-semibold text-lg mb-1">All Stocked Up!</p>
-                  <p className="text-muted">No low stock or out of stock items.</p>
-                </div>
-              ) : (
-                <>
-                  {outOfStockItems.length > 0 && (
-                    <div className="mb-4">
-                      <h4 className="font-semibold text-danger flex items-center gap-2 mb-3">
-                        <Package size={16} /> Out of Stock ({outOfStockItems.length})
-                      </h4>
-                      <div className="stock-list">
-                        {outOfStockItems.map(item => (
-                          <div key={item.id} className="stock-item stock-item-danger">
-                            <div>
-                              <p className="font-medium">{item.name}</p>
-                              <p className="text-sm text-muted">{item.category || 'Uncategorized'}</p>
-                            </div>
-                            <span className="badge badge-danger">0 {item.unit || 'units'}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                  {lowStockItems.length > 0 && (
-                    <div>
-                      <h4 className="font-semibold text-warning flex items-center gap-2 mb-3">
-                        <AlertTriangle size={16} /> Low Stock ({lowStockItems.length})
-                      </h4>
-                      <div className="stock-list">
-                        {lowStockItems.map(item => (
-                          <div key={item.id} className="stock-item stock-item-warning">
-                            <div>
-                              <p className="font-medium">{item.name}</p>
-                              <p className="text-sm text-muted">{item.category || 'Uncategorized'}</p>
-                            </div>
-                            <span className="badge badge-warning">{item.stock_quantity} {item.unit || 'units'} left</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </>
-              )}
-            </div>
-            <div className="modal-footer">
-              <button className="btn btn-primary" onClick={() => setShowLowStockModal(false)}>Close</button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

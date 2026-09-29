@@ -26,6 +26,8 @@ vi.mock('../services/db', () => ({
     createTransactionItems: vi.fn().mockResolvedValue([]),
     logTraffic: vi.fn(),
     getActiveDiscounts: vi.fn().mockResolvedValue([]),
+    getLowStockItems: vi.fn().mockResolvedValue([]),
+    getOutOfStockItems: vi.fn().mockResolvedValue([]),
   }
 }))
 
@@ -196,6 +198,16 @@ describe('MainPOS', () => {
     await waitFor(() => {
       expect(screen.getByText('Total')).toBeInTheDocument()
     })
+  })
+
+  it('should show the low-stock bell beside the traffic widget', async () => {
+    render(<MainPOS user={mockUser} />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('traffic-widget')).toBeInTheDocument()
+    })
+    expect(screen.getByTestId('low-stock-bell')).toBeInTheDocument()
+    expect(db.getLowStockItems).toHaveBeenCalled()
   })
 
   it('should hide the radial FAB for non-admin cashiers', async () => {

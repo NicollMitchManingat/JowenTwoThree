@@ -200,14 +200,18 @@ describe('MainPOS', () => {
     })
   })
 
-  it('should show the low-stock bell beside the traffic widget', async () => {
+  it('should show the low-stock bell to the right of the traffic widget', async () => {
     render(<MainPOS user={mockUser} />)
 
     await waitFor(() => {
       expect(screen.getByTestId('traffic-widget')).toBeInTheDocument()
     })
-    expect(screen.getByTestId('low-stock-bell')).toBeInTheDocument()
+    const bell = screen.getByTestId('low-stock-bell')
+    expect(bell).toBeInTheDocument()
     expect(db.getLowStockItems).toHaveBeenCalled()
+    // Bell comes after the customer count in document order (right side).
+    const widget = screen.getByTestId('traffic-widget')
+    expect(widget.compareDocumentPosition(bell) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 
   it('should hide the radial FAB for non-admin cashiers', async () => {

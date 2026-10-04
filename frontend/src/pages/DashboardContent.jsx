@@ -3,7 +3,7 @@ import { AnalyticsContext } from "./AnalyticsContext";
 import { Sparkles, TrendingUp, AlertTriangle, Package, BrainCircuit, BarChart3, ShoppingBag, Calendar, ChevronDown, Plus, X, AlertCircle, CheckCircle, Percent, Undo2 } from 'lucide-react';
 import { db } from '../services/db';
 import { productAPI } from '../services/productAPI';
-import { netRevenue, paymentMix, voucherStats, refundSummary, customerTotals } from '../services/salesAnalytics';
+import { netRevenue, paymentMix, voucherStats, refundSummary, customerTotals, bucketHourlySales, aggregateWeekdayPattern } from '../services/salesAnalytics';
 
 import SummaryCard from "../components/analytics/SummaryCard";
 import SalesTrendChart from "../components/analytics/SalesTrendChart";
@@ -102,7 +102,7 @@ export function aggregateWeeklySales(salesData) {
 }
 
 export default function DashboardContent({ activeTab, user }) {
-  const { dateFilter, setDateFilter } = useContext(AnalyticsContext);
+  const { dateFilter, setDateFilter, granularity = 'daily', setGranularity = () => {} } = useContext(AnalyticsContext);
   const [customStartDate, setCustomStartDate] = useState("");
   const [customEndDate, setCustomEndDate] = useState("");
   const [todayStats, setTodayStats] = useState(null);
@@ -221,8 +221,59 @@ export default function DashboardContent({ activeTab, user }) {
     };
   }, [dateRange, salesRetryKey]);
 
-  // Transform daily sales data for chart
+  // Chronological hourly buckets derived from the shared range fetch
+  // (no second Supabase scan). Each clock hour is its own point.
+  const hourlyBuckets = useMemo(() => {
+    const buckets = bucketHourlySales(rangeTxns, rangeRefunds);
+    const keys = Object.keys(buckets).sort();
+    if (keys.length === 0) return { keys: [], labels: [], data: [] };
+    const sameDay = keys.length > 0 && keys[0].slice(0, 10) === keys[keys.length - 1].slice(0, 10);
+    return {
+      keys,
+      labels: keys.map((k) => {
+        const d = new Date(k);
+        if (Number.isNaN(d.getTime())) return k;
+        const hour = d.toLocaleTimeString('en-US', { hour: 'numeric' });
+        if (sameDay) return hour;
+        return `${d.toLocaleDateString('en-US', { weekday: 'short' })} ${hour}`;
+      }),
+      data: keys.map((k) => buckets[k] || 0),
+    };
+  }, [rangeTxns, rangeRefunds]);
+
+  // Weekly buckets (line-ready) derived from the same daily sales.
+  const weeklyBuckets = useMemo(() => aggregateWeeklySales(salesData), [salesData]);
+
+  // Primary Revenue Trend follows the granularity toggle.
   const chartData = useMemo(() => {
+    if (granularity === 'hourly') {
+      if (hourlyBuckets.keys.length === 0) return { labels: [], datasets: [{ data: [] }] };
+      return {
+        labels: hourlyBuckets.labels,
+        datasets: [{
+          label: "Revenue",
+          data: hourlyBuckets.data,
+          borderColor: "#16a34a",
+          backgroundColor: "#16a34a",
+          tension: 0.4,
+          fill: false,
+        }],
+      };
+    }
+    if (granularity === 'weekly') {
+      if (weeklyBuckets.length === 0) return { labels: [], datasets: [{ data: [] }] };
+      return {
+        labels: weeklyBuckets.map((b) => b.label),
+        datasets: [{
+          label: "Revenue",
+          data: weeklyBuckets.map((b) => b.total),
+          borderColor: "#16a34a",
+          backgroundColor: "#16a34a",
+          tension: 0.4,
+          fill: false,
+        }],
+      };
+    }
     if (!salesData || Object.keys(salesData).length === 0) return { labels: [], datasets: [{ data: [] }] };
 
     const labels = Object.keys(salesData).sort();
@@ -242,22 +293,33 @@ export default function DashboardContent({ activeTab, user }) {
         fill: false,
       }],
     };
-  }, [salesData]);
+  }, [salesData, granularity, hourlyBuckets, weeklyBuckets]);
 
-  // Aggregate the same daily sales into ISO-week buckets for the Weekly card.
-  const weeklyChartData = useMemo(() => {
-    const buckets = aggregateWeeklySales(salesData);
-    if (buckets.length === 0) return { labels: [], datasets: [{ data: [] }] };
+  // Weekday profile (Mon–Sun average revenue) — granularity-independent
+  // context answering "which weekday performs best". Never duplicates the
+  // primary trend regardless of the toggle.
+  const weekdayChartData = useMemo(() => {
+    const buckets = aggregateWeekdayPattern(salesData);
+    if (buckets.every((b) => !(b.avg > 0))) return { labels: [], datasets: [{ data: [] }] };
     return {
-      labels: buckets.map(b => b.label),
+      labels: buckets.map((b) => b.key),
       datasets: [{
-        label: "Weekly Revenue",
-        data: buckets.map(b => b.total),
+        label: "Avg Revenue",
+        data: buckets.map((b) => Math.round(b.avg)),
         borderColor: "#2563eb",
         backgroundColor: "#2563eb",
       }],
     };
   }, [salesData]);
+
+  // Warn when hourly spans a long range — 168+ points get noisy.
+  const hourlySpanDays = useMemo(() => {
+    if (granularity !== 'hourly' || hourlyBuckets.keys.length === 0) return 0;
+    const first = new Date(hourlyBuckets.keys[0]).getTime();
+    const last = new Date(hourlyBuckets.keys[hourlyBuckets.keys.length - 1]).getTime();
+    if (!Number.isFinite(first) || !Number.isFinite(last)) return 0;
+    return Math.max(1, Math.round((last - first) / (24 * 3600 * 1000)) + 1);
+  }, [granularity, hourlyBuckets]);
 
 // Calculate totals for summary cards.
 // Orders is the true transaction count (previously this counted days).
@@ -334,12 +396,28 @@ export default function DashboardContent({ activeTab, user }) {
     <div className="page-content">
       <div className="flex justify-between items-center mb-6">
         <h2 className="m-0 text-2xl font-bold">Sales Analytics</h2>
-        <div className="flex items-center gap-3">
-          <select 
-            value={dateFilter} 
+        <div className="flex items-center gap-3 flex-wrap">
+          <div role="group" aria-label="Chart granularity" data-testid="granularity-group" className="flex items-center gap-1">
+            {[['hourly', 'Hourly'], ['daily', 'Daily'], ['weekly', 'Weekly']].map(([val, label]) => (
+              <button
+                key={val}
+                type="button"
+                data-testid={`granularity-${val}`}
+                aria-pressed={granularity === val}
+                onClick={() => setGranularity(val)}
+                className={`btn ${granularity === val ? 'btn-primary' : 'btn-secondary'}`}
+                style={{ padding: '0.5rem 0.75rem', fontSize: '0.85rem' }}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <select
+            value={dateFilter}
             onChange={(e) => { setDateFilter(e.target.value); setCustomStartDate(""); setCustomEndDate(""); }}
             className="form-input"
             style={{ width: 'auto', minWidth: '140px' }}
+            aria-label="Date range"
           >
             <option value="Today">Today</option>
             <option value="Week">This Week</option>
@@ -377,8 +455,13 @@ export default function DashboardContent({ activeTab, user }) {
       <div className="charts-grid">
         <div className="card">
           <div className="card-header">
-            <h3 className="m-0">Revenue Trend</h3>
+            <h3 className="m-0">Revenue Trend{granularity === 'hourly' ? ' (Hourly)' : granularity === 'weekly' ? ' (Weekly)' : ''}</h3>
           </div>
+          {granularity === 'hourly' && hourlySpanDays > 7 && (
+            <p className="text-sm text-muted" data-testid="hourly-range-hint" style={{ margin: '0.25rem 0 0 0', padding: '0 1rem' }}>
+              Hourly is clearest under 7 days — showing {hourlyBuckets.keys.length} chronological hours across ~{hourlySpanDays} days.
+            </p>
+          )}
           <div className="chart-container" style={{ height: "250px" }}>
             <SalesTrendChart
               data={chartData}
@@ -386,21 +469,24 @@ export default function DashboardContent({ activeTab, user }) {
               loading={loading && !salesData}
               error={salesError}
               onRetry={() => setSalesRetryKey((k) => k + 1)}
+              avgLabel={granularity === 'hourly' ? 'Avg/hour' : granularity === 'weekly' ? 'Avg/week' : 'Avg/day'}
+              maxTicksLimit={granularity === 'hourly' ? 12 : 8}
             />
           </div>
         </div>
         <div className="card">
           <div className="card-header">
-            <h3 className="m-0">Weekly Revenue</h3>
+            <h3 className="m-0">Weekday Pattern</h3>
           </div>
           <div className="chart-container" style={{ height: "250px" }}>
             <SalesTrendChart
-              data={weeklyChartData}
+              data={weekdayChartData}
               variant="bar"
               loading={loading && !salesData}
               error={salesError}
               onRetry={() => setSalesRetryKey((k) => k + 1)}
-              summaryPrefix="Best week"
+              summaryPrefix="Best day"
+              avgLabel="Avg/day"
             />
           </div>
         </div>

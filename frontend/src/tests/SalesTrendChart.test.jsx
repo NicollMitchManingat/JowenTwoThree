@@ -101,6 +101,20 @@ describe("SalesTrendChart", () => {
     expect(root.style.overflow).toBe("hidden");
     expect(root.style.maxWidth).toBe("100%");
   });
+
+  it("should support hourly avg label and Best hour prefix", () => {
+    render(<SalesTrendChart data={dailyData} variant="bar" summaryPrefix="Best hour" avgLabel="Avg/hour" />);
+
+    const summary = screen.getByTestId("sales-summary");
+    expect(summary).toHaveTextContent(/Best hour/);
+    expect(summary).toHaveTextContent(/Avg\/hour/);
+  });
+
+  it("should default to Avg/day for backward compatibility", () => {
+    render(<SalesTrendChart data={dailyData} />);
+
+    expect(screen.getByTestId("sales-summary")).toHaveTextContent(/Avg\/day/);
+  });
 });
 
 describe("aggregateWeeklySales", () => {

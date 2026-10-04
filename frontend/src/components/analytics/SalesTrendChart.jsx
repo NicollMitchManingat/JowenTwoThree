@@ -96,6 +96,8 @@ export default function SalesTrendChart({
   error = null,
   onRetry,
   summaryPrefix = "Peak",
+  avgLabel = "Avg/day",
+  maxTicksLimit = 8,
 }) {
   if (loading) {
     return <div data-testid="sales-loading">Loading sales chart...</div>;
@@ -131,15 +133,29 @@ export default function SalesTrendChart({
         : {}),
     })),
   };
-  const chartOptions = isBar
-    ? {
-        ...baseOptions,
-        scales: {
-          ...baseOptions.scales,
-          x: { ...baseOptions.scales.x, grid: { display: false } },
-        },
-      }
-    : baseOptions;
+  const chartOptions = {
+    ...(isBar
+      ? {
+          ...baseOptions,
+          scales: {
+            ...baseOptions.scales,
+            x: { ...baseOptions.scales.x, grid: { display: false } },
+          },
+        }
+      : baseOptions),
+    scales: {
+      ...(isBar
+        ? {
+            ...baseOptions.scales,
+            x: { ...baseOptions.scales.x, grid: { display: false } },
+          }
+        : baseOptions.scales),
+    },
+  };
+  chartOptions.scales.x = {
+    ...chartOptions.scales.x,
+    ticks: { ...chartOptions.scales.x.ticks, maxTicksLimit },
+  };
 
   return (
     <div
@@ -181,7 +197,7 @@ export default function SalesTrendChart({
           Total: <strong style={{ color: "var(--text-main, #111827)" }}>{formatPeso(total)}</strong>
         </span>
         <span>
-          Avg/day: <strong style={{ color: "var(--text-main, #111827)" }}>{formatPeso(Math.round(avg))}</strong>
+          {avgLabel}: <strong style={{ color: "var(--text-main, #111827)" }}>{formatPeso(Math.round(avg))}</strong>
         </span>
       </div>
 

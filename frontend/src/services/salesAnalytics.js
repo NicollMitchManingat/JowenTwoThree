@@ -109,6 +109,67 @@ export function voucherStats(txns, discounts) {
   return [...map.values()].sort((a, b) => b.pesos - a.pesos)
 }
 
+// Chronological hourly buckets: { 'YYYY-MM-DDTHH:00': amount } sorted by key.
+// Mirrors db.getDailySales refund-netting (fully-refunded orders contribute
+// nothing and their refunds are not double-subtracted; in-range refunds for
+// older orders still subtract). Buckets use LOCAL time so labels match the
+// register clock; each clock hour is its own point across multi-day ranges.
+export function hourKeyLocal(timestamp) {
+  if (timestamp === null || timestamp === undefined || timestamp === '') return null
+  const d = timestamp instanceof Date ? timestamp : new Date(timestamp)
+  if (Number.isNaN(d.getTime())) return null
+  const pad = (n) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:00`
+}
+
+export function bucketHourlySales(txns, refunds) {
+  const buckets = {}
+  const addToHour = (timestamp, amount) => {
+    const key = hourKeyLocal(timestamp)
+    if (!key) return
+    const n = Number(amount)
+    if (!Number.isFinite(n)) return
+    buckets[key] = Math.max(0, (buckets[key] || 0) + n)
+  }
+  const refundedIds = new Set()
+  ;(Array.isArray(txns) ? txns : []).forEach((t) => {
+    if (t?.status === 'REFUNDED') {
+      if (t?.id) refundedIds.add(t.id)
+      return
+    }
+    addToHour(t?.created_at, t?.total)
+  })
+  ;(Array.isArray(refunds) ? refunds : []).forEach((r) => {
+    if (r?.transaction_id && refundedIds.has(r.transaction_id)) return
+    addToHour(r?.created_at, -toPeso(r?.refund_amount))
+  })
+  return buckets
+}
+
+// Weekday pattern: [{ key, total, days, avg }] in Mon–Sun order.
+// Groups daily { 'YYYY-MM-DD': amount } sales by local weekday so ranges of
+// any length collapse to a 7-bar profile. avg = total / distinct days seen
+// (partial weeks don't deflate). Noon parsing avoids midnight-shift
+// misbucketing, matching aggregateWeeklySales in DashboardContent.
+export function aggregateWeekdayPattern(salesData) {
+  const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+  const buckets = DAYS.map((key) => ({ key, total: 0, days: 0, avg: 0 }))
+  if (!salesData || typeof salesData !== 'object') return buckets
+  for (const [day, amount] of Object.entries(salesData)) {
+    const d = new Date(`${day}T12:00:00`)
+    if (Number.isNaN(d.getTime())) continue
+    const n = Number(amount)
+    if (!Number.isFinite(n) || n < 0) continue
+    const idx = (d.getDay() + 6) % 7 // Mon=0..Sun=6
+    buckets[idx].total += n
+    buckets[idx].days += 1
+  }
+  buckets.forEach((b) => {
+    b.avg = b.days > 0 ? b.total / b.days : 0
+  })
+  return buckets
+}
+
 // Refund insights: { count, amount, rate, byReason }.
 // rate = refunded pesos / gross sales pesos (0 when no sales).
 export function refundSummary(txns, refunds) {

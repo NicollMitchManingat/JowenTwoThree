@@ -6,6 +6,9 @@ import {
   voucherStats,
   refundSummary,
   customerTotals,
+  bucketHourlySales,
+  hourKeyLocal,
+  aggregateWeekdayPattern,
 } from '../services/salesAnalytics'
 
 const TXNS = [
@@ -76,6 +79,76 @@ describe('salesAnalytics', () => {
       { customer_count: null },
     ])).toEqual({ total: 8, male: 2, female: 2, unspecified: 4 })
     expect(customerTotals([])).toEqual({ total: 0, male: 0, female: 0, unspecified: 0 })
+  })
+
+  it('hourKeyLocal should bucket in local time as YYYY-MM-DDTHH:00', () => {
+    expect(hourKeyLocal('2026-10-04T09:15:00')).toBe('2026-10-04T09:00')
+    expect(hourKeyLocal('2026-10-04T09:59:59')).toBe('2026-10-04T09:00')
+    expect(hourKeyLocal('not-a-date')).toBe(null)
+    expect(hourKeyLocal(null)).toBe(null)
+  })
+
+  it('bucketHourlySales should sum same-hour txns into chronological keys', () => {
+    const txns = [
+      { id: 'a', created_at: '2026-10-04T09:10:00', total: 100, status: 'COMPLETED' },
+      { id: 'b', created_at: '2026-10-04T09:45:00', total: 50, status: 'COMPLETED' },
+      { id: 'c', created_at: '2026-10-04T10:05:00', total: 200, status: 'COMPLETED' },
+      { id: 'd', created_at: '2026-10-05T09:10:00', total: 75, status: 'COMPLETED' },
+    ]
+    const out = bucketHourlySales(txns, [])
+    expect(out['2026-10-04T09:00']).toBe(150)
+    expect(out['2026-10-04T10:00']).toBe(200)
+    // Same clock hour on another day stays a separate chronological point.
+    expect(out['2026-10-05T09:00']).toBe(75)
+    expect(Object.keys(out).sort()).toEqual([
+      '2026-10-04T09:00',
+      '2026-10-04T10:00',
+      '2026-10-05T09:00',
+    ])
+  })
+
+  it('bucketHourlySales should net refunds like getDailySales without double-counting', () => {
+    const txns = [
+      { id: 't1', created_at: '2026-10-04T09:10:00', total: 240, status: 'COMPLETED' },
+      { id: 't4', created_at: '2026-10-04T10:10:00', total: 150, status: 'REFUNDED' },
+    ]
+    const refunds = [
+      { transaction_id: 't4', refund_amount: 150, created_at: '2026-10-04T10:20:00' },
+      { transaction_id: 't1', refund_amount: 40, created_at: '2026-10-04T09:30:00' },
+    ]
+    const out = bucketHourlySales(txns, refunds)
+    // t4 excluded + its refund skipped → 10:00 bucket stays empty/absent.
+    expect(out['2026-10-04T10:00']).toBeUndefined()
+    expect(out['2026-10-04T09:00']).toBe(200)
+  })
+
+  it('bucketHourlySales should be empty-safe and skip bad rows', () => {
+    expect(bucketHourlySales(null, null)).toEqual({})
+    expect(bucketHourlySales([], [])).toEqual({})
+    expect(bucketHourlySales(
+      [{ id: 'x', created_at: 'bad-date', total: 100, status: 'COMPLETED' }],
+      []
+    )).toEqual({})
+  })
+
+  it('aggregateWeekdayPattern should average by weekday in Mon-Sun order', () => {
+    // 2026-09-07 is a Monday, 2026-09-08 Tuesday, 2026-09-14 next Monday.
+    const out = aggregateWeekdayPattern({
+      '2026-09-07': 100,
+      '2026-09-08': 200,
+      '2026-09-14': 300,
+    })
+    expect(out.map((b) => b.key)).toEqual(['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'])
+    expect(out[0]).toMatchObject({ total: 400, days: 2, avg: 200 })
+    expect(out[1]).toMatchObject({ total: 200, days: 1, avg: 200 })
+    expect(out[2]).toMatchObject({ total: 0, days: 0, avg: 0 })
+  })
+
+  it('aggregateWeekdayPattern should ignore bad rows and handle empty input', () => {
+    expect(aggregateWeekdayPattern(null).every((b) => b.avg === 0)).toBe(true)
+    expect(aggregateWeekdayPattern({}).every((b) => b.avg === 0)).toBe(true)
+    const out = aggregateWeekdayPattern({ 'bad-date': 100, '2026-09-07': 'nan' })
+    expect(out.every((b) => b.avg === 0)).toBe(true)
   })
 
   it('should document Total Revenue == Gross - Discounts - Refunds (Net card removed)', () => {

@@ -1711,7 +1711,7 @@
 
 /* Compact badge inside the 38px product trigger: the full .badge
    (0.75rem + roomy padding + own border) nearly fills the trigger and
-   crowds the product name. Dropdown-row badges are untouched. */
+   crowds the product name. Dropdown-row badges have their own rule below. */
 .recipe-trigger-btn .badge {
   font-size: 0.7rem;
   padding: 0.15rem 0.45rem;
@@ -1719,6 +1719,25 @@
   display: inline-flex;
   align-items: center;
   gap: 0.25rem;
+}
+
+/* Dropdown-row badges: uniform column, centered icon + text.
+   Count badges get a fixed min-width so numbers align; the trailing
+   row-end check (not the badge) marks selection, so success badges
+   carry no icon. Trigger + global .badge rules are untouched. */
+.recipe-product-list .badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.3rem;
+  line-height: 1;
+  font-size: 0.72rem;
+  padding: 0.22rem 0.5rem;
+  flex-shrink: 0;
+}
+
+.recipe-product-list .badge-success {
+  min-width: 2.4rem;
 }
 
 .analytics-range-select {

@@ -430,6 +430,7 @@ export default function RecipeManager() {
                     role="listbox"
                     aria-label="Products with recipe status"
                     data-testid="recipe-product-list"
+                    className="recipe-product-list"
                     style={{
                       position: 'absolute', top: 'calc(100% + 6px)', left: 0, right: 0, zIndex: 50,
                       background: 'var(--bg-surface)', border: '1px solid var(--border-color)',
@@ -483,19 +484,23 @@ export default function RecipeManager() {
                               display: 'flex', alignItems: 'center', gap: '0.6rem',
                               padding: '0.6rem 0.75rem', cursor: 'pointer',
                               background: isActive ? 'var(--bg-hover)' : isSelected ? 'var(--bg-main)' : 'transparent',
-                              borderLeft: `4px solid ${has ? '#27ae60' : 'var(--color-danger)'}`,
+                              borderLeft: `3px solid ${has ? '#27ae60' : 'var(--color-danger)'}`,
                             }}
                           >
                             <span style={{ flex: 1, fontWeight: isSelected ? 700 : 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                               {p.name}
                             </span>
                             {has ? (
-                              <span className="badge badge-success" data-testid={`recipe-product-badge-${p.id}`}>
-                                <Check size={12} /> {count}
+                              <span
+                                className="badge badge-success"
+                                data-testid={`recipe-product-badge-${p.id}`}
+                                title={`${count} ${count === 1 ? 'ingredient' : 'ingredients'}`}
+                              >
+                                {count}
                               </span>
                             ) : (
                               <span className="badge badge-danger" data-testid={`recipe-product-badge-${p.id}`}>
-                                <AlertTriangle size={12} /> No recipe
+                                <AlertTriangle size={11} /> No recipe
                               </span>
                             )}
                             {isSelected && <Check size={14} aria-label="Selected" />}

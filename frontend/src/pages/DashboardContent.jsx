@@ -397,7 +397,7 @@ export default function DashboardContent({ activeTab, user }) {
       <div className="flex justify-between items-center mb-6">
         <h2 className="m-0 text-2xl font-bold">Sales Analytics</h2>
         <div className="flex items-center gap-3 flex-wrap">
-          <div role="group" aria-label="Chart granularity" data-testid="granularity-group" className="flex items-center gap-1">
+          <div role="group" aria-label="Chart granularity" data-testid="granularity-group" className="flex items-center granularity-group">
             {[['hourly', 'Hourly'], ['daily', 'Daily'], ['weekly', 'Weekly']].map(([val, label]) => (
               <button
                 key={val}
@@ -406,7 +406,6 @@ export default function DashboardContent({ activeTab, user }) {
                 aria-pressed={granularity === val}
                 onClick={() => setGranularity(val)}
                 className={`btn ${granularity === val ? 'btn-primary' : 'btn-secondary'}`}
-                style={{ padding: '0.5rem 0.75rem', fontSize: '0.85rem' }}
               >
                 {label}
               </button>
@@ -415,8 +414,7 @@ export default function DashboardContent({ activeTab, user }) {
           <select
             value={dateFilter}
             onChange={(e) => { setDateFilter(e.target.value); setCustomStartDate(""); setCustomEndDate(""); }}
-            className="form-input"
-            style={{ width: 'auto', minWidth: '140px' }}
+            className="form-input analytics-range-select"
             aria-label="Date range"
           >
             <option value="Today">Today</option>

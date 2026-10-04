@@ -367,7 +367,7 @@ export default function RecipeManager() {
                 <button
                   ref={triggerRef}
                   type="button"
-                  className="form-input flex items-center gap-2"
+                  className="form-input flex items-center gap-2 recipe-trigger-btn"
                   style={{
                     width: '100%', display: 'flex', alignItems: 'center', gap: '0.5rem',
                     textAlign: 'left', cursor: 'pointer',
@@ -396,12 +396,17 @@ export default function RecipeManager() {
                   </span>
                   {selectedProduct && (
                     selectedHasRecipe ? (
-                      <span className="badge badge-success" data-testid="recipe-product-trigger-badge">
-                        <Check size={12} /> {selectedRecipeCount} {selectedRecipeCount === 1 ? 'ingredient' : 'ingredients'}
+                      <span
+                        className="badge badge-success"
+                        data-testid="recipe-product-trigger-badge"
+                        title={`${selectedRecipeCount} ${selectedRecipeCount === 1 ? 'ingredient' : 'ingredients'}`}
+                        aria-label={`${selectedRecipeCount} ${selectedRecipeCount === 1 ? 'ingredient' : 'ingredients'}`}
+                      >
+                        <Check size={11} /> {selectedRecipeCount}
                       </span>
                     ) : (
                       <span className="badge badge-danger" data-testid="recipe-product-trigger-badge">
-                        <AlertTriangle size={12} /> No recipe
+                        <AlertTriangle size={11} /> No recipe
                       </span>
                     )
                   )}
@@ -502,8 +507,8 @@ export default function RecipeManager() {
                 )}
               </div>
             </div>
-            <div className="flex items-center gap-2" style={{ minHeight: '38px', justifyContent: 'space-between', flexWrap: 'nowrap' }}>
-              <div className="flex gap-1" role="group" aria-label="Filter products by recipe coverage" style={{ flexShrink: 0, flexWrap: 'nowrap' }}>
+            <div className="flex items-center gap-2" style={{ minHeight: 'var(--filter-control-h)', justifyContent: 'space-between', flexWrap: 'nowrap' }}>
+              <div className="flex items-center recipe-filter-group" role="group" aria-label="Filter products by recipe coverage" style={{ flexShrink: 0, flexWrap: 'nowrap' }}>
                 {([
                   ['all', 'All'],
                   ['missing', 'Missing'],
@@ -513,7 +518,6 @@ export default function RecipeManager() {
                     key={val}
                     type="button"
                     className={`btn ${coverageFilter === val ? 'btn-primary' : 'btn-secondary'}`}
-                    style={{ padding: '0.35rem 0.6rem', fontSize: '0.8rem', whiteSpace: 'nowrap', flexShrink: 0 }}
                     onClick={() => setCoverageFilter(val)}
                     data-testid={`recipe-filter-${val === 'complete' ? 'complete' : val}`}
                     aria-pressed={coverageFilter === val}
@@ -522,7 +526,7 @@ export default function RecipeManager() {
                   </button>
                 ))}
               </div>
-              <button className="btn btn-primary" onClick={openAdd} disabled={!selectedProduct} data-testid="recipe-add-btn" style={{ flexShrink: 0, whiteSpace: 'nowrap' }}>
+              <button className="btn btn-primary recipe-add-btn" onClick={openAdd} disabled={!selectedProduct} data-testid="recipe-add-btn">
                 <Plus size={16} /> Add ingredient
               </button>
             </div>

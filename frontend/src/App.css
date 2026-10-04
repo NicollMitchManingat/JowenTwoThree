@@ -1641,8 +1641,9 @@
 .date-filter {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-bottom: 12px;
+  gap: 0.5rem;
+  margin-bottom: 0;
+  flex-wrap: wrap;
 }
 
 .date-filter input[type="date"] {
@@ -1652,6 +1653,92 @@
   font-family: inherit;
   background: var(--bg-main);
   color: var(--text-main);
+}
+
+/* ── Filter bars (analytics + recipe): one shared control spec ──
+   Pill groups, selects, triggers, and action buttons all render at
+   the same height / font / radius. Scoped classes only so global
+   .btn / .form-input sizing elsewhere is untouched. */
+:root {
+  --analytics-control-h: 38px;
+  --filter-control-h: 38px;
+}
+
+.granularity-group,
+.recipe-filter-group {
+  display: inline-flex;
+  align-items: stretch;
+  gap: 0;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--bg-surface);
+}
+
+.granularity-group .btn,
+.recipe-filter-group .btn {
+  border: none;
+  border-radius: 0;
+  height: var(--filter-control-h);
+  min-height: var(--filter-control-h);
+  padding: 0 0.8rem;
+  font-size: 0.85rem;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.granularity-group .btn + .btn,
+.recipe-filter-group .btn + .btn {
+  border-left: 1px solid var(--border-color);
+}
+
+.recipe-trigger-btn {
+  height: var(--filter-control-h);
+  min-height: var(--filter-control-h);
+  padding-top: 0;
+  padding-bottom: 0;
+  font-size: 0.85rem;
+  border-radius: 8px;
+}
+
+.recipe-add-btn {
+  height: var(--filter-control-h);
+  min-height: var(--filter-control-h);
+  font-size: 0.85rem;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* Compact badge inside the 38px product trigger: the full .badge
+   (0.75rem + roomy padding + own border) nearly fills the trigger and
+   crowds the product name. Dropdown-row badges are untouched. */
+.recipe-trigger-btn .badge {
+  font-size: 0.7rem;
+  padding: 0.15rem 0.45rem;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.analytics-range-select {
+  height: var(--analytics-control-h);
+  min-height: var(--analytics-control-h);
+  padding-top: 0;
+  padding-bottom: 0;
+  font-size: 0.85rem;
+  border-radius: 8px;
+  width: auto;
+  min-width: 140px;
+}
+
+.analytics-date-input {
+  height: var(--analytics-control-h);
+  min-height: var(--analytics-control-h);
+  padding-top: 0;
+  padding-bottom: 0;
+  font-size: 0.85rem;
+  border-radius: 8px;
 }
 
 .consolidated-table {

@@ -1,6 +1,10 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Bell, BellOff, Loader2, Package, AlertTriangle, X } from 'lucide-react'
 import { db } from '../../services/db'
+
+// Exit duration (ms) for the stock-alerts modal — kept in sync with the
+// `stockAlertsOut` keyframes in App.css so unmount lands as the fade ends.
+export const STOCK_ALERTS_EXIT_MS = 180
 
 // Shared low-stock notification bell (Inventory tab + POS tab).
 // Display-only: lists out-of-stock / low-stock items, no edit actions,
@@ -13,6 +17,38 @@ export default function LowStockBell({ size = 'default' }) {
   const [outOfStockItems, setOutOfStockItems] = useState([])
   const [lowStockLoading, setLowStockLoading] = useState(false)
   const [showModal, setShowModal] = useState(false)
+  // `closing` keeps the modal mounted while the exit fade plays; without
+  // it the dialog would vanish instantly on close (no exit animation).
+  const [closing, setClosing] = useState(false)
+  const closeTimer = useRef(null)
+
+  const openModal = () => {
+    if (closeTimer.current) {
+      clearTimeout(closeTimer.current)
+      closeTimer.current = null
+    }
+    setClosing(false)
+    setShowModal(true)
+    loadAlerts()
+  }
+
+  const closeModal = () => {
+    if (!showModal || closing) return
+    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
+      setShowModal(false)
+      return
+    }
+    setClosing(true)
+    closeTimer.current = setTimeout(() => {
+      setShowModal(false)
+      setClosing(false)
+      closeTimer.current = null
+    }, STOCK_ALERTS_EXIT_MS)
+  }
+
+  useEffect(() => () => {
+    if (closeTimer.current) clearTimeout(closeTimer.current)
+  }, [])
 
   const loadAlerts = async () => {
     try {
@@ -57,7 +93,7 @@ export default function LowStockBell({ size = 'default' }) {
       <div className="relative" style={{ position: 'relative' }}>
         <button
           className={`btn btn-secondary stock-bell stock-bell--${size} stock-bell--${severity}`}
-          onClick={() => { setShowModal(true); loadAlerts(); }}
+          onClick={openModal}
           title={statusLabel}
           aria-label={statusLabel}
           aria-busy={lowStockLoading}
@@ -104,16 +140,22 @@ export default function LowStockBell({ size = 'default' }) {
       </div>
 
       {showModal && (
-        <div className="modal-overlay" onClick={() => setShowModal(false)}>
-          <div className="modal-content card" onClick={(e) => e.stopPropagation()}
+        <div
+          className={`modal-overlay stock-alerts-overlay ${closing ? 'stock-alerts-exit' : 'stock-alerts-enter'}`}
+          onClick={closeModal}
+        >
+          <div
+            className={`modal-content card stock-alerts-dialog ${closing ? 'stock-alerts-exit' : 'stock-alerts-enter'}`}
+            onClick={(e) => e.stopPropagation()}
             role="dialog" aria-labelledby="stock-alerts-title" data-testid="stock-alerts-modal"
+            data-closing={closing}
             style={{ maxWidth: '500px', width: '100%' }}>
             <div className="modal-header">
               <div className="flex items-center gap-2">
                 <AlertTriangle size={20} className="text-warning" />
                 <h3 id="stock-alerts-title">Stock Alerts</h3>
               </div>
-              <button className="btn-icon-small" onClick={() => setShowModal(false)} aria-label="Close stock alerts"><X size={18} /></button>
+              <button className="btn-icon-small" onClick={closeModal} aria-label="Close stock alerts"><X size={18} /></button>
             </div>
             <div className="modal-body" style={{ maxHeight: '60vh', overflowY: 'auto' }}>
               {lowStockLoading ? (
@@ -169,7 +211,7 @@ export default function LowStockBell({ size = 'default' }) {
               )}
             </div>
             <div className="modal-footer">
-              <button className="btn btn-primary" onClick={() => setShowModal(false)}>Close</button>
+              <button className="btn btn-primary" onClick={closeModal}>Close</button>
             </div>
           </div>
         </div>

@@ -41,6 +41,14 @@
   animation: skeleton-shimmer 1.5s ease-in-out infinite;
 }
 
+@media (prefers-reduced-motion: reduce) {
+  .skeleton-block,
+  .skeleton-icon,
+  .skeleton-bar {
+    animation: none;
+  }
+}
+
 .app-container {
   display: flex;
   height: 100vh;
@@ -486,6 +494,49 @@
 @keyframes modalFadeIn {
   from { opacity: 0; transform: translateY(15px) scale(0.98); }
   to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* ── Stock-alerts modal enter/exit (fade + scale) ─────────────────
+   The dialog stays mounted for STOCK_ALERTS_EXIT_MS while closing so
+   the exit fade can play; see LowStockBell's closing state. */
+.stock-alerts-overlay.stock-alerts-enter {
+  animation: stockAlertsOverlayIn 0.2s ease-out;
+}
+
+.stock-alerts-overlay.stock-alerts-exit {
+  animation: stockAlertsOverlayOut 0.18s ease-in forwards;
+}
+
+.stock-alerts-dialog.stock-alerts-enter {
+  animation: modalFadeIn 0.2s ease-out;
+}
+
+.stock-alerts-dialog.stock-alerts-exit {
+  animation: stockAlertsOut 0.18s ease-in forwards;
+}
+
+@keyframes stockAlertsOverlayIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes stockAlertsOverlayOut {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+@keyframes stockAlertsOut {
+  from { opacity: 1; transform: translateY(0) scale(1); }
+  to { opacity: 0; transform: translateY(12px) scale(0.98); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stock-alerts-overlay.stock-alerts-enter,
+  .stock-alerts-overlay.stock-alerts-exit,
+  .stock-alerts-dialog.stock-alerts-enter,
+  .stock-alerts-dialog.stock-alerts-exit {
+    animation: none;
+  }
 }
 
 .modal-header {

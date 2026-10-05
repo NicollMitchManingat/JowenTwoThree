@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Search, Download, Receipt, Clock, CheckCircle, XCircle, Undo2 } from 'lucide-react';
 import { db } from '../services/db';
 import RefundModal from '../components/pos/RefundModal';
+import LoadingSkeleton from '../components/analytics/LoadingSkeleton';
 
 export const refundTotalFor = (refundsByTxn, transactionId) =>
   (refundsByTxn[transactionId] || []).reduce((s, r) => s + (Number(r.refund_amount) || 0), 0)
@@ -136,7 +137,7 @@ export default function OrderHistoryPage({ user }) {
   }
 
   if (loading) {
-    return <div className="page-content"><div className="card"><p className="text-muted">Loading transactions...</p><p className="text-sm text-muted">If this takes over 8s, Supabase timed out — it will fail fast with a retry.</p></div></div>
+    return <div className="page-content"><LoadingSkeleton variant="transactions" /><p className="text-sm text-muted">If this takes over 8s, Supabase timed out — it will fail fast with a retry.</p></div>
   }
 
   if (loadError && orders.length === 0) {

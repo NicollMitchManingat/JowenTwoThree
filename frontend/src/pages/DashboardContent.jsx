@@ -578,15 +578,24 @@ export default function DashboardContent({ activeTab, user }) {
         </div>
         <div className="card-body">
           <div className="stock-list">
-          {lowStock.length > 0 ? lowStock.map(item => (
-            <div key={item.id} className="stock-item stock-item-warning">
-              <div>
-                <p className="font-medium">{item.name}</p>
-                <p className="text-sm text-muted">{item.category || 'Uncategorized'}</p>
-              </div>
-              <span className="badge badge-warning">{item.stock_quantity} left</span>
-            </div>
-          )) : (
+          {lowStock.length > 0 ? [...lowStock]
+            .sort((a, b) => Number(a.stock_quantity) - Number(b.stock_quantity))
+            .map(item => {
+              const out = Number(item.stock_quantity) <= 0
+              return (
+                <div key={item.id} className={`stock-item ${out ? 'stock-item-danger' : 'stock-item-warning'}`}>
+                  <div>
+                    <p className="font-medium">{item.name}</p>
+                    <p className="text-sm text-muted">{item.category || 'Uncategorized'}</p>
+                  </div>
+                  {out ? (
+                    <span className="badge badge-danger">Out of stock</span>
+                  ) : (
+                    <span className="badge badge-warning">{item.stock_quantity} left</span>
+                  )}
+                </div>
+              )
+            }) : (
             <p className="text-center text-muted py-4">All items well stocked!</p>
           )}
           </div>

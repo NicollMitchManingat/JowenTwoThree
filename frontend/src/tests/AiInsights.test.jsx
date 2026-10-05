@@ -1,5 +1,6 @@
-import { render, screen, fireEvent } from '@testing-library/react'
-import { describe, it, expect, vi } from 'vitest'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { describe, it, expect, vi, afterEach } from 'vitest'
 import AiInsights from '../components/analytics/AiInsights'
 
 const INSIGHTS = [
@@ -48,5 +49,56 @@ describe('AiInsights', () => {
     render(<AiInsights insights={[]} />)
 
     expect(screen.getByTestId('insights-empty')).toHaveTextContent(/No insights yet/)
+  })
+
+  describe('Explain button', () => {
+    afterEach(() => {
+      vi.unstubAllGlobals()
+    })
+
+    it('should narrate the card on Explain tap', async () => {
+      const user = userEvent.setup()
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ text: 'Revenue of ₱2,100 over 7 days, up 5%.', source: 'openrouter' }),
+      }))
+      render(<AiInsights insights={INSIGHTS} />)
+
+      await user.click(screen.getByTestId('insight-explain-forecast'))
+
+      expect(global.fetch).toHaveBeenCalledWith(
+        expect.stringContaining('/api/ai-insights/explain'),
+        expect.objectContaining({ method: 'POST' })
+      )
+      await waitFor(() => {
+        expect(screen.getByTestId('insight-explained-forecast')).toBeInTheDocument()
+      })
+      expect(screen.getByTestId('insight-explained-forecast')).toHaveTextContent('Revenue of ₱2,100')
+    })
+
+    it('should show a loading state while explaining', async () => {
+      const user = userEvent.setup()
+      vi.stubGlobal('fetch', vi.fn(() => new Promise(() => {})))
+      render(<AiInsights insights={INSIGHTS} />)
+
+      await user.click(screen.getByTestId('insight-explain-forecast'))
+
+      expect(screen.getByTestId('insight-explain-forecast')).toBeDisabled()
+      expect(screen.getByTestId('insight-explain-forecast')).toHaveTextContent('Explaining…')
+    })
+
+    it('should fall back to template wording when the request fails', async () => {
+      const user = userEvent.setup()
+      vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('Failed to load insights.')))
+      render(<AiInsights insights={INSIGHTS} />)
+
+      await user.click(screen.getByTestId('insight-explain-forecast'))
+
+      await waitFor(() => {
+        expect(screen.getByTestId('insight-explained-forecast')).toBeInTheDocument()
+      })
+      // Local template fallback: value — insight.
+      expect(screen.getByTestId('insight-explained-forecast')).toHaveTextContent('₱2,100 next 7 days')
+    })
   })
 })

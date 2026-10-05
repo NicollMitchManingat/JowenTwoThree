@@ -117,4 +117,31 @@ describe('DashboardContent granularity', () => {
       expect(screen.getAllByTestId('sales-summary').some((s) => /Best day/.test(s.textContent))).toBe(true)
     })
   })
+
+  it('should mark out-of-stock rows danger and low rows warning', async () => {
+    db.getInventoryStatus.mockResolvedValue([
+      { id: 'i1', name: 'Milk', category: 'Dairy', stock_quantity: 2 },
+      { id: 'i2', name: 'Beans', category: 'Dry', stock_quantity: 0 },
+      { id: 'i3', name: 'Plenty', category: 'Dry', stock_quantity: 30 },
+    ])
+    render(
+      <AnalyticsProvider>
+        <DashboardContent activeTab="Sales" user={{ role: 'admin' }} />
+      </AnalyticsProvider>
+    )
+
+    await waitFor(() => {
+      expect(screen.getByText('Beans')).toBeInTheDocument()
+    })
+    const outBadge = screen.getByText('Out of stock')
+    expect(outBadge).toHaveClass('badge-danger')
+    const lowBadge = screen.getByText('2 left')
+    expect(lowBadge).toHaveClass('badge-warning')
+    // Critical rows sort first.
+    expect(
+      screen.getByText('Beans').compareDocumentPosition(screen.getByText('Milk')) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
+    expect(screen.queryByText('Plenty')).not.toBeInTheDocument()
+  })
 })

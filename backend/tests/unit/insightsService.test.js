@@ -29,6 +29,7 @@ const CFG = {
   DISCOUNT_CREEP_PTS: 5,
   TRADING_START_HOUR: 8,
   TRADING_END_HOUR: 22,
+  IMPACT_SEVERITY: { High: 0, Reorder: 0, Medium: 1, Positive: 2 },
 }
 
 describe("insightsService helpers", () => {
@@ -294,6 +295,8 @@ describe("buildInsights", () => {
     // every other trading hour reads dead → no all-clear.
     expect(keys).toEqual(expect.arrayContaining(["forecast", "staffing", "anomaly-hours"]))
     expect(keys).not.toContain("all-clear")
+    // Severity-first: High staffing, then Medium anomaly, then Positive forecast.
+    expect(keys).toEqual(["staffing", "anomaly-hours", "forecast"])
     insights.forEach((i) => {
       expect(i).toMatchObject({ key: expect.any(String), metric: expect.any(String), value: expect.any(String), insight: expect.any(String), impact: expect.any(String) })
       expect(Array.isArray(i.numbers)).toBe(true)
@@ -312,10 +315,48 @@ describe("buildInsights", () => {
     const keys = insights.map((i) => i.key)
     expect(keys).toContain("all-clear")
     expect(keys.some((k) => k.indexOf("anomaly-") === 0)).toBe(false)
+    // Calm state settles at the bottom after severity sorting.
+    expect(keys[keys.length - 1]).toBe("all-clear")
   })
 
   it("should return no insights on empty history", () => {
     expect(buildInsights({ ...base, trailingTxns: [], rangeTxns: [] }, CFG)).toEqual([])
+  })
+})
+
+describe("sortInsightsBySeverity", () => {
+  const { sortInsightsBySeverity } = require("../../src/services/insightsService")
+  const card = (key, impact) => ({ key, impact })
+
+  it("should order action-now above watch-items above good news", () => {
+    const out = sortInsightsBySeverity([
+      card("promo", "Positive"),
+      card("wastage", "Medium"),
+      card("staffing", "High"),
+      card("reorder", "Reorder"),
+    ], CFG)
+    expect(out.map((i) => i.key)).toEqual(["staffing", "reorder", "wastage", "promo"])
+  })
+
+  it("should keep composer order within equal rank", () => {
+    const out = sortInsightsBySeverity([
+      card("b", "Medium"),
+      card("a", "Medium"),
+    ], CFG)
+    expect(out.map((i) => i.key)).toEqual(["b", "a"])
+  })
+
+  it("should sort unknown impacts last", () => {
+    const out = sortInsightsBySeverity([
+      card("mystery", "Critical"),
+      card("ok", "Positive"),
+    ], CFG)
+    expect(out.map((i) => i.key)).toEqual(["ok", "mystery"])
+  })
+
+  it("should tolerate empty and non-array input", () => {
+    expect(sortInsightsBySeverity([], CFG)).toEqual([])
+    expect(sortInsightsBySeverity(null, CFG)).toEqual([])
   })
 })
 

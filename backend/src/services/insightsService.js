@@ -442,6 +442,22 @@ async function fetchContext(client, { spanStart, end }, limits) {
   return { txns, trafficRows, inventory, recipes, adjustments, refunds, discounts, products, itemRows }
 }
 
+// Severity-first ordering for the card grid: action-now impacts above
+// watch-items above good news (see IMPACT_SEVERITY). Ties keep composer
+// order via the explicit index (stable regardless of engine sort).
+// Exported for unit tests; buildInsights applies it before appending calm.
+function sortInsightsBySeverity(insights, cfg = insightsConfig) {
+  const table = (cfg && cfg.IMPACT_SEVERITY) || {}
+  const rankOf = (impact) => {
+    const r = table[impact]
+    return Number.isFinite(r) ? r : Number.MAX_SAFE_INTEGER
+  }
+  return (Array.isArray(insights) ? insights : [])
+    .map((item, index) => ({ item, index }))
+    .sort((a, b) => (rankOf(a.item && a.item.impact) - rankOf(b.item && b.item.impact)) || (a.index - b.index))
+    .map(({ item }) => item)
+}
+
 // Composer: trends use the trailing window, descriptives the selected
 // range (hybrid per design — stable over time and context-aware).
 function buildInsights(ctx, cfg = insightsConfig) {
@@ -479,14 +495,14 @@ function buildInsights(ctx, cfg = insightsConfig) {
     if (!recipeLinks[key].includes(label)) recipeLinks[key].push(label)
   })
 
-  const insights = [
+  const insights = sortInsightsBySeverity([
     forecastDemand(dailyTrailing, endISO, cfg),
     peakStaffing(hourly, split, cfg),
     reorderCover({ inventory, recipes, unitsByProduct: units, windowDays }, cfg),
     wastageRisk({ adjustments, inventory, recipeLinks, slowProducts }, cfg),
     promoLever({ txns: rangeTxns, discounts }, cfg),
     ...anomalyFlags({ range, trailing, hourlyRevenue }, cfg),
-  ].filter(Boolean)
+  ].filter(Boolean), cfg)
 
   if (insights.length > 0 && !insights.some((i) => i.key.indexOf("anomaly-") === 0)) {
     insights.push({
@@ -570,6 +586,7 @@ module.exports = {
   promoLever,
   anomalyFlags,
   buildInsights,
+  sortInsightsBySeverity,
   fetchContext,
   getInsights,
   fmtPeso,

@@ -40,6 +40,11 @@ module.exports = {
   TRADING_START_HOUR: 8,
   TRADING_END_HOUR: 22,
 
+  // Card order on the dashboard: lower rank first, unknown impacts last.
+  // Action-now (High/Reorder) above watch-items (Medium) above good news
+  // (Positive) keeps the calm state settled at the bottom.
+  IMPACT_SEVERITY: { High: 0, Reorder: 0, Medium: 1, Positive: 2 },
+
   // Supabase read caps per table per insights request (bounded cost).
   FETCH_LIMITS: {
     transactions: 999,

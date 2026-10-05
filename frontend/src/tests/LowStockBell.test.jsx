@@ -117,4 +117,41 @@ describe('LowStockBell', () => {
     })
     expect(screen.getByTestId('low-stock-bell')).toBeInTheDocument()
   })
+
+  it('should play the enter animation on open', async () => {
+    const user = userEvent.setup()
+    render(<LowStockBell />)
+
+    await waitFor(() => {
+      expect(db.getLowStockItems).toHaveBeenCalled()
+    })
+    await user.click(screen.getByTestId('low-stock-bell'))
+
+    const modal = screen.getByTestId('stock-alerts-modal')
+    expect(modal).toHaveAttribute('data-closing', 'false')
+    expect(modal).toHaveClass('stock-alerts-enter')
+  })
+
+  it('should play the exit animation before unmounting on close', async () => {
+    const user = userEvent.setup()
+    render(<LowStockBell />)
+
+    await waitFor(() => {
+      expect(db.getLowStockItems).toHaveBeenCalled()
+    })
+    await user.click(screen.getByTestId('low-stock-bell'))
+    expect(screen.getByTestId('stock-alerts-modal')).toBeInTheDocument()
+
+    await user.click(screen.getByLabelText('Close stock alerts'))
+
+    // Still mounted mid-exit with the exit class applied.
+    const closing = screen.getByTestId('stock-alerts-modal')
+    expect(closing).toHaveAttribute('data-closing', 'true')
+    expect(closing).toHaveClass('stock-alerts-exit')
+
+    // Unmounts once the fade ends.
+    await waitFor(() => {
+      expect(screen.queryByTestId('stock-alerts-modal')).not.toBeInTheDocument()
+    })
+  })
 })

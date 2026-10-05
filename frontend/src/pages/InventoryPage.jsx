@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { Search, Plus, Edit, Trash2, X, Sparkles, AlertCircle, ChevronRight } from 'lucide-react';
 import { db } from '../services/db';
 import LowStockBell from '../components/inventory/LowStockBell';
+import LoadingSkeleton from '../components/analytics/LoadingSkeleton';
 
 export default function InventoryPage({ userRole }) {
   // Stockists manage stock day-to-day (add/edit/wastage/delete).
@@ -145,7 +146,7 @@ export default function InventoryPage({ userRole }) {
   }
 
   if (loading) {
-    return <div className="page-content"><div className="card"><p className="text-muted">Loading inventory...</p><p className="text-sm text-muted">If this takes over 8s, Supabase timed out — it will fail fast with a retry.</p></div></div>
+    return <div className="page-content"><LoadingSkeleton variant="inventory" /><p className="text-sm text-muted">If this takes over 8s, Supabase timed out — it will fail fast with a retry.</p></div>
   }
 
   if (loadError && inventoryData.length === 0) {

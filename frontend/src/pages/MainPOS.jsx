@@ -4,6 +4,7 @@ import { db } from '../services/db';
 import { productAPI } from '../services/productAPI';
 import RadialFabMenu from '../components/pos/RadialFabMenu';
 import LowStockBell from '../components/inventory/LowStockBell';
+import LoadingSkeleton from '../components/analytics/LoadingSkeleton';
 import { getProductIcon } from '../components/pos/productIcons';
 import { formatDiscountLabel } from '../components/settings/DiscountManager';
 
@@ -527,7 +528,7 @@ export default function MainPOS({ user }) {
   const total = subtotal - discountAmount;
 
   if (loading) {
-    return <div className="page-content"><div className="card"><p className="text-muted">Loading menu...</p><p className="text-sm text-muted">If this takes over 8s, Supabase timed out — it will fail fast with a retry.</p></div></div>
+    return <div className="page-content"><LoadingSkeleton variant="pos" /><p className="text-sm text-muted">If this takes over 8s, Supabase timed out — it will fail fast with a retry.</p></div>
   }
 
   if (loadError && products.length === 0) {

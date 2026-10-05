@@ -74,8 +74,11 @@ function buildPrompt(insight) {
   }
   return {
     system: [
-      "You rephrase analytics findings for cafe staff in plain language.",
-      "Rules: at most 40 words, friendly tone, no bullet points.",
+      "You rephrase analytics findings for a cafe manager in plain, friendly language.",
+      "Speak directly to the manager as 'you', with a concrete suggested action.",
+      "Never address a group: no greetings, salutations, or openers like",
+      "'hey team', 'hi everyone', or 'hello' — start straight into the suggestion.",
+      "Rules: at most 40 words, no bullet points.",
       "Never add, change, round, or remove any number, date, peso amount,",
       "or percentage. Only figures present in FACTS may appear.",
       'Reply with JSON only: {"text": "..."} and nothing else.',
@@ -109,12 +112,19 @@ function allowedNumbers(insight) {
   return allowed
 }
 
+// Suggestions open straight into the point — never with a greeting.
+// Word-boundary anchored so "High demand…" and "History shows…" pass.
+const GREETING_OPENER = /^(hey|hi|hello|dear)\b/i
+
 function validateNarration(text, insight) {
   if (typeof text !== "string" || text.trim().length === 0) {
     throw new Error("Narration is empty")
   }
   if (text.length > MAX_REPLY_CHARS) {
     throw new Error("Narration exceeds length limit")
+  }
+  if (GREETING_OPENER.test(text.trim())) {
+    throw new Error("Narration opens with a greeting")
   }
   const allowed = allowedNumbers(insight)
   const unknown = [...extractNumberTokens(text)].filter((n) => !allowed.has(n))
@@ -234,8 +244,12 @@ function deadModelHint(provider, err) {
   return "Override via AI_NARRATOR_*_MODELS."
 }
 
+// Bumped whenever the voice/prompt changes so previously cached wordings
+// retire instead of serving the old tone against new facts.
+const PROMPT_VERSION = 2
+
 function factsKey(insight) {
-  return `${(insight && insight.key) || ""}|${JSON.stringify((insight && insight.numbers) || [])}|${(insight && insight.value) || ""}|${(insight && insight.insight) || ""}`
+  return `v${PROMPT_VERSION}|${(insight && insight.key) || ""}|${JSON.stringify((insight && insight.numbers) || [])}|${(insight && insight.value) || ""}|${(insight && insight.insight) || ""}`
 }
 
 function createNarrationCache(limit) {
@@ -312,6 +326,7 @@ module.exports = {
   DEFAULT_GEMINI_MODELS,
   DEFAULT_GROQ_MODELS,
   MAX_REPLY_CHARS,
+  PROMPT_VERSION,
   getNarratorConfig,
   providersFromConfig,
   templateText,

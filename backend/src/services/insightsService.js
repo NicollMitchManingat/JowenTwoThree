@@ -192,7 +192,9 @@ function forecastDemand(dailyTrailing, endISO, cfg = insightsConfig) {
     key: "forecast",
     metric: "Forecast Revenue",
     value: `${fmtPeso(total)} next 7 days`,
-    insight: `${fmtPct(pct)} vs last 7 days`,
+    insight: pct >= 0
+      ? `Stock and staff for ${fmtPct(pct)} vs last 7 days`
+      : `Plan lighter prep — ${fmtPct(pct)} vs last 7 days`,
     impact: pct >= 0 ? "Positive" : "Medium",
     numbers: [total, Math.round(pct * 10) / 10, trailingTotal],
     detail: { days, total },
@@ -350,7 +352,7 @@ function anomalyFlags({ range, trailing, hourlyRevenue }, cfg = insightsConfig) 
       key: "anomaly-refunds",
       metric: "Refund Spike",
       value: `${Math.round(rRate)}% refunded`,
-      insight: `Refunds running hot vs trailing ${Math.round(tRate)}%`,
+      insight: `Look into your refunds — running hot vs your usual ${Math.round(tRate)}%`,
       impact: "High",
       numbers: [Math.round(rRate * 10) / 10, Math.round(tRate * 10) / 10],
       detail: { rangeRate: rRate, trailingRate: tRate },
@@ -386,7 +388,7 @@ function anomalyFlags({ range, trailing, hourlyRevenue }, cfg = insightsConfig) 
       key: "anomaly-discounts",
       metric: "Discount Creep",
       value: `${Math.round(rShare)}% given away`,
-      insight: `Discount share up ${Math.round(rShare - tShare)}pts vs trailing`,
+      insight: `Review your discounts — share up ${Math.round(rShare - tShare)}pts vs trailing`,
       impact: "Medium",
       numbers: [Math.round(rShare), Math.round(tShare)],
       detail: { rangeShare: rShare, trailingShare: tShare },

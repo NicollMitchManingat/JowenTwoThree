@@ -9,7 +9,14 @@ function timeoutError() {
 
 // Wraps a Supabase query builder with an 8s abort so hung PostgREST
 // requests (504/upstream timeout) fail fast instead of hanging loading state.
+// Truly offline browsers fail immediately without burning the 8s timer —
+// callers fall back to snapshots and background-retry when live returns.
+// (navigator.onLine lies on some captive portals; harmless, since the live
+// attempt still runs whenever it reports online.)
 async function queryWithTimeout(build) {
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+    throw new Error('You are offline. Showing saved data where available.')
+  }
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), QUERY_TIMEOUT_MS)
   try {
@@ -24,14 +31,38 @@ async function queryWithTimeout(build) {
   }
 }
 
+// Retryable infrastructure failures: browser offline, hung Supabase (the 8s
+// query timeout), and 5xx/PostgREST outages. Business errors (validation,
+// INSUFFICIENT_STOCK, RLS 4xx) are NOT retryable and always throw.
+// Exported so callers (e.g. POS checkout) can choose offline/queued paths.
+export function isRetryableError(err) {
+  if (!err) return false
+  if (err.code === 'NETWORK_ERROR') return true
+  const status = Number(err.status)
+  if (Number.isFinite(status) && status >= 500) return true
+  const msg = `${err.message || ''} ${err.details || ''}`
+  return /timed out after|failed to fetch|networkerror|network request failed|fetch failed|\b50[234]\b|\b504\b/i.test(msg)
+}
+
+// Records returned from offlineWrite while the database is unreachable
+// carry `_queued: true` (real rows never do). Lets callers that need
+// follow-up writes (sale items, deductions) take the queued path instead
+// of chaining onto a temporary id.
+export function isQueuedRecord(rec) {
+  return !!rec && rec._queued === true
+}
+
 async function offlineSafe(fn) {
   try {
     const result = await fn();
     processQueue();
     return result;
   } catch (err) {
-    if (!navigator.onLine && (err.message?.includes('Failed to fetch') || err.code === 'NETWORK_ERROR')) {
-      throw new Error('You are offline. Your data will sync when connection is restored.');
+    if (isRetryableError(err)) {
+      if (!navigator.onLine) {
+        throw new Error('You are offline. Your data will sync when connection is restored.');
+      }
+      throw new Error('Database unreachable. Your data will sync when the connection is back.');
     }
     throw err;
   }
@@ -45,9 +76,11 @@ async function offlineWrite(table, body) {
     processQueue();
     return data[0];
   } catch (err) {
-    if (!navigator.onLine && (err.message?.includes('Failed to fetch'))) {
+    if (isRetryableError(err)) {
+      // Queue for later sync (covers both truly-offline and DB-down-but-
+      // online). The _queued marker tells callers the id is temporary.
       await offlineQueue.enqueue({ method: 'insert', table, body: { ...body, id: undefined } });
-      return { ...body, id: tempId };
+      return { ...body, id: tempId, _queued: true };
     }
     throw err;
   }
@@ -472,7 +505,9 @@ export const db = {
       if (Number.isNaN(d.getTime())) return
       hourly[d.getHours()][key] += amount
     }
-    const txns = await queryWithTimeout((signal) => supabase
+    // The two sources are independent — fetch in parallel so one outage
+    // can't stack its 8s timeout behind the other. Traffic stays optional.
+    const txnsPromise = queryWithTimeout((signal) => supabase
       .from('transactions')
       .select('created_at')
       .gte('created_at', start)
@@ -480,27 +515,28 @@ export const db = {
       .order('created_at', { ascending: true })
       .range(0, 999)
       .abortSignal(signal))
+    const trafficPromise = queryWithTimeout((signal) => supabase
+      .from('customer_traffic')
+      .select('created_at, number_of_customer')
+      .gte('created_at', start)
+      .lte('created_at', end)
+      .order('created_at', { ascending: true })
+      .range(0, 999)
+      .abortSignal(signal)).catch(() => null)
+    const [txns, traffic] = await Promise.all([txnsPromise, trafficPromise])
     ;(txns || []).forEach((t) => bump(t.created_at, 'buyers'))
-    try {
-      const traffic = await queryWithTimeout((signal) => supabase
-        .from('customer_traffic')
-        .select('created_at, number_of_customer')
-        .gte('created_at', start)
-        .lte('created_at', end)
-        .order('created_at', { ascending: true })
-        .range(0, 999)
-        .abortSignal(signal))
-      ;(traffic || []).forEach((r) => {
-        const n = Number(r.number_of_customer)
-        if (Number.isFinite(n) && n > 0) bump(r.created_at, 'walkIns', n)
-      })
-    } catch {
-      // customer_traffic table may not exist yet — buyers alone suffice.
-    }
+    ;(traffic || []).forEach((r) => {
+      const n = Number(r.number_of_customer)
+      if (Number.isFinite(n) && n > 0) bump(r.created_at, 'walkIns', n)
+    })
     return hourly
   },
 
   async getDailySales(startDate, endDate) {
+    // Refunds don't depend on the sales rows (the refunded-order filter is
+    // applied at aggregation), so fetch both in parallel instead of
+    // stacking two 8s timeouts back-to-back when the database is slow.
+    const refundsPromise = this.getRefundsByDateRange(startDate, endDate)
     let data
     try {
       data = await queryWithTimeout((signal) => supabase
@@ -540,7 +576,7 @@ export const db = {
       }
       addToDay(txn.created_at, txn.total)
     })
-    const refunds = await this.getRefundsByDateRange(startDate, endDate)
+    const refunds = await refundsPromise
     ;(refunds || []).forEach((r) => {
       if (r.transaction_id && refundedIds.has(r.transaction_id)) return
       addToDay(r.created_at, -Number(r.refund_amount || 0))
@@ -980,38 +1016,34 @@ export const db = {
       bin.female += split.female
       bin.unspecified += split.unspecified
     }
-    let txns
-    try {
-      txns = await queryWithTimeout((signal) => supabase
-        .from('transactions')
-        .select('created_at, customer_count, male_count, female_count, unspecified_count')
-        .gte('created_at', start)
-        .lte('created_at', end)
-        .order('created_at', { ascending: true })
-        .range(0, 499)
-        .abortSignal(signal))
-    } catch (err) {
-      if (!isMissingColumnError(err)) throw err
-      txns = await queryWithTimeout((signal) => supabase
-        .from('transactions')
-        .select('created_at, customer_count')
-        .gte('created_at', start)
-        .lte('created_at', end)
-        .order('created_at', { ascending: true })
-        .range(0, 499)
-        .abortSignal(signal))
-    }
-    ;(txns || []).forEach((t) => {
-      const hasSplit = t.male_count != null || t.female_count != null || t.unspecified_count != null
-      const split = hasSplit
-        ? splitRowToGender(t, 'customer_count')
-        : normalizeGenderCounts(t.customer_count ?? 1)
-      addSplit(t.created_at, split)
-    })
-    try {
-      let traffic
+    // Independent sources fetched in parallel (legacy-column fallbacks
+    // preserved). Traffic stays optional: any failure still yields
+    // transactions alone, exactly as before.
+    const txnsPromise = (async () => {
       try {
-        traffic = await queryWithTimeout((signal) => supabase
+        return await queryWithTimeout((signal) => supabase
+          .from('transactions')
+          .select('created_at, customer_count, male_count, female_count, unspecified_count')
+          .gte('created_at', start)
+          .lte('created_at', end)
+          .order('created_at', { ascending: true })
+          .range(0, 499)
+          .abortSignal(signal))
+      } catch (err) {
+        if (!isMissingColumnError(err)) throw err
+        return queryWithTimeout((signal) => supabase
+          .from('transactions')
+          .select('created_at, customer_count')
+          .gte('created_at', start)
+          .lte('created_at', end)
+          .order('created_at', { ascending: true })
+          .range(0, 499)
+          .abortSignal(signal))
+      }
+    })()
+    const trafficPromise = (async () => {
+      try {
+        return await queryWithTimeout((signal) => supabase
           .from('customer_traffic')
           .select('created_at, number_of_customer, male_count, female_count, unspecified_count')
           .gte('created_at', start)
@@ -1021,7 +1053,7 @@ export const db = {
           .abortSignal(signal))
       } catch (err) {
         if (!isMissingColumnError(err)) throw err
-        traffic = await queryWithTimeout((signal) => supabase
+        return queryWithTimeout((signal) => supabase
           .from('customer_traffic')
           .select('created_at, number_of_customer')
           .gte('created_at', start)
@@ -1030,10 +1062,16 @@ export const db = {
           .range(0, 499)
           .abortSignal(signal))
       }
-      ;(traffic || []).forEach((r) => addSplit(r.created_at, splitRowToGender(r, 'number_of_customer')))
-    } catch {
-      // customer_traffic table may not exist yet — transactions alone suffice.
-    }
+    })().catch(() => null)
+    const [txns, traffic] = await Promise.all([txnsPromise, trafficPromise])
+    ;(txns || []).forEach((t) => {
+      const hasSplit = t.male_count != null || t.female_count != null || t.unspecified_count != null
+      const split = hasSplit
+        ? splitRowToGender(t, 'customer_count')
+        : normalizeGenderCounts(t.customer_count ?? 1)
+      addSplit(t.created_at, split)
+    })
+    ;(traffic || []).forEach((r) => addSplit(r.created_at, splitRowToGender(r, 'number_of_customer')))
     return hourly
   },
 
@@ -1064,6 +1102,8 @@ export const db = {
     today.setHours(0, 0, 0, 0)
     const iso = today.toISOString()
 
+    // Refunds join only on the aggregated ids, so fetch in parallel.
+    const refundsPromise = this.getRefundsByDateRange(iso, new Date().toISOString())
     let orders
     try {
       orders = await queryWithTimeout((signal) => supabase
@@ -1100,7 +1140,7 @@ export const db = {
       totals.femaleCustomers += s.female
       totals.unspecifiedCustomers += s.unspecified
     })
-    const refunds = await this.getRefundsByDateRange(iso, new Date().toISOString())
+    const refunds = await refundsPromise
     ;(refunds || []).forEach((r) => {
       if (r.transaction_id && refundedIds.has(r.transaction_id)) return
       totalSales = Math.max(0, totalSales - Number(r.refund_amount || 0))

@@ -1,10 +1,13 @@
 import { useState, useEffect, useRef, useEffect as useLayoutEffect } from "react";
 import { ShoppingCart, Plus, Minus, Users, Tag, X, Search, RefreshCcw, Printer, AlertCircle, CheckCircle, Edit, Pencil } from 'lucide-react';
-import { db } from '../services/db';
+import { db, isRetryableError } from '../services/db';
 import { productAPI } from '../services/productAPI';
 import RadialFabMenu from '../components/pos/RadialFabMenu';
 import LowStockBell from '../components/inventory/LowStockBell';
 import LoadingSkeleton from '../components/analytics/LoadingSkeleton';
+import { saveMenuCache, loadMenuCache } from '../services/menuCache';
+import { mockProducts } from '../data/mockProducts';
+import { offlineQueue, processQueue } from '../services/offlineQueue';
 import { getProductIcon } from '../components/pos/productIcons';
 import { formatDiscountLabel } from '../components/settings/DiscountManager';
 
@@ -99,43 +102,146 @@ export default function MainPOS({ user }) {
     return () => clearTimeout(t);
   }, [toast, showAddProductModal]);
 
-  useEffect(() => {
-    let cancelled = false
-    async function load() {
-      setLoading(true)
+  // Menu freshness: ISO timestamp of the last-good snapshot while showing
+  // cached products, or null when live. `menuEstimates` means even the
+  // snapshot was missing, so bundled mock products are shown as estimates.
+  const [staleSince, setStaleSince] = useState(null)
+  const [menuEstimates, setMenuEstimates] = useState(false)
+  const loadToken = useRef(0)
+
+  const mapLiveProducts = (prods) => (prods || []).map(p => ({
+    id: p.id,
+    name: p.product_name,
+    price: Number(p.selling_price),
+    category: p.product_categories?.name || 'Other',
+  }))
+
+  const applyLiveMenu = (prods, cats, vouchers) => {
+    const items = mapLiveProducts(prods)
+    const catsList = ['All', ...new Set((prods || []).map(p => p.product_categories?.name || 'Other'))]
+    setProducts(items)
+    setCategories(catsList)
+    setProductCategories((cats || []).map(c => c.name))
+    setVouchers(vouchers || [])
+    saveMenuCache({ products: items, categories: catsList, discounts: vouchers || [] })
+    setStaleSince(null)
+    setMenuEstimates(false)
+    setLoadError(null)
+  }
+
+  // Fallback when the database is unreachable: last-good snapshot first,
+  // bundled mock products as estimates when no snapshot exists yet.
+  // Returns true when anything could be shown.
+  const applyFallbackMenu = () => {
+    const snap = loadMenuCache()
+    if (snap) {
+      setProducts(snap.products)
+      setCategories(snap.categories && snap.categories.length > 0 ? snap.categories : ['All'])
+      setProductCategories([])
+      setVouchers(snap.discounts || [])
+      setStaleSince(snap.savedAt)
+      setMenuEstimates(false)
       setLoadError(null)
-      try {
-        // Fetch independently so a categories failure never blanks the menu.
-        const [prodsResult, catsResult, vouchersResult] = await Promise.allSettled([
-          db.getProducts(),
-          db.getCategories(),
-          typeof db.getActiveDiscounts === 'function' ? db.getActiveDiscounts() : Promise.resolve([]),
-        ])
-        if (cancelled) return
-        if (prodsResult.status === 'rejected') throw prodsResult.reason
-        const prods = prodsResult.value || []
-        const cats = catsResult.status === 'fulfilled' ? (catsResult.value || []) : []
-        if (catsResult.status === 'rejected') console.error('Failed to load categories:', catsResult.reason)
-        if (vouchersResult.status === 'fulfilled') setVouchers(vouchersResult.value || [])
-        else console.error('Failed to load discounts:', vouchersResult.reason)
-        setProducts(prods.map(p => ({
-          id: p.id,
-          name: p.product_name,
-          price: Number(p.selling_price),
-          category: p.product_categories?.name || 'Other',
-        })))
-        setCategories(['All', ...new Set(prods.map(p => p.product_categories?.name || 'Other'))])
-        setProductCategories(cats.map(c => c.name))
-      } catch (err) {
-        console.error('Failed to load products:', err)
-        if (!cancelled) setLoadError(err.message || 'Failed to load menu. Supabase may be waking up — retry.')
-      } finally {
-        if (!cancelled) setLoading(false)
+      return true
+    }
+    const items = mockProducts.map(m => ({
+      id: m.id,
+      name: m.name,
+      price: Number(m.price ?? m.selling_price ?? 0),
+      category: m.category || 'Other',
+    }))
+    if (items.length === 0) return false
+    setProducts(items)
+    setCategories(['All', ...new Set(items.map(i => i.category))])
+    setProductCategories([])
+    setVouchers([])
+    setMenuEstimates(true)
+    setStaleSince(null)
+    setLoadError(null)
+    return true
+  }
+
+  const loadMenu = async () => {
+    const token = ++loadToken.current
+    const alive = () => token === loadToken.current
+    // Cache-first: paint the last-good snapshot instantly when the menu is
+    // empty (no skeleton, no banner yet — the verdict comes from the live
+    // attempt below), then revalidate underneath. With products already on
+    // screen (manual Retry / auto-retry), revalidation stays silent so the
+    // usable menu never flashes away.
+    if (products.length === 0) {
+      const snap = loadMenuCache()
+      if (snap) {
+        setProducts(snap.products)
+        setCategories(snap.categories && snap.categories.length > 0 ? snap.categories : ['All'])
+        setProductCategories([])
+        setVouchers(snap.discounts || [])
+        // Painted: clear loading so the early return below doesn't keep
+        // the skeleton over usable data while live revalidation runs.
+        setLoading(false)
+      } else {
+        setLoading(true)
       }
     }
-    load()
-    return () => { cancelled = true }
+    setLoadError(null)
+    try {
+      // Fetch independently so a categories failure never blanks the menu.
+      const [prodsResult, catsResult, vouchersResult] = await Promise.allSettled([
+        db.getProducts(),
+        db.getCategories(),
+        typeof db.getActiveDiscounts === 'function' ? db.getActiveDiscounts() : Promise.resolve([]),
+      ])
+      if (!alive()) return
+      if (prodsResult.status === 'rejected') throw prodsResult.reason
+      const prods = prodsResult.value || []
+      const cats = catsResult.status === 'fulfilled' ? (catsResult.value || []) : []
+      if (catsResult.status === 'rejected') console.error('Failed to load categories:', catsResult.reason)
+      if (vouchersResult.status === 'fulfilled') {
+        applyLiveMenu(prods, cats, vouchersResult.value || [])
+      } else {
+        console.error('Failed to load discounts:', vouchersResult.reason)
+        applyLiveMenu(prods, cats, [])
+      }
+      // The database is reachable again — flush any sales queued offline.
+      try {
+        await processQueue()
+      } catch (queueErr) {
+        console.error('Failed to flush offline queue:', queueErr)
+      }
+    } catch (err) {
+      console.error('Failed to load products:', err)
+      if (!alive()) return
+      if (!applyFallbackMenu()) {
+        setLoadError(err.message || 'Failed to load menu. Supabase may be waking up — retry.')
+      }
+    } finally {
+      if (alive()) setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    loadMenu()
+    return () => { loadToken.current++ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // While showing fallback data, retry quietly in the background so the
+  // menu heals itself when the database comes back (no skeleton flash).
+  // Reconnects also trigger an immediate retry (see online listener below).
+  useEffect(() => {
+    if (!staleSince && !menuEstimates) return
+    const t = setInterval(() => { loadMenu() }, 30000)
+    return () => clearInterval(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [staleSince, menuEstimates])
+
+  useEffect(() => {
+    if (!staleSince && !menuEstimates) return
+    const onOnline = () => { loadMenu() }
+    window.addEventListener('online', onOnline)
+    return () => window.removeEventListener('online', onOnline)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [staleSince, menuEstimates])
 
   const filteredMenu = products.filter(item => {
     const matchesCategory = activeCategory === 'All' || item.category === activeCategory;
@@ -199,23 +305,22 @@ export default function MainPOS({ user }) {
   };
 
   const refreshMenu = async () => {
-    const [prodsResult, catsResult, vouchersResult] = await Promise.allSettled([
-      db.getProducts(),
-      db.getCategories(),
-      typeof db.getActiveDiscounts === 'function' ? db.getActiveDiscounts() : Promise.resolve([]),
-    ])
-    if (vouchersResult.status === 'fulfilled') setVouchers(vouchersResult.value || [])
-    if (prodsResult.status === 'rejected') throw prodsResult.reason
-    const prods = prodsResult.value || []
-    const cats = catsResult.status === 'fulfilled' ? (catsResult.value || []) : []
-    setProducts(prods.map(p => ({
-      id: p.id,
-      name: p.product_name,
-      price: Number(p.selling_price),
-      category: p.product_categories?.name || 'Other',
-    })));
-    setCategories(['All', ...new Set(prods.map(p => p.product_categories?.name || 'Other'))]);
-    setProductCategories(cats.map(c => c.name));
+    try {
+      const [prodsResult, catsResult, vouchersResult] = await Promise.allSettled([
+        db.getProducts(),
+        db.getCategories(),
+        typeof db.getActiveDiscounts === 'function' ? db.getActiveDiscounts() : Promise.resolve([]),
+      ])
+      if (vouchersResult.status === 'fulfilled') setVouchers(vouchersResult.value || [])
+      if (prodsResult.status === 'rejected') throw prodsResult.reason
+      const prods = prodsResult.value || []
+      const cats = catsResult.status === 'fulfilled' ? (catsResult.value || []) : []
+      applyLiveMenu(prods, cats, vouchersResult.status === 'fulfilled' ? (vouchersResult.value || []) : [])
+    } catch (err) {
+      // Keep showing something sellable; callers still surface their toast.
+      applyFallbackMenu()
+      throw err
+    }
   };
 
   const handleAddProductSubmit = async (e) => {
@@ -397,11 +502,101 @@ export default function MainPOS({ user }) {
     }
   }, [vouchers, discountType, useDbDiscounts]);
 
+  // Queues a sale while the database is unreachable. The queue replays it
+  // (transaction + items + traffic + deductions) once back online — see
+  // replayQueuedSale in services/offlineQueue.js. Progress flags skip steps
+  // that already succeeded before a mid-write failure, and the shared
+  // idempotency key collapses duplicates.
+  const checkoutOffline = async ({ subtotal, discountAmount, total, resolved, transactionNumber, idempotencyKey, progress = {} }) => {
+    const traffic = customerCount > 0 ? {
+      male: clampCount(maleCount),
+      female: clampCount(femaleCount),
+      unspecified: clampCount(unspecifiedCount),
+    } : null
+    try {
+      await offlineQueue.enqueue({
+        method: 'sale',
+        table: 'transactions',
+        body: {
+          transaction: {
+            transaction_number: transactionNumber,
+            idempotency_key: idempotencyKey,
+            subtotal,
+            discount: discountAmount,
+            total,
+            payment_method: 'CASH',
+            cash_received: total,
+            change_amount: 0,
+            customer_count: customerCount,
+            male_count: clampCount(maleCount),
+            female_count: clampCount(femaleCount),
+            unspecified_count: clampCount(unspecifiedCount),
+            special_instructions: '',
+            discount_type: resolved.voucherId ? 'voucher' : (discountType !== 'none' ? discountType : null),
+            discount_value: resolved.voucherId ? resolved.rate : discountAmount,
+            discount_id: resolved.voucherId,
+            status: 'COMPLETED',
+            cart,
+          },
+          items: cart.map(item => ({
+            product_id: item.productId,
+            quantity: item.qty,
+            unit_price: item.price,
+            subtotal: item.price * item.qty,
+            note: item.note || null,
+          })),
+          cart: cart.map(item => ({ productId: item.productId, qty: item.qty })),
+          traffic,
+          itemsSkipped: !!progress.itemsDone,
+          deductionsSkipped: !!progress.deductionsDone,
+          trafficSkipped: !traffic || !!progress.trafficDone,
+        },
+      })
+    } catch (queueErr) {
+      alert('Checkout failed and the sale could not be queued: ' + (queueErr?.message || queueErr))
+      return
+    }
+
+    setReceipt({
+      transaction: { transaction_number: transactionNumber },
+      items: cart.map(item => ({
+        name: item.name,
+        qty: item.qty,
+        price: item.price,
+        subtotal: item.price * item.qty,
+        note: item.note || '',
+      })),
+      subtotal,
+      discountAmount,
+      discountType,
+      discountLabel: resolved.label,
+      total,
+      customerCount,
+      maleCount: clampCount(maleCount),
+      femaleCount: clampCount(femaleCount),
+      unspecifiedCount: clampCount(unspecifiedCount),
+      timestamp: new Date().toISOString(),
+      stockShortfall: [],
+      queued: true,
+    });
+    setShowReceipt(true);
+    setToast({ type: 'success', message: 'Sale queued — will sync when the database is back.' });
+    setShortfall(null);
+    resetOrder()
+  }
+
   const runCheckout = async (allowShortage) => {
     const subtotal = cart.reduce((sum, item) => sum + (item.price * item.qty), 0);
     const resolved = resolveDiscount(subtotal, discountType, vouchers);
     const discountAmount = resolved.amount;
     const total = subtotal - discountAmount;
+    // Generated once per attempt so an offline retry replays idempotently
+    // instead of duplicating the transaction.
+    const transactionNumber = `TXN-${Date.now()}`;
+    const idempotencyKey = `${Date.now()}-${Math.random()}`;
+    // Tracks completed steps so a mid-write database failure queues only
+    // the remainder instead of duplicating finished writes on sync.
+    const progress = { itemsDone: false, deductionsDone: false, trafficDone: false };
 
     try {
       // Validate BEFORE any write so a blocked sale creates no
@@ -413,12 +608,17 @@ export default function MainPOS({ user }) {
       } catch (stockErr) {
         if (stockErr?.code === 'INSUFFICIENT_STOCK' && !allowShortage) throw stockErr;
         if (stockErr?.code === 'INSUFFICIENT_STOCK' && allowShortage) required = stockErr.required || [];
+        else if (isRetryableError(stockErr)) {
+          // Recipe/inventory reads are unreachable — queue the whole sale
+          // (deductions recompute from the cart at sync time).
+          return await checkoutOffline({ subtotal, discountAmount, total, resolved, transactionNumber, idempotencyKey });
+        }
         else throw stockErr;
       }
 
       const txn = await db.createTransaction({
-        transaction_number: `TXN-${Date.now()}`,
-        idempotency_key: `${Date.now()}-${Math.random()}`,
+        transaction_number: transactionNumber,
+        idempotency_key: idempotencyKey,
         subtotal,
         discount: discountAmount,
         total,
@@ -445,11 +645,13 @@ export default function MainPOS({ user }) {
         note: item.note || null,
       }))
       await db.createTransactionItems(items)
+      progress.itemsDone = true
 
       // Deduct ingredients + log one adjustment per ingredient.
       // Rolls back partial deductions on failure (see db.applyDeductions).
       // Override path floors short lines at 0 and flags the shortfall.
       const { shorted } = await db.applyDeductions(required, txn.transaction_number, { allowShortage })
+      progress.deductionsDone = true
 
       if (customerCount > 0) {
         await db.logTraffic({
@@ -457,6 +659,7 @@ export default function MainPOS({ user }) {
           female: clampCount(femaleCount),
           unspecified: clampCount(unspecifiedCount),
         })
+        progress.trafficDone = true
       }
 
       const receiptData = {
@@ -493,6 +696,10 @@ export default function MainPOS({ user }) {
         // Choice point: show what is short and let staff proceed or cancel.
         // No rows have been written at this point.
         setShortfall({ items: err.shortfalls || [], required: err.required || [] });
+      } else if (isRetryableError(err)) {
+        // Database died mid-write: queue the remainder (finished steps are
+        // skipped on sync via progress, duplicates collapse on idempotency).
+        return await checkoutOffline({ subtotal, discountAmount, total, resolved, transactionNumber, idempotencyKey, progress });
       } else {
         alert('Checkout failed: ' + err.message)
       }
@@ -532,7 +739,7 @@ export default function MainPOS({ user }) {
   }
 
   if (loadError && products.length === 0) {
-    return <div className="page-content"><div className="card"><p className="text-danger">Failed to load menu: {loadError}</p><button className="btn btn-primary mt-2" onClick={() => window.location.reload()}>Retry</button></div></div>
+    return <div className="page-content"><div className="card"><p className="text-danger">Failed to load menu: {loadError}</p><button className="btn btn-primary mt-2" onClick={() => loadMenu()}>Retry</button></div></div>
   }
 
   return (
@@ -555,6 +762,37 @@ export default function MainPOS({ user }) {
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {(staleSince || menuEstimates) && (
+        <div
+          role="status"
+          data-testid={staleSince ? 'menu-stale-banner' : 'menu-estimates-banner'}
+          className="flex items-center gap-2"
+          style={{
+            backgroundColor: '#fef5e7',
+            border: '1px solid var(--color-warning)',
+            color: 'var(--text-main)',
+            borderRadius: '8px',
+            padding: '0.5rem 0.75rem',
+            fontSize: '0.85rem',
+          }}
+        >
+          <span style={{ flex: 1 }}>
+            {staleSince
+              ? `Showing saved menu from ${new Date(staleSince).toLocaleString()} — prices may differ.`
+              : 'Estimates only — connect to load the real menu.'}
+          </span>
+          <button
+            type="button"
+            className="btn btn-secondary"
+            style={{ padding: '0.25rem 0.6rem', fontSize: '0.8rem' }}
+            onClick={() => loadMenu()}
+            data-testid="menu-retry-btn"
+          >
+            Retry
+          </button>
         </div>
       )}
 

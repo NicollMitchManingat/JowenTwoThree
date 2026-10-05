@@ -344,6 +344,14 @@ export default function DashboardContent({ activeTab, user }) {
   const vouchers = useMemo(() => voucherStats(rangeTxns, discountList), [rangeTxns, discountList]);
   const refundInfo = useMemo(() => refundSummary(rangeTxns, rangeRefunds), [rangeTxns, rangeRefunds]);
 
+  // Reconnect retries the sales load silently (no skeleton flash when data
+  // is already on screen) instead of waiting for a manual retry.
+  useEffect(() => {
+    const onOnline = () => setSalesRetryKey((k) => k + 1)
+    window.addEventListener('online', onOnline)
+    return () => window.removeEventListener('online', onOnline)
+  }, [])
+
   // Default dates for custom range (last 7 days)
   useEffect(() => {
     if (dateFilter === "Custom") {

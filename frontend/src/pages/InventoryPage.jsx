@@ -3,6 +3,7 @@ import { Search, Plus, Edit, Trash2, X, Sparkles, AlertCircle, ChevronRight } fr
 import { db } from '../services/db';
 import LowStockBell from '../components/inventory/LowStockBell';
 import LoadingSkeleton from '../components/analytics/LoadingSkeleton';
+import { saveStockCache, loadStockCache } from '../services/stockCache';
 
 export default function InventoryPage({ userRole }) {
   // Stockists manage stock day-to-day (add/edit/wastage/delete).
@@ -22,6 +23,8 @@ export default function InventoryPage({ userRole }) {
   const [wastageQty, setWastageQty] = useState('');
   const [wastageReason, setWastageReason] = useState('spoiled');
   const [wastageNotes, setWastageNotes] = useState('');
+  // Last-good snapshot timestamp while showing cached stock (null = live).
+  const [staleSince, setStaleSince] = useState(null);
 
   const wastageReasons = ['spoiled', 'expired', 'damaged', 'overproduction', 'other'];
 
@@ -32,13 +35,34 @@ export default function InventoryPage({ userRole }) {
   const categories = ['Ingredients', 'Dairy', 'Syrups', 'Packaging', 'Fruits', 'Other'];
 
   async function loadInventory() {
+    // Cache-first: paint the last-good snapshot instantly when the list is
+    // empty, then revalidate live underneath (no skeleton flash on retries).
+    if (inventoryData.length === 0) {
+      const snap = loadStockCache()
+      if (snap) {
+        setInventoryData(snap.items)
+        // Painted: clear loading so the early return below doesn't keep
+        // the skeleton over usable data while live revalidation runs.
+        setLoading(false)
+      } else {
+        setLoading(true)
+      }
+    }
     setLoadError(null)
     try {
       const data = await db.getInventory()
       setInventoryData(data || [])
+      saveStockCache(data || [])
+      setStaleSince(null)
     } catch (err) {
       console.error('Failed to load inventory:', err)
-      setLoadError(err.message || 'Failed to load inventory. Please retry.')
+      const snap = loadStockCache()
+      if (snap) {
+        setInventoryData(snap.items)
+        setStaleSince(snap.savedAt)
+      } else {
+        setLoadError(err.message || 'Failed to load inventory. Please retry.')
+      }
     } finally {
       setLoading(false)
     }
@@ -48,6 +72,17 @@ export default function InventoryPage({ userRole }) {
     loadInventory()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // While showing cached stock, retry quietly in the background and
+  // immediately on reconnect so the list heals itself.
+  useEffect(() => {
+    if (!staleSince) return
+    const t = setInterval(() => { loadInventory() }, 30000)
+    const onOnline = () => { loadInventory() }
+    window.addEventListener('online', onOnline)
+    return () => { clearInterval(t); window.removeEventListener('online', onOnline) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [staleSince]);
 
   const filteredData = inventoryData.filter(item =>
     (item.name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -249,6 +284,36 @@ export default function InventoryPage({ userRole }) {
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {staleSince && (
+        <div
+          role="status"
+          data-testid="stock-stale-banner"
+          className="flex items-center gap-2"
+          style={{
+            backgroundColor: '#fef5e7',
+            border: '1px solid var(--color-warning)',
+            color: 'var(--text-main)',
+            borderRadius: '8px',
+            padding: '0.5rem 0.75rem',
+            fontSize: '0.85rem',
+            marginBottom: '1rem',
+          }}
+        >
+          <span style={{ flex: 1 }}>
+            {`Showing saved stock from ${new Date(staleSince).toLocaleString()} — quantities may differ.`}
+          </span>
+          <button
+            type="button"
+            className="btn btn-secondary"
+            style={{ padding: '0.25rem 0.6rem', fontSize: '0.8rem' }}
+            onClick={() => loadInventory()}
+            data-testid="stock-retry-btn"
+          >
+            Retry
+          </button>
         </div>
       )}
 

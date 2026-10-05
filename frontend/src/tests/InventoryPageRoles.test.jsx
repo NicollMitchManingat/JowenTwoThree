@@ -14,11 +14,13 @@ vi.mock('../services/db', () => ({
 }))
 
 import { db } from '../services/db'
+import { saveStockCache } from '../services/stockCache'
 import userEvent from '@testing-library/user-event'
 
 describe('InventoryPage roles', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    localStorage.clear()
   })
 
   it('should give admins add, edit, wastage, and delete controls', async () => {
@@ -107,5 +109,50 @@ describe('InventoryPage roles', () => {
     })
     expect(screen.getByTestId('low-stock-bell')).toBeInTheDocument()
     expect(screen.queryByText('Add Item')).not.toBeInTheDocument()
+  })
+
+  it('should paint cached stock instantly without waiting out the timeout', async () => {
+    saveStockCache([{ id: 's1', name: 'Cached Milk', category: 'Dairy', stock_quantity: 7 }])
+    // Hanging fetch emulates a dead database — the snapshot must already
+    // be on screen with no skeleton.
+    db.getInventory.mockImplementationOnce(() => new Promise(() => {}))
+    render(<InventoryPage userRole="admin" />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Cached Milk')).toBeInTheDocument()
+    })
+    expect(screen.queryByTestId('loading-skeleton')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('stock-stale-banner')).not.toBeInTheDocument()
+  })
+
+  it('should flag cached stock as stale when the live fetch fails', async () => {
+    saveStockCache([{ id: 's1', name: 'Cached Milk', category: 'Dairy', stock_quantity: 7 }])
+    db.getInventory.mockRejectedValueOnce(new Error('Request timed out after 8s. Supabase may be waking up — please retry.'))
+    render(<InventoryPage userRole="admin" />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('stock-stale-banner')).toBeInTheDocument()
+    })
+    expect(screen.getByText('Cached Milk')).toBeInTheDocument()
+    expect(screen.getByTestId('stock-stale-banner')).toHaveTextContent(/quantities may differ/i)
+  })
+
+  it('should reload live stock when the browser reconnects', async () => {
+    saveStockCache([{ id: 's1', name: 'Cached Milk', category: 'Dairy', stock_quantity: 7 }])
+    db.getInventory.mockRejectedValueOnce(new Error('Request timed out after 8s. Supabase may be waking up — please retry.'))
+    render(<InventoryPage userRole="admin" />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('stock-stale-banner')).toBeInTheDocument()
+    })
+    db.getInventory.mockResolvedValueOnce([
+      { id: 'i9', name: 'Fresh Beans', category: 'Dry', stock_quantity: 20 },
+    ])
+    window.dispatchEvent(new window.Event('online'))
+
+    await waitFor(() => {
+      expect(screen.getByText('Fresh Beans')).toBeInTheDocument()
+    })
+    expect(screen.queryByTestId('stock-stale-banner')).not.toBeInTheDocument()
   })
 })

@@ -63,12 +63,15 @@ export const offlineQueue = {
   },
 };
 
+// NOTE: the POS menu snapshot does NOT use this store — it lives in
+// services/menuCache.js (localStorage) so the render path can read it
+// synchronously when Supabase is unreachable.
 export const offlineCache = {
   async set(key, data) {
     const db = await openDB(CACHE_DB, CACHE_STORE);
     return new Promise((resolve, reject) => {
       const tx = db.transaction(CACHE_STORE, 'readwrite');
-      tx.objectStore(STORE_NAME).put({ key, data, updatedAt: new Date().toISOString() });
+      tx.objectStore(CACHE_STORE).put({ key, data, updatedAt: new Date().toISOString() });
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
     });
@@ -78,7 +81,7 @@ export const offlineCache = {
     const db = await openDB(CACHE_DB, CACHE_STORE);
     return new Promise((resolve, reject) => {
       const tx = db.transaction(CACHE_STORE, 'readonly');
-      const req = tx.objectStore(STORE_NAME).getAll();
+      const req = tx.objectStore(CACHE_STORE).getAll();
       req.onsuccess = () => {
         const items = req.result || [];
         const match = items.find(i => i.key === key);
@@ -92,7 +95,7 @@ export const offlineCache = {
     const db = await openDB(CACHE_DB, CACHE_STORE);
     return new Promise((resolve, reject) => {
       const tx = db.transaction(CACHE_STORE, 'readwrite');
-      tx.objectStore(STORE_NAME).clear();
+      tx.objectStore(CACHE_STORE).clear();
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
     });
@@ -122,8 +125,13 @@ export async function processQueue() {
         case 'delete':
           res = await supabase.from(op.table).delete().eq(op.matchField, op.matchValue);
           break;
+        case 'sale':
+          await replayQueuedSale(op.body);
+          break;
+        default:
+          throw new Error(`Unknown queued operation: ${op.method}`);
       }
-      if (res.error) throw res.error;
+      if (res && res.error) throw res.error;
       results.push({ op, success: true });
     } catch (err) {
       results.push({ op, success: false, error: err });
@@ -134,6 +142,63 @@ export async function processQueue() {
   const failed = results.filter(r => !r.success).map(r => r.op);
   for (const op of failed) {
     await offlineQueue.enqueue(op);
+  }
+}
+
+// Replays one POS sale queued while the database was unreachable.
+// Deferred db import avoids a static cycle (services/db.js imports this
+// module for offlineQueue/processQueue).
+// Idempotent on the transaction via idempotency_key: a sale that partially
+// synced before failing resumes instead of duplicating.
+// Stock can't be un-sold, so deductions apply with allowShortage (short
+// lines floor at 0 and the shortfall is recorded in the adjustment notes).
+// Item rows are best-effort: the transaction row already carries the full
+// cart JSONB, so the sale survives even if item rows fail (e.g. bundled
+// mock product ids with no matching products row).
+async function replayQueuedSale(sale) {
+  const { db } = await import('./db.js');
+  const txn = sale.transaction;
+  let txnId;
+  let txnNumber = txn.transaction_number;
+  const existing = await supabase
+    .from('transactions')
+    .select('id, transaction_number')
+    .eq('idempotency_key', txn.idempotency_key)
+    .limit(1);
+  if (existing.error) throw existing.error;
+  if (existing.data && existing.data.length > 0) {
+    txnId = existing.data[0].id;
+    txnNumber = existing.data[0].transaction_number;
+  } else {
+    const ins = await supabase.from('transactions').insert(txn).select();
+    if (ins.error) throw ins.error;
+    txnId = ins.data[0].id;
+  }
+  if (!sale.itemsSkipped && Array.isArray(sale.items) && sale.items.length > 0) {
+    try {
+      const rows = sale.items.map((it) => ({ ...it, transaction_id: txnId }));
+      const itemsRes = await supabase.from('transaction_items').insert(rows);
+      if (itemsRes.error) throw itemsRes.error;
+    } catch (err) {
+      console.warn('Queued sale items failed to sync (sale itself is kept):', err);
+    }
+  }
+  if (!sale.trafficSkipped && sale.traffic) {
+    try {
+      await db.logTraffic(sale.traffic);
+    } catch (err) {
+      console.warn('Queued sale traffic failed to sync (sale itself is kept):', err);
+    }
+  }
+  if (!sale.deductionsSkipped) {
+    let required = [];
+    try {
+      required = await db.computeRequiredDeductions(sale.cart || []);
+    } catch (err) {
+      if (err?.code === 'INSUFFICIENT_STOCK') required = err.required || [];
+      else throw err;
+    }
+    await db.applyDeductions(required, txnNumber, { allowShortage: true });
   }
 }
 

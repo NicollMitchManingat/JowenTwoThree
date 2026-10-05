@@ -2,7 +2,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import MainPOS, { resolveDiscount } from '../pages/MainPOS'
-import { db } from '../services/db'
+import { db, isRetryableError } from '../services/db'
+import { offlineQueue, processQueue } from '../services/offlineQueue'
+import { saveMenuCache, clearMenuCache } from '../services/menuCache'
 
 const VOUCHERS = [
   { id: 'v-pwd', name: 'PWD', type: 'percent', value: 20, is_active: true, is_system: true },
@@ -28,7 +30,13 @@ vi.mock('../services/db', () => ({
     getActiveDiscounts: vi.fn().mockResolvedValue([]),
     getLowStockItems: vi.fn().mockResolvedValue([]),
     getOutOfStockItems: vi.fn().mockResolvedValue([]),
-  }
+  },
+  isRetryableError: vi.fn().mockReturnValue(false),
+}))
+
+vi.mock('../services/offlineQueue', () => ({
+  offlineQueue: { enqueue: vi.fn().mockResolvedValue() },
+  processQueue: vi.fn().mockResolvedValue(),
 }))
 
 describe('MainPOS', () => {
@@ -39,6 +47,8 @@ describe('MainPOS', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    localStorage.clear()
+    isRetryableError.mockReturnValue(false)
     db.getActiveDiscounts.mockResolvedValue([])
   })
 
@@ -98,6 +108,142 @@ describe('MainPOS', () => {
     expect(db.logTraffic).toHaveBeenCalledWith({ male: 1, female: 2, unspecified: 0 })
     expect(screen.getByTestId('receipt-customer-breakdown')).toHaveTextContent('3')
     expect(screen.getByTestId('receipt-customer-breakdown')).toHaveTextContent('M1/F2')
+  })
+
+  it('should show the saved menu with a stale banner when the database is down', async () => {
+    saveMenuCache({
+      products: [{ id: 'c1', name: 'Cached Brew', price: 99, category: 'Drinks' }],
+      categories: ['All', 'Drinks'],
+      discounts: [],
+    })
+    db.getProducts.mockRejectedValueOnce(new Error('Request timed out after 8s. Supabase may be waking up — please retry.'))
+    render(<MainPOS user={mockUser} />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Cached Brew')).toBeInTheDocument()
+    })
+    expect(screen.getByTestId('menu-stale-banner')).toHaveTextContent(/saved menu from/i)
+    expect(screen.getByTestId('menu-stale-banner')).toHaveTextContent(/prices may differ/i)
+  })
+
+  it('should paint the cached menu instantly without waiting out the timeout', async () => {
+    saveMenuCache({
+      products: [{ id: 'c1', name: 'Cached Brew', price: 99, category: 'Drinks' }],
+      categories: ['All', 'Drinks'],
+      discounts: [],
+    })
+    // Hanging fetch emulates a dead database (never settles, like the 8s
+    // abort before it fires) — the snapshot must already be on screen.
+    db.getProducts.mockImplementationOnce(() => new Promise(() => {}))
+    render(<MainPOS user={mockUser} />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Cached Brew')).toBeInTheDocument()
+    })
+    expect(screen.queryByTestId('loading-skeleton')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('menu-stale-banner')).not.toBeInTheDocument()
+  })
+
+  it('should reload the live menu when the browser reconnects', async () => {
+    saveMenuCache({
+      products: [{ id: 'c1', name: 'Cached Brew', price: 99, category: 'Drinks' }],
+      categories: ['All', 'Drinks'],
+      discounts: [],
+    })
+    db.getProducts.mockRejectedValueOnce(new Error('Request timed out after 8s. Supabase may be waking up — please retry.'))
+    render(<MainPOS user={mockUser} />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('menu-stale-banner')).toBeInTheDocument()
+    })
+    db.getProducts.mockResolvedValueOnce([
+      { id: '9', product_name: 'Fresh Pour', selling_price: 120, product_categories: { name: 'Drinks' } },
+    ])
+    window.dispatchEvent(new window.Event('online'))
+
+    await waitFor(() => {
+      expect(screen.getByText('Fresh Pour')).toBeInTheDocument()
+    })
+    expect(screen.queryByTestId('menu-stale-banner')).not.toBeInTheDocument()
+  })
+
+  it('should fall back to bundled estimates when no snapshot exists', async () => {
+    db.getProducts.mockRejectedValueOnce(new Error('Request timed out after 8s. Supabase may be waking up — please retry.'))
+    render(<MainPOS user={mockUser} />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Iced Americano')).toBeInTheDocument()
+    })
+    expect(screen.getByTestId('menu-estimates-banner')).toHaveTextContent(/estimates only/i)
+  })
+
+  it('should retry the live menu from the stale banner', async () => {
+    const user = userEvent.setup()
+    saveMenuCache({
+      products: [{ id: 'c1', name: 'Cached Brew', price: 99, category: 'Drinks' }],
+      categories: ['All', 'Drinks'],
+      discounts: [],
+    })
+    db.getProducts.mockRejectedValueOnce(new Error('Request timed out after 8s. Supabase may be waking up — please retry.'))
+    render(<MainPOS user={mockUser} />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('menu-stale-banner')).toBeInTheDocument()
+    })
+    db.getProducts.mockResolvedValueOnce([
+      { id: '9', product_name: 'Fresh Pour', selling_price: 120, product_categories: { name: 'Drinks' } },
+    ])
+    await user.click(screen.getByTestId('menu-retry-btn'))
+
+    await waitFor(() => {
+      expect(screen.getByText('Fresh Pour')).toBeInTheDocument()
+    })
+    expect(screen.queryByTestId('menu-stale-banner')).not.toBeInTheDocument()
+  })
+
+  it('should queue the sale when stock reads are unreachable', async () => {
+    const user = userEvent.setup()
+    isRetryableError.mockReturnValue(true)
+    db.computeRequiredDeductions.mockRejectedValueOnce(new Error('Request timed out after 8s. Supabase may be waking up — please retry.'))
+    render(<MainPOS user={mockUser} />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Espresso')).toBeInTheDocument()
+    })
+    await user.click(screen.getByText('Espresso'))
+    await user.click(screen.getByText('Checkout & Log Traffic'))
+
+    await waitFor(() => {
+      expect(offlineQueue.enqueue).toHaveBeenCalledWith(
+        expect.objectContaining({ method: 'sale' })
+      )
+    })
+    expect(db.createTransaction).not.toHaveBeenCalled()
+    expect(screen.getByTestId('receipt')).toBeInTheDocument()
+    expect(screen.getByText(/sale queued/i)).toBeInTheDocument()
+  })
+
+  it('should queue the remainder when a write fails mid-checkout', async () => {
+    const user = userEvent.setup()
+    isRetryableError.mockReturnValue(true)
+    db.createTransactionItems.mockRejectedValueOnce(new Error('Request timed out after 8s. Supabase may be waking up — please retry.'))
+    render(<MainPOS user={mockUser} />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Espresso')).toBeInTheDocument()
+    })
+    await user.click(screen.getByText('Espresso'))
+    await user.click(screen.getByText('Checkout & Log Traffic'))
+
+    await waitFor(() => {
+      expect(offlineQueue.enqueue).toHaveBeenCalledWith(
+        expect.objectContaining({
+          method: 'sale',
+          body: expect.objectContaining({ itemsSkipped: false, deductionsSkipped: false }),
+        })
+      )
+    })
+    expect(screen.getByTestId('receipt')).toBeInTheDocument()
   })
 
   it('should default quick-add traffic to unspecified when no gender tapped', async () => {

@@ -54,6 +54,17 @@ export default function OrderHistoryPage({ user }) {
     return () => { cancelled = true }
   }, [])
 
+  // No snapshot for history — but reconnect retries instantly (silently,
+  // without flashing the skeleton) instead of waiting for manual Retry.
+  useEffect(() => {
+    const onOnline = () => {
+      loadAll().catch((err) => console.error('Reconnect reload failed:', err))
+    }
+    window.addEventListener('online', onOnline)
+    return () => window.removeEventListener('online', onOnline)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   const handleSort = (field) => {
     if (sortField === field) {
       setSortDir(sortDir === 'asc' ? 'desc' : 'asc');

@@ -43,6 +43,20 @@ describe('OrderHistoryPage refunds', () => {
     ])
   })
 
+  it('should reload silently when the browser reconnects', async () => {
+    render(<OrderHistoryPage user={{ username: 'admin', role: 'admin' }} />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('order-row-t1')).toBeInTheDocument()
+    })
+    const calls = db.getTransactions.mock.calls.length
+    window.dispatchEvent(new window.Event('online'))
+
+    await waitFor(() => {
+      expect(db.getTransactions.mock.calls.length).toBeGreaterThan(calls)
+    })
+  })
+
   it('should show status badges and refunded amounts per row', async () => {
     render(<OrderHistoryPage user={{ username: 'admin', role: 'admin' }} />)
 

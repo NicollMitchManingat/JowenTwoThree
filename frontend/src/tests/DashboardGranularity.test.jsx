@@ -106,6 +106,24 @@ describe('DashboardContent granularity', () => {
     expect(screen.getAllByTestId('sales-summary').some((s) => /Best day/.test(s.textContent))).toBe(true)
   })
 
+  it('should reload sales when the browser reconnects', async () => {
+    render(
+      <AnalyticsProvider>
+        <DashboardContent activeTab="Sales" user={{ role: 'admin' }} />
+      </AnalyticsProvider>
+    )
+
+    await waitFor(() => {
+      expect(screen.getByTestId('granularity-group')).toBeInTheDocument()
+    })
+    const calls = db.getDailySales.mock.calls.length
+    window.dispatchEvent(new window.Event('online'))
+
+    await waitFor(() => {
+      expect(db.getDailySales.mock.calls.length).toBeGreaterThan(calls)
+    })
+  })
+
   it('should render the weekday profile on the default daily view', async () => {
     render(
       <AnalyticsProvider>

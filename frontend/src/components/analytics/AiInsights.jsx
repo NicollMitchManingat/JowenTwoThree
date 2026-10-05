@@ -110,8 +110,8 @@ export default function AiInsights({ insights, loading = false, error = null, on
             {narrated ? (
               <p className="text-sm text-muted" data-testid={`insight-explained-${key}`}>
                 {narrated}{' '}
-                {state.source === 'openrouter' && (
-                  <Sparkles size={12} className="text-primary" title="AI narration" aria-label="AI narration" />
+                {state.source && state.source !== 'template' && (
+                  <Sparkles size={12} className="text-primary" title={`AI narration via ${state.source}`} aria-label="AI narration" />
                 )}
               </p>
             ) : (

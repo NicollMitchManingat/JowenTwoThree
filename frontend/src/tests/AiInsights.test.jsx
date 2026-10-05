@@ -56,25 +56,27 @@ describe('AiInsights', () => {
       vi.unstubAllGlobals()
     })
 
-    it('should narrate the card on Explain tap', async () => {
-      const user = userEvent.setup()
-      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-        ok: true,
-        json: async () => ({ text: 'Revenue of ₱2,100 over 7 days, up 5%.', source: 'openrouter' }),
-      }))
-      render(<AiInsights insights={INSIGHTS} />)
+  it('should narrate the card on Explain tap', async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ text: 'Revenue of ₱2,100 over 7 days, up 5%.', source: 'gemini' }),
+    }))
+    render(<AiInsights insights={INSIGHTS} />)
 
-      await user.click(screen.getByTestId('insight-explain-forecast'))
+    await user.click(screen.getByTestId('insight-explain-forecast'))
 
-      expect(global.fetch).toHaveBeenCalledWith(
-        expect.stringContaining('/api/ai-insights/explain'),
-        expect.objectContaining({ method: 'POST' })
-      )
-      await waitFor(() => {
-        expect(screen.getByTestId('insight-explained-forecast')).toBeInTheDocument()
-      })
-      expect(screen.getByTestId('insight-explained-forecast')).toHaveTextContent('Revenue of ₱2,100')
+    expect(global.fetch).toHaveBeenCalledWith(
+      expect.stringContaining('/api/ai-insights/explain'),
+      expect.objectContaining({ method: 'POST' })
+    )
+    await waitFor(() => {
+      expect(screen.getByTestId('insight-explained-forecast')).toBeInTheDocument()
     })
+    expect(screen.getByTestId('insight-explained-forecast')).toHaveTextContent('Revenue of ₱2,100')
+    // AI-sourced wording carries the marker; template fallback does not.
+    expect(screen.getByLabelText('AI narration')).toBeInTheDocument()
+  })
 
     it('should show a loading state while explaining', async () => {
       const user = userEvent.setup()

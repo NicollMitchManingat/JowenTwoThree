@@ -1,5 +1,7 @@
 const {
+  resetDeadModels,
   getNarratorConfig,
+  providersFromConfig,
   templateText,
   buildPrompt,
   extractNumberTokens,
@@ -21,9 +23,12 @@ const INSIGHT = {
 
 const CONFIG = {
   enabled: true,
-  apiKey: "test-key",
-  models: ["m1", "m2"],
-  baseUrl: "http://ai.test",
+  geminiKey: "g-key",
+  groqKey: "q-key",
+  geminiModels: ["gemini-m"],
+  groqModels: ["groq-m1", "groq-m2"],
+  geminiBaseUrl: "http://gemini.test",
+  groqBaseUrl: "http://groq.test",
   timeoutMs: 500,
 }
 
@@ -32,23 +37,45 @@ const okFetch = (text) => async () => ({
   json: async () => ({ choices: [{ message: { content: JSON.stringify({ text }) } }] }),
 })
 
+beforeEach(() => {
+  resetDeadModels()
+})
+
 describe("aiNarrator config and templates", () => {
   it("should default to keyless template mode with stock models", () => {
     const cfg = getNarratorConfig({})
-    expect(cfg.apiKey).toBe("")
+    expect(cfg.geminiKey).toBe("")
+    expect(cfg.groqKey).toBe("")
     expect(cfg.enabled).toBe(true)
-    expect(cfg.models.length).toBeGreaterThan(0)
+    expect(cfg.geminiModels.length).toBeGreaterThan(0)
+    expect(cfg.groqModels.length).toBeGreaterThan(0)
+  })
+
+  it("should ship direct model IDs without gateway aliases", () => {
+    const cfg = getNarratorConfig({})
+    ;[...cfg.geminiModels, ...cfg.groqModels].forEach((m) => {
+      expect(m.endsWith(":free")).toBe(false)
+    })
   })
 
   it("should honor env overrides", () => {
     const cfg = getNarratorConfig({
-      OPENROUTER_API_KEY: "k",
+      GEMINI_API_KEY: "gk",
+      GROQ_API_KEY: "qk",
       AI_EXPLAIN_ENABLED: "false",
-      AI_NARRATOR_MODELS: "a,b",
+      AI_NARRATOR_GEMINI_MODELS: "ga,gb",
+      AI_NARRATOR_GROQ_MODELS: "qa",
       AI_NARRATOR_TIMEOUT_MS: "123",
     })
-    expect(cfg).toMatchObject({ apiKey: "k", enabled: false, timeoutMs: 123 })
-    expect(cfg.models).toEqual(["a", "b"])
+    expect(cfg).toMatchObject({ geminiKey: "gk", groqKey: "qk", enabled: false, timeoutMs: 123 })
+    expect(cfg.geminiModels).toEqual(["ga", "gb"])
+    expect(cfg.groqModels).toEqual(["qa"])
+  })
+
+  it("providersFromConfig should order Gemini first and skip keyless providers", () => {
+    expect(providersFromConfig(CONFIG).map((p) => p.name)).toEqual(["gemini", "groq"])
+    expect(providersFromConfig({ ...CONFIG, geminiKey: "" }).map((p) => p.name)).toEqual(["groq"])
+    expect(providersFromConfig({ ...CONFIG, geminiKey: "", groqKey: "" })).toEqual([])
   })
 
   it("templateText should join value and finding", () => {
@@ -108,7 +135,7 @@ describe("narrate chain", () => {
   it("should use template text with zero network calls when keyless", async () => {
     const fetchImpl = vi.fn()
     const out = await narrate(INSIGHT, {
-      config: { ...CONFIG, apiKey: "" },
+      config: { ...CONFIG, geminiKey: "", groqKey: "" },
       fetchImpl,
       cache: createNarrationCache(),
     })
@@ -117,19 +144,35 @@ describe("narrate chain", () => {
     expect(fetchImpl).not.toHaveBeenCalled()
   })
 
-  it("should try the next model after a failure", async () => {
+  it("should try Groq after Gemini fails", async () => {
     const calls = []
     const fetchImpl = async (url, opts) => {
-      calls.push(JSON.parse(opts.body).model)
-      if (calls.length === 1) return { ok: false, status: 429 }
+      calls.push(url)
+      if (String(url).startsWith("http://gemini.test")) return { ok: false, status: 429 }
       return okFetch("Revenue of ₱2,100 over 7 days, up 5%.")()
     }
     const out = await narrate(INSIGHT, { config: CONFIG, fetchImpl, cache: createNarrationCache() })
-    expect(calls).toEqual(["m1", "m2"])
-    expect(out).toMatchObject({ source: "openrouter", model: "m2" })
+    expect(calls[0]).toContain("gemini.test")
+    expect(calls[1]).toContain("groq.test")
+    expect(out).toMatchObject({ source: "groq", model: "groq-m1" })
   })
 
-  it("should fall back to template when every model fails", async () => {
+  it("should skip a provider without a key", async () => {
+    const calls = []
+    const fetchImpl = async (url) => {
+      calls.push(url)
+      return okFetch("Revenue of ₱2,100 over 7 days, up 5%.")()
+    }
+    const out = await narrate(INSIGHT, {
+      config: { ...CONFIG, geminiKey: "" },
+      fetchImpl,
+      cache: createNarrationCache(),
+    })
+    expect(calls.every((u) => String(u).includes("groq.test"))).toBe(true)
+    expect(out).toMatchObject({ source: "groq" })
+  })
+
+  it("should fall back to template when every provider fails", async () => {
     const out = await narrate(INSIGHT, {
       config: CONFIG,
       fetchImpl: async () => ({ ok: false, status: 500 }),
@@ -141,7 +184,7 @@ describe("narrate chain", () => {
 
   it("should fall back to template when validation rejects the reply", async () => {
     const out = await narrate(INSIGHT, {
-      config: { ...CONFIG, models: ["m1"] },
+      config: { ...CONFIG, groqKey: "" },
       fetchImpl: okFetch("Revenue of ₱9,999 next week."),
       cache: createNarrationCache(),
     })
@@ -153,7 +196,7 @@ describe("narrate chain", () => {
       opts.signal.addEventListener("abort", () => reject(new Error("aborted")))
     })
     const out = await narrate(INSIGHT, {
-      config: { ...CONFIG, models: ["m1"], timeoutMs: 30 },
+      config: { ...CONFIG, groqKey: "", timeoutMs: 30 },
       fetchImpl: hanging,
       cache: createNarrationCache(),
     })
@@ -170,5 +213,108 @@ describe("narrate chain", () => {
 
   it("should throw for a missing insight", async () => {
     await expect(narrate(null, { config: CONFIG })).rejects.toThrow("Insight is required")
+  })
+
+  it("should include the provider message in failure logs", async () => {
+    const errors = []
+    const orig = console.error
+    console.error = (...args) => { errors.push(args.join(" ")) }
+    try {
+      const fetchImpl = async () => ({
+        ok: false,
+        status: 429,
+        text: async () => '{"error":"upstream rate limited, retry soon"}',
+        headers: { get: (n) => (n === "x-ratelimit-remaining" ? "0" : null) },
+      })
+      await narrate(INSIGHT, {
+        config: { ...CONFIG, groqKey: "" },
+        fetchImpl,
+        cache: createNarrationCache(),
+      })
+    } finally {
+      console.error = orig
+    }
+    expect(errors.some((m) => m.includes("upstream rate limited"))).toBe(true)
+    expect(errors.some((m) => m.includes("remaining=0"))).toBe(true)
+    expect(errors.some((m) => m.includes("gemini/gemini-m"))).toBe(true)
+  })
+})
+
+describe("dead-model memoization", () => {
+  const deadCfg = {
+    enabled: true,
+    geminiKey: "g-key",
+    groqKey: "",
+    geminiModels: ["dead-m", "live-m"],
+    groqModels: [],
+    geminiBaseUrl: "http://gemini.test",
+    groqBaseUrl: "http://groq.test",
+    timeoutMs: 500,
+  }
+  const notFound = () => ({
+    ok: false,
+    status: 404,
+    text: async () => '{"error":{"message":"The model `dead-m` does not exist or you do not have access to it."}}',
+    headers: { get: () => null },
+  })
+
+  it("should skip a 404 model on later taps without calling it", async () => {
+    const chatCalls = []
+    const fetchImpl = async (url, opts) => {
+      const model = JSON.parse(opts.body).model
+      chatCalls.push(model)
+      if (model === "dead-m") return notFound()
+      return okFetch("Revenue of ₱2,100 over 7 days, up 5%.")()
+    }
+    const first = await narrate(INSIGHT, { config: deadCfg, fetchImpl, cache: createNarrationCache() })
+    expect(chatCalls).toEqual(["dead-m", "live-m"])
+    expect(first).toMatchObject({ source: "gemini", model: "live-m" })
+
+    chatCalls.length = 0
+    const second = await narrate(INSIGHT, { config: deadCfg, fetchImpl, cache: createNarrationCache() })
+    expect(chatCalls).toEqual(["live-m"])
+    expect(second).toMatchObject({ source: "gemini", model: "live-m" })
+  })
+
+  it("should retry a dead model after its memo expires", async () => {
+    const chatCalls = []
+    const fetchImpl = async (url, opts) => {
+      chatCalls.push(JSON.parse(opts.body).model)
+      return notFound()
+    }
+    await narrate(INSIGHT, { config: deadCfg, fetchImpl, cache: createNarrationCache() })
+    expect(chatCalls).toEqual(["dead-m", "live-m"])
+
+    const realNow = Date.now()
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(realNow + 3600001)
+    try {
+      chatCalls.length = 0
+      await narrate(INSIGHT, { config: deadCfg, fetchImpl, cache: createNarrationCache() })
+      expect(chatCalls).toEqual(["dead-m", "live-m"])
+    } finally {
+      nowSpy.mockRestore()
+    }
+  })
+
+  it("should name the fix for retired vs inaccessible models", async () => {
+    const errors = []
+    const orig = console.error
+    console.error = (...args) => { errors.push(args.join(" ")) }
+    try {
+      const retired = () => ({
+        ok: false,
+        status: 404,
+        text: async () => '{"error":{"message":"This model is no longer available to new users."}}',
+        headers: { get: () => null },
+      })
+      await narrate(INSIGHT, {
+        config: deadCfg,
+        fetchImpl: retired,
+        cache: createNarrationCache(),
+      })
+    } finally {
+      console.error = orig
+    }
+    expect(errors.some((m) => m.includes("AI_NARRATOR_GEMINI_MODELS"))).toBe(true)
   })
 })

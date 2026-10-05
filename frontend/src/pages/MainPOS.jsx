@@ -588,7 +588,7 @@ export default function MainPOS({ user }) {
               <span className="traffic-total" data-testid="traffic-total" title="Male + Female + Unspecified">Total: {customerCount}</span>
             </div>
             </div>
-            <LowStockBell />
+            <LowStockBell size="small" />
           </div>
         </div>
 

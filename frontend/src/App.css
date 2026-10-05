@@ -1740,6 +1740,87 @@
   min-width: 2.4rem;
 }
 
+/* ── Low-stock bell: fixed square on Inventory, widget-matched on POS ──
+   The default variant is a fixed 44px square; the small variant
+   stretches to its flex row's height (the traffic widget) via
+   align-self: stretch. Spinner overlays instead of stretching the
+   button. Severity tints the icon/ring: red when anything is out of
+   stock, amber when only low, neutral when clear. */
+.stock-bell {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  flex-shrink: 0;
+}
+
+.stock-bell--default {
+  width: 44px;
+  height: 44px;
+}
+
+.stock-bell--small {
+  /* Fill the traffic widget's exact height via flexbox stretch (no
+     aspect-ratio involved, so this holds in every browser) with
+     comfortable horizontal padding instead of a forced square.
+     Falls back to the 38px control spec. */
+  align-self: stretch;
+  height: auto;
+  width: auto;
+  min-height: var(--filter-control-h);
+  padding: 2px 0.85rem;
+  border-radius: var(--border-radius);
+  background: var(--bg-surface);
+  box-shadow: var(--shadow-sm);
+}
+
+.stock-bell--small > svg {
+  width: 22px;
+  height: 22px;
+}
+
+.stock-bell--critical {
+  color: var(--color-danger);
+  border-color: var(--color-danger);
+}
+
+.stock-bell--warning {
+  color: var(--color-warning);
+  border-color: var(--color-warning);
+}
+
+.stock-bell-badges {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  display: flex;
+  gap: 2px;
+  max-width: 100%;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.stock-bell-badge {
+  font-size: 0.65rem;
+  padding: 0.1rem 0.3rem;
+  min-width: 18px;
+  justify-content: center;
+  line-height: 1.2;
+}
+
+.stock-bell-spinner {
+  position: absolute;
+  bottom: -4px;
+  right: -4px;
+  display: inline-flex;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: 50%;
+  padding: 1px;
+  pointer-events: none;
+}
+
 .analytics-range-select {
   height: var(--analytics-control-h);
   min-height: var(--analytics-control-h);

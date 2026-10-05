@@ -1,9 +1,18 @@
+import { useState } from 'react'
 import { Sparkles } from 'lucide-react'
+
+const EXPLAIN_API_BASE = import.meta.env.VITE_API_URL || "http://localhost:3001"
 
 function impactClass(impact) {
   if (impact === 'High' || impact === 'Reorder') return 'badge-danger'
   if (impact === 'Positive') return 'badge-success'
   return 'badge-warning'
+}
+
+function templateSentence(prediction) {
+  const value = prediction?.value || ''
+  const finding = prediction?.insight || ''
+  return `${value} — ${finding}`.replace(/^ — | — $/g, '').trim()
 }
 
 export default function AiInsights({ insights, loading = false, error = null, onRetry }) {
@@ -51,21 +60,83 @@ export default function AiInsights({ insights, loading = false, error = null, on
     )
   }
 
+  // Per-card narration: key → 'loading' | { text, source }.
+  // Any failure falls back to the template sentence locally — staff see
+  // plainer wording, never an error.
+  const [explained, setExplained] = useState({})
+
+  const explain = async (prediction) => {
+    const key = prediction.key || prediction.metric
+    setExplained((prev) => ({ ...prev, [key]: 'loading' }))
+    const payload = {
+      key: prediction.key,
+      metric: prediction.metric,
+      value: prediction.value,
+      insight: prediction.insight,
+      impact: prediction.impact,
+      numbers: Array.isArray(prediction.numbers) ? prediction.numbers : [],
+    }
+    try {
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), 15000)
+      const res = await fetch(`${EXPLAIN_API_BASE}/api/ai-insights/explain`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ insight: payload }),
+        signal: controller.signal,
+      })
+      clearTimeout(timeout)
+      if (!res.ok) throw new Error('Explain request failed.')
+      const json = await res.json()
+      setExplained((prev) => ({ ...prev, [key]: { text: json.text, source: json.source } }))
+    } catch {
+      setExplained((prev) => ({ ...prev, [key]: { text: templateSentence(prediction), source: 'template' } }))
+    }
+  }
+
   return (
     <div className="prediction-grid">
-      {insights.map((prediction) => (
-        <div key={prediction.key || prediction.metric} className="card prediction-card card-body" data-testid={`insight-${prediction.key || prediction.metric}`}>
-          <div className="flex items-center gap-2">
-            <Sparkles size={18} className="text-primary" />
-            <span className="font-semibold">{prediction.metric}</span>
+      {insights.map((prediction) => {
+        const key = prediction.key || prediction.metric
+        const state = explained[key]
+        const narrated = state && state !== 'loading' ? state.text : null
+        return (
+          <div key={key} className="card prediction-card card-body" data-testid={`insight-${key}`}>
+            <div className="flex items-center gap-2">
+              <Sparkles size={18} className="text-primary" />
+              <span className="font-semibold">{prediction.metric}</span>
+            </div>
+            <p className="text-2xl font-bold">{prediction.value}</p>
+            {narrated ? (
+              <p className="text-sm text-muted" data-testid={`insight-explained-${key}`}>
+                {narrated}{' '}
+                {state.source === 'openrouter' && (
+                  <Sparkles size={12} className="text-primary" title="AI narration" aria-label="AI narration" />
+                )}
+              </p>
+            ) : (
+              <p className="text-sm text-muted">{prediction.insight}</p>
+            )}
+            <div className="flex items-center gap-2">
+              <span className={`badge ${impactClass(prediction.impact)}`}>
+                {prediction.impact}
+              </span>
+              <span style={{ flex: 1 }} />
+              {!narrated && (
+                <button
+                  type="button"
+                  data-testid={`insight-explain-${key}`}
+                  disabled={state === 'loading'}
+                  onClick={() => explain(prediction)}
+                  style={{ textDecoration: 'underline', cursor: 'pointer', background: 'none', border: 'none', padding: 0, fontSize: '0.8rem', color: 'var(--text-muted)' }}
+                >
+                  {state === 'loading' ? 'Explaining…' : 'Explain'}
+                </button>
+              )}
+            </div>
           </div>
-          <p className="text-2xl font-bold">{prediction.value}</p>
-          <p className="text-sm text-muted">{prediction.insight}</p>
-          <span className={`badge ${impactClass(prediction.impact)}`}>
-            {prediction.impact}
-          </span>
-        </div>
-      ))}
+        )
+      })}
     </div>
   )
 }

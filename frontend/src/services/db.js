@@ -918,6 +918,47 @@ export const db = {
     })
   },
 
+  // ── Offline-queued inventory mutations (UI-initiated only) ──────
+  // updateInventoryItem/deleteInventoryItem above intentionally keep
+  // throwing on infrastructure errors: the stock-deduction engine
+  // (applyDeductions) depends on that to roll back partial deductions.
+  // These queue* siblings are for staff taps in InventoryPage while the
+  // database is unreachable; replay lives in offlineQueue.js.
+  // baseStockQty is the on-screen quantity at queue time — the replay
+  // applies stock_quantity as a DELTA against live stock so synced sales
+  // deductions made in the meantime are not clobbered. reason/notes feed
+  // the adjustment row written at replay (defaults to 'offline-edit').
+  async queueInventoryUpdate(id, updates, { baseStockQty, reason, notes, skipAdjustment } = {}) {
+    if (!id) throw new Error('Inventory id is required')
+    if (!updates || typeof updates !== 'object') throw new Error('Nothing to update')
+    await offlineQueue.enqueue({
+      method: 'inventory-update',
+      table: 'inventory',
+      matchField: 'id',
+      matchValue: id,
+      body: { ...updates },
+      base: { stock_quantity: baseStockQty },
+      reason: reason || 'offline-edit',
+      notes: notes || null,
+      // True when the matching adjustment row was already queued
+      // separately (e.g. wastage logs its adjustment first) — the replay
+      // must not write it a second time.
+      skipAdjustment: !!skipAdjustment,
+    })
+    return { id, ...updates, _queued: true }
+  },
+
+  async queueInventoryDelete(id) {
+    if (!id) throw new Error('Inventory id is required')
+    await offlineQueue.enqueue({
+      method: 'delete',
+      table: 'inventory',
+      matchField: 'id',
+      matchValue: id,
+    })
+    return { id, _queued: true }
+  },
+
   async getLowStockItems(threshold = 5) {
     return queryWithTimeout((signal) => supabase
       .from('inventory')

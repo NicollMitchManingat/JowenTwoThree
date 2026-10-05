@@ -48,6 +48,7 @@ describe('MainPOS', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     localStorage.clear()
+    // clearAllMocks keeps implementations: reset per-test overrides here.
     isRetryableError.mockReturnValue(false)
     db.getActiveDiscounts.mockResolvedValue([])
   })

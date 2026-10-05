@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import LowStockBell from '../components/inventory/LowStockBell'
+import { saveStockCache } from '../services/stockCache'
 
 vi.mock('../services/db', () => ({
   db: {
@@ -15,6 +16,7 @@ import { db } from '../services/db'
 describe('LowStockBell', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    localStorage.clear()
     db.getLowStockItems.mockResolvedValue([])
     db.getOutOfStockItems.mockResolvedValue([])
   })
@@ -105,6 +107,23 @@ describe('LowStockBell', () => {
 
     await user.click(screen.getByTestId('low-stock-bell'))
     expect(screen.getByTestId('stock-alerts-modal')).toHaveTextContent('All Stocked Up!')
+  })
+
+  it('should derive alert counts from the snapshot when fetches fail', async () => {
+    saveStockCache([
+      { id: 'i1', name: 'Milk', stock_quantity: 2 },
+      { id: 'i2', name: 'Beans', stock_quantity: 0 },
+    ])
+    db.getLowStockItems.mockRejectedValueOnce(new Error('Request timed out after 8s.'))
+    db.getOutOfStockItems.mockRejectedValueOnce(new Error('Request timed out after 8s.'))
+    render(<LowStockBell />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('low-stock-bell-count')).toBeInTheDocument()
+    })
+    expect(screen.getByTestId('low-stock-bell-count')).toHaveAttribute('data-total', '2')
+    expect(screen.getByTestId('low-stock-bell-low')).toHaveTextContent('1')
+    expect(screen.getByTestId('low-stock-bell-out')).toHaveTextContent('1')
   })
 
   it('should tolerate fetch failures without crashing', async () => {

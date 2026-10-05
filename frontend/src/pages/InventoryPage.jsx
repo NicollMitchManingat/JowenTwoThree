@@ -1,9 +1,10 @@
 import { useState, useEffect, useMemo } from 'react';
 import { Search, Plus, Edit, Trash2, X, Sparkles, AlertCircle, ChevronRight } from 'lucide-react';
-import { db } from '../services/db';
+import { db, isRetryableError, isQueuedRecord } from '../services/db';
 import LowStockBell from '../components/inventory/LowStockBell';
 import LoadingSkeleton from '../components/analytics/LoadingSkeleton';
 import { saveStockCache, loadStockCache } from '../services/stockCache';
+import { processQueue, offlineQueue } from '../services/offlineQueue';
 
 export default function InventoryPage({ userRole }) {
   // Stockists manage stock day-to-day (add/edit/wastage/delete).
@@ -66,6 +67,24 @@ export default function InventoryPage({ userRole }) {
     } finally {
       setLoading(false)
     }
+    // The database is reachable again — flush anything queued offline, then
+    // re-read so freshly synced rows replace optimistic ones below.
+    let pending = 0
+    try {
+      pending = await offlineQueue.size()
+    } catch {
+      pending = 0
+    }
+    if (pending > 0) {
+      try {
+        await processQueue()
+        const fresh = await db.getInventory()
+        setInventoryData(fresh || [])
+        saveStockCache(fresh || [])
+      } catch (queueErr) {
+        console.error('Failed to flush offline queue:', queueErr)
+      }
+    }
   }
 
   useEffect(() => {
@@ -103,27 +122,58 @@ export default function InventoryPage({ userRole }) {
     setShowModal(true);
   };
 
+  // Applies an optimistic change to the list AND the snapshot so queued
+  // edits stay visible across reloads until the next live load replaces
+  // them with real rows.
+  const applyOptimisticList = (next) => {
+    setInventoryData(next)
+    saveStockCache(next)
+  }
+
   const handleSave = async () => {
     if (!formData.name || !formData.stock_quantity) return;
+    const updates = {
+      name: formData.name,
+      category: formData.category,
+      stock_quantity: Number(formData.stock_quantity),
+      unit: formData.unit || 'units',
+    }
     try {
       if (isEditing && editId) {
-        await db.updateInventoryItem(editId, {
-          name: formData.name,
-          category: formData.category,
-          stock_quantity: Number(formData.stock_quantity),
-          unit: formData.unit || 'units',
-        })
+        await db.updateInventoryItem(editId, updates)
       } else {
-        await db.createInventoryItem({
+        const created = await db.createInventoryItem({
           name: formData.name,
           category: formData.category,
           stock_quantity: Number(formData.stock_quantity),
           unit: formData.unit || 'units',
         })
+        if (isQueuedRecord(created)) {
+          // Queued offline: show it now flagged pending-sync (locked from
+          // further edits until its real id comes back from sync).
+          applyOptimisticList([...inventoryData, { ...created, _pendingSync: true }])
+          setShowModal(false)
+          alert('Saved offline — will sync when the database is back.')
+          return
+        }
       }
       setShowModal(false)
       await loadInventory()
     } catch (err) {
+      if (isRetryableError(err) && isEditing && editId) {
+        try {
+          const current = inventoryData.find(i => String(i.id) === String(editId))
+          await db.queueInventoryUpdate(editId, updates, { baseStockQty: Number(current?.stock_quantity) })
+          applyOptimisticList(inventoryData.map(i =>
+            String(i.id) === String(editId) ? { ...i, ...updates } : i
+          ))
+          setShowModal(false)
+          alert('Saved offline — will sync when the database is back.')
+        } catch (queueErr) {
+          alert('Failed to save: ' + (queueErr?.message || err.message))
+        }
+        return
+      }
       alert('Failed to save: ' + err.message)
     }
   };
@@ -136,6 +186,20 @@ export default function InventoryPage({ userRole }) {
       setDeleteTarget(null)
       await loadInventory()
     } catch (err) {
+      if (isRetryableError(err)) {
+        try {
+          await db.queueInventoryDelete(deleteTarget.id)
+          const id = deleteTarget.id
+          applyOptimisticList(inventoryData.filter(i => String(i.id) !== String(id)))
+          setDeleteTarget(null)
+          alert('Delete queued — will sync when the database is back.')
+        } catch (queueErr) {
+          alert('Failed to delete: ' + (queueErr?.message || err.message))
+        } finally {
+          setDeleting(false)
+        }
+        return
+      }
       alert('Failed to delete: ' + err.message)
     } finally {
       setDeleting(false)
@@ -155,8 +219,12 @@ export default function InventoryPage({ userRole }) {
     const qty = Number(wastageQty);
     const prevQty = Number(wastageItem.stock_quantity);
     const newQty = Math.max(0, prevQty - qty);
+    // Tracks whether the adjustment already queued itself (createAdjustment
+    // auto-queues on retryable errors) so the replay below doesn't log it
+    // a second time.
+    let adjustmentQueued = false;
     try {
-      await db.createAdjustment({
+      const adj = await db.createAdjustment({
         inventory_id: wastageItem.id,
         previous_quantity: prevQty,
         new_quantity: newQty,
@@ -164,12 +232,36 @@ export default function InventoryPage({ userRole }) {
         reason: wastageReason,
         notes: wastageNotes || null,
       });
+      adjustmentQueued = isQueuedRecord(adj);
       await db.updateInventoryItem(wastageItem.id, {
         stock_quantity: newQty,
       });
       setShowWastageModal(false);
       await loadInventory();
     } catch (err) {
+      if (isRetryableError(err)) {
+        try {
+          await db.queueInventoryUpdate(
+            wastageItem.id,
+            { stock_quantity: newQty },
+            {
+              baseStockQty: prevQty,
+              reason: wastageReason,
+              notes: wastageNotes || null,
+              skipAdjustment: adjustmentQueued,
+            }
+          );
+          const id = wastageItem.id;
+          applyOptimisticList(inventoryData.map(i =>
+            String(i.id) === String(id) ? { ...i, stock_quantity: newQty } : i
+          ));
+          setShowWastageModal(false);
+          alert('Wastage logged offline — will sync when the database is back.');
+        } catch (queueErr) {
+          alert('Failed to log wastage: ' + (queueErr?.message || err.message));
+        }
+        return;
+      }
       alert('Failed to log wastage: ' + err.message);
     }
   };
@@ -351,13 +443,18 @@ export default function InventoryPage({ userRole }) {
                   <span className={`badge ${getStatus(item.stock_quantity) === 'Low Stock' ? 'badge-danger' : getStatus(item.stock_quantity) === 'Out of Stock' ? 'badge-danger' : 'badge-success'}`}>
                     {getStatus(item.stock_quantity)}
                   </span>
+                  {item._pendingSync && (
+                    <span className="badge badge-neutral" data-testid={`pending-sync-${item.id}`} title="Saved offline — edits unlock after it syncs" style={{ marginLeft: '0.35rem' }}>
+                      Pending sync
+                    </span>
+                  )}
                 </td>
                 {canManage && (
                   <td>
                     <div className="action-buttons">
-                      <button className="btn-icon-small" onClick={() => handleOpenWastage(item)} title="Log Wastage"><AlertCircle size={14} /></button>
-                      <button className="btn-icon-small" onClick={() => handleOpenEdit(item)} title="Edit item"><Edit size={14} /></button>
-                      <button className="btn-icon-small danger" onClick={() => setDeleteTarget(item)} title="Delete item" data-testid={`delete-item-${item.id}`}><Trash2 size={14} /></button>
+                      <button className="btn-icon-small" onClick={() => handleOpenWastage(item)} title={item._pendingSync ? 'Will sync when the database is back' : 'Log Wastage'} disabled={!!item._pendingSync}><AlertCircle size={14} /></button>
+                      <button className="btn-icon-small" onClick={() => handleOpenEdit(item)} title={item._pendingSync ? 'Will sync when the database is back' : 'Edit item'} disabled={!!item._pendingSync}><Edit size={14} /></button>
+                      <button className="btn-icon-small danger" onClick={() => setDeleteTarget(item)} title={item._pendingSync ? 'Will sync when the database is back' : 'Delete item'} disabled={!!item._pendingSync} data-testid={`delete-item-${item.id}`}><Trash2 size={14} /></button>
                     </div>
                   </td>
                 )}

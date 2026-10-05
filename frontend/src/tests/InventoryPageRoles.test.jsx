@@ -87,4 +87,25 @@ describe('InventoryPage roles', () => {
     expect(screen.queryByText('Add Item')).not.toBeInTheDocument()
     expect(screen.queryByText('Actions')).not.toBeInTheDocument()
   })
+
+  it('should show the bell right of Add Item for managers', async () => {
+    render(<InventoryPage userRole="admin" />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Add Item')).toBeInTheDocument()
+    })
+    const bell = screen.getByTestId('low-stock-bell')
+    const addBtn = screen.getByText('Add Item')
+    expect(addBtn.compareDocumentPosition(bell) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('should keep the bell for non-managers without Add Item', async () => {
+    render(<InventoryPage userRole="cashier" />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Milk')).toBeInTheDocument()
+    })
+    expect(screen.getByTestId('low-stock-bell')).toBeInTheDocument()
+    expect(screen.queryByText('Add Item')).not.toBeInTheDocument()
+  })
 })

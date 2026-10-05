@@ -5,7 +5,10 @@ import { db } from '../../services/db'
 // Shared low-stock notification bell (Inventory tab + POS tab).
 // Display-only: lists out-of-stock / low-stock items, no edit actions,
 // so it is safe for every role.
-export default function LowStockBell() {
+// `size="small"` matches compact neighbors (POS steppers); default matches
+// standard buttons (Inventory "Add Item"). Fixed square in both variants so
+// the button never shifts when alerts load or the spinner shows.
+export default function LowStockBell({ size = 'default' }) {
   const [lowStockItems, setLowStockItems] = useState([])
   const [outOfStockItems, setOutOfStockItems] = useState([])
   const [lowStockLoading, setLowStockLoading] = useState(false)
@@ -39,28 +42,64 @@ export default function LowStockBell() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const alertCount = lowStockItems.length + outOfStockItems.length
+  const outCount = outOfStockItems.length
+  const lowCount = lowStockItems.length
+  const alertCount = lowCount + outCount
   const hasAlerts = alertCount > 0
+  // Out-of-stock is critical (red); low-only is a warning (amber).
+  const severity = outCount > 0 ? 'critical' : lowCount > 0 ? 'warning' : 'clear'
+  const statusLabel = severity === 'clear'
+    ? 'No stock alerts'
+    : `Stock alerts: ${alertCount} total (${outCount} out of stock, ${lowCount} low)`
 
   return (
     <>
       <div className="relative" style={{ position: 'relative' }}>
         <button
-          className={`btn btn-secondary ${hasAlerts ? 'text-danger' : ''}`}
+          className={`btn btn-secondary stock-bell stock-bell--${size} stock-bell--${severity}`}
           onClick={() => { setShowModal(true); loadAlerts(); }}
-          title="Low Stock Alerts"
+          title={statusLabel}
+          aria-label={statusLabel}
+          aria-busy={lowStockLoading}
           style={{ position: 'relative' }}
           data-testid="low-stock-bell"
+          data-severity={severity}
         >
           {hasAlerts ? <Bell size={18} /> : <BellOff size={18} />}
           {hasAlerts && (
-            <span className="absolute -top-1 -right-1 bg-danger text-white text-xs rounded-full w-5 h-5 flex items-center justify-center font-bold"
-              style={{ minWidth: '20px', height: '20px', fontSize: '10px', lineHeight: '1', top: '-6px', right: '-6px' }}
-              data-testid="low-stock-bell-count">
-              {alertCount}
+            <span
+              className="stock-bell-badges"
+              data-testid="low-stock-bell-count"
+              data-total={alertCount}
+              title={statusLabel}
+            >
+              {outCount > 0 && (
+                <span
+                  className="badge badge-danger stock-bell-badge"
+                  data-testid="low-stock-bell-out"
+                  title={`${outCount} out of stock`}
+                  aria-label={`${outCount} out of stock`}
+                >
+                  {outCount}
+                </span>
+              )}
+              {lowCount > 0 && (
+                <span
+                  className="badge badge-warning stock-bell-badge"
+                  data-testid="low-stock-bell-low"
+                  title={`${lowCount} low stock`}
+                  aria-label={`${lowCount} low stock`}
+                >
+                  {lowCount}
+                </span>
+              )}
             </span>
           )}
-          {lowStockLoading && <Loader2 size={16} className="animate-spin" />}
+          {lowStockLoading && (
+            <span className="stock-bell-spinner" aria-hidden="true">
+              <Loader2 size={14} className="animate-spin" />
+            </span>
+          )}
         </button>
       </div>
 

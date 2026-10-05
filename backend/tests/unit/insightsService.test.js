@@ -118,6 +118,32 @@ describe("forecastDemand", () => {
     expect(out.detail.days[0]).toMatchObject({ date: "2026-09-08", revenue: 100 })
   })
 
+  it("should address rising forecasts as manager suggestions", () => {
+    const out = forecastDemand(
+      {
+        "2026-09-07": 100, "2026-09-14": 200, "2026-09-21": 300, "2026-09-28": 400,
+        "2026-09-08": 50,
+      },
+      "2026-09-28T12:00:00",
+      CFG
+    )
+    expect(out.impact).toBe("Positive")
+    expect(out.insight).toMatch(/Stock and staff for /)
+  })
+
+  it("should address falling forecasts as lighter prep", () => {
+    const daily = {}
+    for (let d = 1; d <= 21; d++) {
+      daily[`2026-09-${String(d).padStart(2, "0")}`] = 10
+    }
+    for (let d = 22; d <= 28; d++) {
+      daily[`2026-09-${String(d).padStart(2, "0")}`] = 1000
+    }
+    const out = forecastDemand(daily, "2026-09-28T12:00:00", CFG)
+    expect(out.impact).toBe("Medium")
+    expect(out.insight).toMatch(/Plan lighter prep/)
+  })
+
   it("should suppress the forecast on empty history", () => {
     expect(forecastDemand({}, "2026-09-28T12:00:00", CFG)).toBe(null)
     expect(forecastDemand({ "2026-09-07": 0 }, "2026-09-07T12:00:00", CFG)).toBe(null)
@@ -251,6 +277,9 @@ describe("anomalyFlags", () => {
     const keys = out.map((i) => i.key)
     // Refund rate 20% vs trailing 2.5% (8x) → spike; 9 AM dead; discounts 20% vs 5% (+15pts).
     expect(keys).toEqual(expect.arrayContaining(["anomaly-refunds", "anomaly-hours", "anomaly-discounts"]))
+    const byKey = new Map(out.map((i) => [i.key, i]))
+    expect(byKey.get("anomaly-refunds").insight).toMatch(/Look into your refunds/)
+    expect(byKey.get("anomaly-discounts").insight).toMatch(/Review your discounts/)
   })
 
   it("should stay quiet on a healthy period", () => {

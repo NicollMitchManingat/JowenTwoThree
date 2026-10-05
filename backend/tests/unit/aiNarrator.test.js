@@ -88,6 +88,12 @@ describe("aiNarrator config and templates", () => {
     expect(system).toMatch(/never add/i)
     expect(system).toMatch(/JSON/)
   })
+
+  it("buildPrompt should direct suggestions at the manager, never a team", () => {
+    const { system } = buildPrompt(INSIGHT)
+    expect(system).toMatch(/as 'you'/)
+    expect(system).toMatch(/never address a group/i)
+  })
 })
 
 describe("digit-stock validation", () => {
@@ -111,6 +117,20 @@ describe("digit-stock validation", () => {
 
   it("should accept grounded rephrasing", () => {
     expect(() => validateNarration("Revenue of ₱2,100 over 7 days, up 5%.", INSIGHT)).not.toThrow()
+  })
+
+  it("should reject team greetings but accept H-words", () => {
+    expect(() => validateNarration("Hey team, revenue is up.", INSIGHT)).toThrow(/greeting/)
+    expect(() => validateNarration("Hello everyone, stock up.", INSIGHT)).toThrow(/greeting/)
+    expect(() => validateNarration("Hi, schedule extra staff.", INSIGHT)).toThrow(/greeting/)
+    expect(() => validateNarration("High demand at noon, schedule extra staff.", INSIGHT)).not.toThrow()
+    expect(() => validateNarration("History shows ₱2,100 over 7 days.", INSIGHT)).not.toThrow()
+  })
+
+  it("should version cache keys so voice changes retire old wordings", () => {
+    const { PROMPT_VERSION, factsKey } = require("../../src/services/aiNarrator")
+    expect(PROMPT_VERSION).toBeGreaterThan(1)
+    expect(factsKey(INSIGHT).startsWith(`v${PROMPT_VERSION}|`)).toBe(true)
   })
 
   it("should reject invented figures", () => {

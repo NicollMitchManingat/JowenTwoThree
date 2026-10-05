@@ -1,6 +1,6 @@
 import { useContext, useEffect, useState, useMemo } from "react";
 import { AnalyticsContext } from "./AnalyticsContext";
-import { Sparkles, TrendingUp, AlertTriangle, Package, BrainCircuit, BarChart3, ShoppingBag, Calendar, ChevronDown, Plus, X, AlertCircle, CheckCircle, Percent, Undo2 } from 'lucide-react';
+import { TrendingUp, AlertTriangle, Package, BarChart3, ShoppingBag, Calendar, ChevronDown, Plus, X, AlertCircle, CheckCircle, Percent, Undo2 } from 'lucide-react';
 import { db } from '../services/db';
 import { productAPI } from '../services/productAPI';
 import { netRevenue, paymentMix, voucherStats, refundSummary, customerTotals, bucketHourlySales, aggregateWeekdayPattern } from '../services/salesAnalytics';
@@ -16,6 +16,7 @@ import PaymentMixChart from "../components/analytics/PaymentMixChart";
 import VoucherEffectivenessChart from "../components/analytics/VoucherEffectivenessChart";
 import RefundInsights from "../components/analytics/RefundInsights";
 import TrafficConversionChart from "../components/analytics/TrafficConversionChart";
+import AiInsights from "../components/analytics/AiInsights";
 
 function getDateRange(filter) {
   const now = new Date();
@@ -56,12 +57,7 @@ function formatDateForInput(date) {
   return date.toISOString().split('T')[0];
 }
 
-const aiPredictions = [
-  { metric: "Peak Hours", value: "12 PM - 2 PM", insight: "Schedule 2 extra staff", impact: "High" },
-  { metric: "Forecast Revenue", value: "₱18,500", insight: "+12% vs last week", impact: "Positive" },
-  { metric: "Top Seller", value: "Espresso", insight: "Stock 2x current level", impact: "Reorder" },
-  { metric: "Wastage Risk", value: "Strawberries", insight: "Use in promos today", impact: "Medium" },
-];
+const INSIGHTS_API_BASE = import.meta.env.VITE_API_URL || "http://localhost:3001";
 
 // Group { 'YYYY-MM-DD': amount } daily sales into ISO-week buckets (Monday start).
 // Returns [{ key: 'YYYY-Www', label: 'Www MMM d', weekStart: Date, total }] sorted by week.
@@ -352,6 +348,42 @@ export default function DashboardContent({ activeTab, user }) {
     return () => window.removeEventListener('online', onOnline)
   }, [])
 
+  // AI insights: computed server-side from live data (see
+  // backend/src/services/insightsService.js), no hardcoded values.
+  const [insights, setInsights] = useState(null);
+  const [insightsError, setInsightsError] = useState(null);
+  const [insightsRetryKey, setInsightsRetryKey] = useState(0);
+
+  useEffect(() => {
+    if (!dateRange) return;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000);
+    let cancelled = false;
+
+    async function loadInsights() {
+      setInsightsError(null);
+      try {
+        const params = new URLSearchParams({ start: dateRange.start, end: dateRange.end });
+        const res = await fetch(`${INSIGHTS_API_BASE}/api/ai-insights?${params}`, { signal: controller.signal });
+        if (!res.ok) throw new Error("Failed to load insights.");
+        const json = await res.json();
+        if (!cancelled) setInsights(json.data ? json.data.insights : json.insights || []);
+      } catch (err) {
+        if (cancelled || err?.name === "AbortError") return;
+        console.error("Insights load error:", err);
+        if (!cancelled) setInsightsError(err?.message || "Failed to load insights.");
+      } finally {
+        clearTimeout(timeout);
+      }
+    }
+    loadInsights();
+    return () => {
+      cancelled = true;
+      clearTimeout(timeout);
+      controller.abort();
+    };
+  }, [dateRange, insightsRetryKey]);
+
   // Default dates for custom range (last 7 days)
   useEffect(() => {
     if (dateFilter === "Custom") {
@@ -562,21 +594,12 @@ export default function DashboardContent({ activeTab, user }) {
           <h3 className="m-0">AI Insights</h3>
         </div>
         <div className="card-body">
-          <div className="prediction-grid">
-          {aiPredictions.map((prediction, index) => (
-            <div key={index} className="card prediction-card card-body">
-              <div className="flex items-center gap-2">
-                <Sparkles size={18} className="text-primary" />
-                <span className="font-semibold">{prediction.metric}</span>
-              </div>
-              <p className="text-2xl font-bold">{prediction.value}</p>
-              <p className="text-sm text-muted">{prediction.insight}</p>
-              <span className={`badge ${prediction.impact === 'High' || prediction.impact === 'Reorder' ? 'badge-danger' : prediction.impact === 'Positive' ? 'badge-success' : 'badge-warning'}`}>
-                {prediction.impact}
-              </span>
-            </div>
-          ))}
-          </div>
+          <AiInsights
+            insights={insights}
+            loading={!insights && !insightsError}
+            error={insightsError}
+            onRetry={() => setInsightsRetryKey((k) => k + 1)}
+          />
         </div>
       </div>
 

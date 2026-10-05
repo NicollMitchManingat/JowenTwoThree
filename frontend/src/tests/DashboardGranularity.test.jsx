@@ -1,6 +1,6 @@
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 vi.mock('react-chartjs-2', () => ({
   Line: () => <canvas data-testid="chart-canvas" />,
@@ -52,10 +52,30 @@ function setup() {
   db.getTopSellingItems.mockResolvedValue([])
 }
 
+const INSIGHTS_ENVELOPE = {
+  generatedAt: '2026-10-04T12:00:00.000Z',
+  windowDays: 28,
+  range: { start: '2026-10-04T00:00:00.000Z', end: '2026-10-04T12:00:00.000Z' },
+  insights: [
+    { key: 'forecast', metric: 'Forecast Revenue', value: '₱2,100 next 7 days', insight: '+5% vs last 7 days', impact: 'Positive', numbers: [2100] },
+  ],
+}
+
+function stubInsightsFetch(impl) {
+  vi.stubGlobal('fetch', vi.fn((url) => {
+    if (String(url).includes('/api/ai-insights')) return impl(url)
+    return Promise.resolve({ ok: false })
+  }))
+}
+
 describe('DashboardContent granularity', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     setup()
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
   })
 
   it('should default to daily and switch to hourly on toggle', async () => {
@@ -161,5 +181,49 @@ describe('DashboardContent granularity', () => {
         Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy()
     expect(screen.queryByText('Plenty')).not.toBeInTheDocument()
+  })
+
+  it('should fetch AI insights for the active range and render cards', async () => {
+    stubInsightsFetch(() => Promise.resolve({
+      ok: true,
+      json: () => Promise.resolve({ data: INSIGHTS_ENVELOPE }),
+    }))
+    render(
+      <AnalyticsProvider>
+        <DashboardContent activeTab="Sales" user={{ role: 'admin' }} />
+      </AnalyticsProvider>
+    )
+
+    await waitFor(() => {
+      expect(screen.getByTestId('insight-forecast')).toBeInTheDocument()
+    })
+    const calledUrl = global.fetch.mock.calls
+      .map(([url]) => String(url))
+      .find((url) => url.includes('/api/ai-insights'))
+    expect(calledUrl).toMatch(/start=.+&end=.+/)
+    expect(screen.getByTestId('insight-forecast')).toHaveTextContent('₱2,100 next 7 days')
+  })
+
+  it('should show the insights error with retry when the endpoint fails', async () => {
+    const user = userEvent.setup()
+    stubInsightsFetch(() => Promise.reject(new Error('Failed to load insights.')))
+    render(
+      <AnalyticsProvider>
+        <DashboardContent activeTab="Sales" user={{ role: 'admin' }} />
+      </AnalyticsProvider>
+    )
+
+    await waitFor(() => {
+      expect(screen.getByTestId('insights-error')).toBeInTheDocument()
+    })
+    stubInsightsFetch(() => Promise.resolve({
+      ok: true,
+      json: () => Promise.resolve({ data: INSIGHTS_ENVELOPE }),
+    }))
+    await user.click(screen.getByTestId('insights-retry'))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('insight-forecast')).toBeInTheDocument()
+    })
   })
 })

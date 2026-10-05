@@ -12,7 +12,7 @@ vi.mock('../lib/supabase', () => ({
 // resolves the canned { data, error } via an optional gate promise.
 function chainable(resolveRows, onStart) {
   const builder = {}
-  for (const m of ['select', 'gte', 'lte', 'order', 'range', 'in', 'eq', 'limit', 'abortSignal']) {
+  for (const m of ['select', 'gte', 'lte', 'order', 'range', 'in', 'eq', 'limit', 'abortSignal', 'update', 'insert', 'delete', 'single']) {
     builder[m] = vi.fn(() => builder)
   }
   builder.then = (resolve, reject) => {
@@ -107,6 +107,100 @@ describe('stockCache', () => {
     saveStockCache([{ id: 'i1' }])
     clearStockCache()
     expect(loadStockCache()).toBe(null)
+  })
+})
+
+describe('replayInventoryUpdate', () => {
+  const op = (overrides = {}) => ({
+    method: 'inventory-update',
+    table: 'inventory',
+    matchField: 'id',
+    matchValue: 'i1',
+    body: { name: 'Milk', stock_quantity: 10 },
+    base: { stock_quantity: 8 },
+    reason: 'offline-edit',
+    notes: null,
+    ...overrides,
+  })
+
+  // Fresh chainable per from() call; update/insert payloads captured into
+  // `seen` while selects resolve the canned live row.
+  const stubSupabase = (seen, liveRow) => {
+    supabase.from.mockImplementation((table) => {
+      const builder = chainable(() => Promise.resolve({
+        data: table === 'inventory' ? [liveRow] : [],
+        error: null,
+      }))
+      const awaited = (resolve, reject) => {
+        if (builder.update.mock.calls.length > 0) {
+          seen.updates.push(builder.update.mock.calls[0][0])
+          return Promise.resolve({ data: [], error: null }).then(resolve, reject)
+        }
+        if (builder.insert.mock.calls.length > 0) {
+          seen.inserts.push({ table, body: builder.insert.mock.calls[0][0] })
+          return Promise.resolve({ data: [], error: null }).then(resolve, reject)
+        }
+        return Promise.resolve({
+          data: table === 'inventory' ? [liveRow] : [],
+          error: null,
+        }).then(resolve, reject)
+      }
+      builder.then = awaited
+      return builder
+    })
+  }
+
+  it('should apply direct fields and replay quantity as a delta with an adjustment', async () => {
+    const { replayInventoryUpdate } = await import('../services/offlineQueue')
+    const seen = { updates: [], inserts: [] }
+    stubSupabase(seen, { id: 'i1', name: 'Milk', stock_quantity: 10 })
+
+    await replayInventoryUpdate(op())
+
+    expect(seen.updates).toContainEqual({ name: 'Milk' })
+    // Live 10 + (queued 10 − base 8) = 12, clamped at 0, with ledger row.
+    expect(seen.updates).toContainEqual({ stock_quantity: 12 })
+    const adj = seen.inserts.find((i) => i.table === 'inventory_adjustments')
+    expect(adj.body).toMatchObject({
+      inventory_id: 'i1',
+      previous_quantity: 10,
+      new_quantity: 12,
+      change_amount: 2,
+      reason: 'offline-edit',
+    })
+  })
+
+  it('should skip the adjustment when one was already queued (wastage)', async () => {
+    const { replayInventoryUpdate } = await import('../services/offlineQueue')
+    const seen = { updates: [], inserts: [] }
+    stubSupabase(seen, { id: 'i1', name: 'Milk', stock_quantity: 10 })
+
+    await replayInventoryUpdate(op({ skipAdjustment: true }))
+
+    expect(seen.updates).toContainEqual({ stock_quantity: 12 })
+    expect(seen.inserts.filter((i) => i.table === 'inventory_adjustments')).toHaveLength(0)
+  })
+
+  it('should clamp floored quantities at zero', async () => {
+    const { replayInventoryUpdate } = await import('../services/offlineQueue')
+    const seen = { updates: [], inserts: [] }
+    stubSupabase(seen, { id: 'i1', name: 'Milk', stock_quantity: 1 })
+
+    await replayInventoryUpdate(op({ body: { stock_quantity: 3 }, base: { stock_quantity: 8 } }))
+
+    // Live 1 + (3 − 8) floored at 0.
+    expect(seen.updates).toContainEqual({ stock_quantity: 0 })
+  })
+
+  it('should drop the op when the row was deleted meanwhile', async () => {
+    const { replayInventoryUpdate } = await import('../services/offlineQueue')
+    const seen = { updates: [], inserts: [] }
+    stubSupabase(seen, undefined)
+
+    await replayInventoryUpdate(op())
+
+    expect(seen.updates).toHaveLength(0)
+    expect(seen.inserts).toHaveLength(0)
   })
 })
 

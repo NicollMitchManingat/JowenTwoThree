@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { Bell, BellOff, Loader2, Package, AlertTriangle, X } from 'lucide-react'
 import { db } from '../../services/db'
+import { loadStockCache } from '../../services/stockCache'
 
 // Exit duration (ms) for the stock-alerts modal — kept in sync with the
 // `stockAlertsOut` keyframes in App.css so unmount lands as the fade ends.
@@ -57,8 +58,18 @@ export default function LowStockBell({ size = 'default' }) {
         db.getLowStockItems(5),
         db.getOutOfStockItems(),
       ])
-      setLowStockItems(lowRes.status === 'fulfilled' ? (lowRes.value || []) : [])
-      setOutOfStockItems(outRes.status === 'fulfilled' ? (outRes.value || []) : [])
+      // While the database is unreachable, derive alert counts from the
+      // last-good stock snapshot so the bell doesn't read empty offline.
+      const snap = (lowRes.status === 'rejected' || outRes.status === 'rejected')
+        ? loadStockCache()
+        : null
+      const snapItems = snap ? snap.items : []
+      setLowStockItems(lowRes.status === 'fulfilled'
+        ? (lowRes.value || [])
+        : snapItems.filter((i) => Number(i.stock_quantity) > 0 && Number(i.stock_quantity) <= 5))
+      setOutOfStockItems(outRes.status === 'fulfilled'
+        ? (outRes.value || [])
+        : snapItems.filter((i) => Number(i.stock_quantity) <= 0))
       if (lowRes.status === 'rejected') console.error('Failed to load low stock alerts:', lowRes.reason)
       if (outRes.status === 'rejected') console.error('Failed to load low stock alerts:', outRes.reason)
     } catch (err) {

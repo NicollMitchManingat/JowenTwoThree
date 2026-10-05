@@ -128,6 +128,9 @@ export async function processQueue() {
         case 'sale':
           await replayQueuedSale(op.body);
           break;
+        case 'inventory-update':
+          await replayInventoryUpdate(op);
+          break;
         default:
           throw new Error(`Unknown queued operation: ${op.method}`);
       }
@@ -199,6 +202,61 @@ async function replayQueuedSale(sale) {
       else throw err;
     }
     await db.applyDeductions(required, txnNumber, { allowShortage: true });
+  }
+}
+
+// Replays one UI-initiated inventory edit queued while the database was
+// unreachable (see queueInventoryUpdate in services/db.js).
+// name/category/unit apply direct (last-write-wins — no arithmetic to
+// conflict). stock_quantity applies as a DELTA (queued value minus the
+// on-screen value at queue time) clamped at 0, with an adjustments row so
+// the ledger stays truthful. A row deleted in the meantime drops the op
+// with a warning instead of resurrecting it.
+// Exported for unit tests (driven through processQueue in production).
+export async function replayInventoryUpdate(op) {
+  const { body = {}, base = {}, reason, notes, skipAdjustment } = op
+  const live = await supabase
+    .from(op.table || 'inventory')
+    .select('*')
+    .eq(op.matchField || 'id', op.matchValue)
+    .limit(1)
+  if (live.error) throw live.error
+  const row = (live.data || [])[0]
+  if (!row) {
+    console.warn('Queued inventory update dropped (row gone):', op.matchValue)
+    return
+  }
+  const { stock_quantity: _ignored, ...direct } = body
+  if (Object.keys(direct).length > 0) {
+    const upd = await supabase
+      .from(op.table || 'inventory')
+      .update(direct)
+      .eq(op.matchField || 'id', op.matchValue)
+    if (upd.error) throw upd.error
+  }
+  if (typeof body.stock_quantity !== 'undefined') {
+    const baseQty = Number(base?.stock_quantity)
+    const targetQty = Number(body.stock_quantity)
+    if (Number.isFinite(baseQty) && Number.isFinite(targetQty)) {
+      const liveQty = Number(row.stock_quantity)
+      const nextQty = Math.max(0, (Number.isFinite(liveQty) ? liveQty : 0) + (targetQty - baseQty))
+      const qtyUpd = await supabase
+        .from(op.table || 'inventory')
+        .update({ stock_quantity: nextQty })
+        .eq(op.matchField || 'id', op.matchValue)
+      if (qtyUpd.error) throw qtyUpd.error
+      if (!skipAdjustment) {
+        const adj = await supabase.from('inventory_adjustments').insert({
+          inventory_id: op.matchValue,
+          previous_quantity: row.stock_quantity,
+          new_quantity: nextQty,
+          change_amount: nextQty - Number(row.stock_quantity),
+          reason: reason || 'offline-edit',
+          notes: notes || null,
+        })
+        if (adj.error) throw adj.error
+      }
+    }
   }
 }
 

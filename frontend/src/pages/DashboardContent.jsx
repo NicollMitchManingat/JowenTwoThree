@@ -57,7 +57,9 @@ function formatDateForInput(date) {
   return date.toISOString().split('T')[0];
 }
 
-const INSIGHTS_API_BASE = import.meta.env.VITE_API_URL || "http://localhost:3001";
+// Same-origin by default so the Vercel `/api` rewrite reaches the backend.
+// Set VITE_API_URL=http://localhost:3001 for local `vite dev` without a proxy.
+const INSIGHTS_API_BASE = import.meta.env.VITE_API_URL || "";
 
 // Group { 'YYYY-MM-DD': amount } daily sales into ISO-week buckets (Monday start).
 // Returns [{ key: 'YYYY-Www', label: 'Www MMM d', weekStart: Date, total }] sorted by week.

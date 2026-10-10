@@ -1,7 +1,9 @@
 import { useState } from 'react'
 import { Sparkles } from 'lucide-react'
 
-const EXPLAIN_API_BASE = import.meta.env.VITE_API_URL || "http://localhost:3001"
+// Same-origin by default so the Vercel `/api` rewrite reaches the backend.
+// Set VITE_API_URL=http://localhost:3001 for local `vite dev` without a proxy.
+const EXPLAIN_API_BASE = import.meta.env.VITE_API_URL || ""
 
 function impactClass(impact) {
   if (impact === 'High' || impact === 'Reorder') return 'badge-danger'

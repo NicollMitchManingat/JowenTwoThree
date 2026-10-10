@@ -1,6 +1,8 @@
 import { useState, useEffect } from "react"
 
-const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:3001"
+// Same-origin by default so the Vercel `/api` rewrite reaches the backend.
+// Set VITE_API_URL=http://localhost:3001 for local `vite dev` without a proxy.
+const API_BASE = import.meta.env.VITE_API_URL || ""
 
 const fallbackData = {
   rows: [

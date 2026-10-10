@@ -1,10 +1,9 @@
 import { USERS, verifyManagerPassword } from './managerApproval'
 
-// Backend base URL (Express auth endpoints). Falls back to localhost:3001 in dev.
-// Auth is the ONE feature that must go through the backend: password hashes
-// live in app_users (RLS-locked, no anon access) and only the service-role
-// key can read them for bcrypt comparison.
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001'
+// Backend base URL (Express auth endpoints). Same-origin by default so the
+// Vercel `/api` rewrite reaches the backend service in production.
+// Set VITE_API_URL=http://localhost:3001 for local `vite dev` without a proxy.
+const API_BASE = import.meta.env.VITE_API_URL || ''
 
 function isNetworkError(err) {
   return err instanceof TypeError || /failed to fetch|networkerror|load failed/i.test(err?.message || '')
@@ -71,7 +70,7 @@ function localLogin(username, password) {
 }
 
 export function backendUnavailableMessage() {
-  return 'Account service is unreachable (backend on :3001). Start the backend server and retry.'
+  return 'Account service is unreachable. Check your connection (local dev: start the backend on :3001) and retry.'
 }
 
 export const authAPI = {

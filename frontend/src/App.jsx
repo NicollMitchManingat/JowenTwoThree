@@ -117,14 +117,18 @@ function App() {
       <aside className={`sidebar ${isMobileOpen ? 'mobile-open' : ''} ${isDesktopCollapsed ? 'desktop-collapsed' : ''}`}>
         <div className="sidebar-header">
           <h1>
-            <div onClick={handleMenuToggle} style={{ cursor: 'pointer', display: 'flex' }} title="Toggle Menu">
-              {isDesktopCollapsed ? <Menu size={24} color="var(--color-accent)" /> : <Coffee size={24} color="var(--color-accent)" />}
-            </div>
-            <span className="logo-text">Jowen's Cafe</span>
+            <button className="sidebar-logo-badge" onClick={handleMenuToggle} title="Toggle Menu" aria-label="Toggle Menu">
+              {isDesktopCollapsed ? <Menu size={20} /> : <Coffee size={20} />}
+            </button>
+            <span className="sidebar-brand-text">
+              <span className="logo-text">Jowen's Cafe</span>
+              <span className="sidebar-brand-sub">POS SYSTEM</span>
+            </span>
           </h1>
           <button className="mobile-close-btn" onClick={() => setIsMobileOpen(false)}><X size={20} /></button>
         </div>
         <nav className="sidebar-nav">
+          <p className="nav-section-label">MENU</p>
           {visibleMenuItems.map((item) => {
             const IconComponent = item.icon;
             return (
@@ -134,6 +138,13 @@ function App() {
             );
           })}
         </nav>
+        <div className="sidebar-footer">
+          <div className="avatar">{currentUser.username?.charAt(0)}</div>
+          <div className="sidebar-footer-meta">
+            <span className="sidebar-footer-name">{currentUser.username}</span>
+            <span className="sidebar-footer-role">{currentUser.role}</span>
+          </div>
+        </div>
       </aside>
 
       <main className="main-content">

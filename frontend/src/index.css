@@ -43,6 +43,9 @@
   --radius-lg: 16px;
   --sidebar-gradient: linear-gradient(160deg, #5d4f42 0%, #4a3f35 55%, #33291f 100%);
   --accent-gradient: linear-gradient(135deg, #d4a373, #e9c496);
+  --color-accent-bg: rgba(212, 163, 115, 0.15);
+  --color-secondary-hover: #6f6257;
+  --bg-disabled: var(--color-bg-hover);
   --focus-ring: 0 0 0 3px rgba(212, 163, 115, 0.25);
   --shadow-sm: 0 2px 5px rgba(0,0,0,0.05);
   --shadow-md: 0 4px 12px rgba(0,0,0,0.08);

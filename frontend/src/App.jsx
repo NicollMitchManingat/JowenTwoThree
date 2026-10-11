@@ -72,7 +72,7 @@ function App() {
     { id: 'inventory', label: 'Inventory', icon: Package, allowedRoles: ['admin', 'stockist'] },
     { id: 'orders', label: 'Transactions', icon: ClipboardList, allowedRoles: ['admin', 'cashier', 'stockist'] },
     { id: 'reports', label: 'Analytics', icon: Sparkles, allowedRoles: ['admin'] },
-    { id: 'settings', label: 'Settings', icon: Settings, allowedRoles: ['admin', 'cashier', 'stockist'] },
+    { id: 'settings', label: currentUser.role === 'admin' ? 'Management' : 'Settings', icon: Settings, allowedRoles: ['admin', 'cashier', 'stockist'] },
   ];
 
   const visibleMenuItems = menuItems.filter(item => item.allowedRoles.includes(currentUser.role));

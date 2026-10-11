@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
@@ -25,6 +25,10 @@ vi.mock('../services/db', () => ({
 }))
 
 describe('Inventory Dashboard', () => {
+  beforeEach(() => {
+    localStorage.clear()
+  })
+
   it('renders sidebar with navigation links after login', async () => {
     const user = userEvent.setup()
     render(<App />)
@@ -36,7 +40,23 @@ describe('Inventory Dashboard', () => {
     await waitFor(() => {
       expect(screen.getAllByText('POS & Traffic').length).toBeGreaterThanOrEqual(1)
       expect(screen.getByText('Inventory')).toBeInTheDocument()
+      // Admins see the management label for the accounts/recipes/vouchers page.
+      expect(screen.getByText('Management')).toBeInTheDocument()
+      expect(screen.queryByText('Settings')).not.toBeInTheDocument()
+    })
+  })
+
+  it('renders the staff Settings label for non-admin roles', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+
+    await user.type(screen.getByTestId('username-input'), 'cashier')
+    await user.type(screen.getByTestId('password-input'), 'cashier123')
+    await user.click(screen.getByTestId('login-button'))
+
+    await waitFor(() => {
       expect(screen.getByText('Settings')).toBeInTheDocument()
+      expect(screen.queryByText('Management')).not.toBeInTheDocument()
     })
   })
 

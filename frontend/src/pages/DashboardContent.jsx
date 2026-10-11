@@ -1,7 +1,8 @@
 import { useContext, useEffect, useState, useMemo } from "react";
 import { AnalyticsContext } from "./AnalyticsContext";
-import { TrendingUp, AlertTriangle, Package, BarChart3, ShoppingBag, Calendar, ChevronDown, Plus, X, AlertCircle, CheckCircle, Percent, Undo2 } from 'lucide-react';
+import { TrendingUp, AlertTriangle, Package, BarChart3, ShoppingBag, Calendar, ChevronDown, Plus, X, AlertCircle, CheckCircle, Percent, Undo2, Clock, Receipt } from 'lucide-react';
 import { db } from '../services/db';
+import { formatElapsed, loadSessionSummary, HISTORY_PAGE_SIZE } from '../services/sessionAnalytics';
 import { productAPI } from '../services/productAPI';
 import { netRevenue, paymentMix, voucherStats, refundSummary, customerTotals, bucketHourlySales, aggregateWeekdayPattern } from '../services/salesAnalytics';
 
@@ -115,6 +116,71 @@ export default function DashboardContent({ activeTab, user }) {
   const [rangeTxns, setRangeTxns] = useState(null);
   const [rangeRefunds, setRangeRefunds] = useState([]);
   const [discountList, setDiscountList] = useState([]);
+  // Session scope: picking a past session drives the Period pipeline via a
+  // Custom range over the session's calendar days (charts follow untouched).
+  const [sessions, setSessions] = useState([]);
+  const [sessionScopeId, setSessionScopeId] = useState(null);
+  const [historyPage, setHistoryPage] = useState(0);
+  const [historyDetail, setHistoryDetail] = useState(null);
+  const [historyDetailLoading, setHistoryDetailLoading] = useState(false);
+
+  const toLocalDay = (iso) => new Date(iso).toLocaleDateString('en-CA');
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadSessions() {
+      try {
+        if (typeof db.getSessions !== 'function') return;
+        const rows = await db.getSessions(HISTORY_PAGE_SIZE * 10);
+        if (!cancelled) setSessions((rows || []).filter((s) => s.ended_at));
+      } catch {
+        if (!cancelled) setSessions([]);
+      }
+    }
+    loadSessions();
+    return () => { cancelled = true; };
+  }, []);
+
+  const applySessionScope = (id) => {
+    if (!id) {
+      setSessionScopeId(null);
+      setDateFilter('Today');
+      setCustomStartDate('');
+      setCustomEndDate('');
+      return;
+    }
+    const s = sessions.find((x) => String(x.id) === String(id));
+    if (!s) return;
+    setSessionScopeId(s.id);
+    setCustomStartDate(toLocalDay(s.started_at));
+    setCustomEndDate(toLocalDay(s.ended_at || new Date().toISOString()));
+    setDateFilter('Custom');
+  };
+
+  const clearSessionScope = () => applySessionScope(null);
+
+  const handleViewSession = async (session) => {
+    if (historyDetail?.session?.id === session.id) {
+      setHistoryDetail(null);
+      return;
+    }
+    setHistoryDetailLoading(true);
+    try {
+      setHistoryDetail({ session, summary: await loadSessionSummary(session) });
+    } catch (err) {
+      console.error('Failed to load session details:', err);
+    } finally {
+      setHistoryDetailLoading(false);
+    }
+  };
+
+  const scopedSession = sessions.find((x) => String(x.id) === String(sessionScopeId)) ?? null;
+  const totalHistoryPages = Math.max(1, Math.ceil(sessions.length / HISTORY_PAGE_SIZE));
+  const safeHistoryPage = Math.min(historyPage, totalHistoryPages - 1);
+  const historySlice = sessions.slice(
+    safeHistoryPage * HISTORY_PAGE_SIZE,
+    safeHistoryPage * HISTORY_PAGE_SIZE + HISTORY_PAGE_SIZE
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -458,7 +524,7 @@ export default function DashboardContent({ activeTab, user }) {
           <label className="analytics-filter-field">Period
           <select
             value={dateFilter}
-            onChange={(e) => { setDateFilter(e.target.value); setCustomStartDate(""); setCustomEndDate(""); }}
+            onChange={(e) => { setSessionScopeId(null); setDateFilter(e.target.value); setCustomStartDate(""); setCustomEndDate(""); }}
             className="form-input analytics-range-select"
             aria-label="Date range"
           >
@@ -469,12 +535,28 @@ export default function DashboardContent({ activeTab, user }) {
             <option value="Custom">Custom Range</option>
           </select>
           </label>
+          <label className="analytics-filter-field">Session
+          <select
+            value={sessionScopeId ?? ''}
+            onChange={(e) => applySessionScope(e.target.value || null)}
+            className="form-input analytics-range-select"
+            aria-label="Scope charts to a past session"
+            data-testid="analytics-session-select"
+          >
+            <option value="">Use period</option>
+            {sessions.map((s) => (
+              <option key={s.id} value={s.id}>
+                {new Date(s.started_at).toLocaleString()} · {formatElapsed(new Date(s.ended_at) - new Date(s.started_at))}{s.started_by ? ` · ${s.started_by}` : ''}
+              </option>
+            ))}
+          </select>
+          </label>
           {dateFilter === "Custom" && (
             <DateRangeFilter
               startDate={customStartDate}
               endDate={customEndDate}
-              setStartDate={setCustomStartDate}
-              setEndDate={setCustomEndDate}
+              setStartDate={(v) => { setSessionScopeId(null); setCustomStartDate(v); }}
+              setEndDate={(v) => { setSessionScopeId(null); setCustomEndDate(v); }}
             />
           )}
         </div>
@@ -495,6 +577,102 @@ export default function DashboardContent({ activeTab, user }) {
         <SummaryCard title="Discounts Given" value={net.discounts} isCurrency={true} icon={<Percent />} color="#9333ea" />
         <SummaryCard title="Refunded" value={net.refunds} isCurrency={true} icon={<Undo2 />} color="#dc2626" />
       </div>
+
+      {scopedSession && (
+        <p className="m-0 text-sm text-muted flex items-center gap-2" data-testid="session-scope-chip">
+          <Clock size={14} />
+          <span>
+            Viewing session of {new Date(scopedSession.started_at).toLocaleString()}
+            {' '}({formatElapsed(new Date(scopedSession.ended_at) - new Date(scopedSession.started_at))})
+          </span>
+          <button className="btn btn-secondary" style={{ minHeight: '30px', padding: '0.25rem 0.7rem', fontSize: '0.78rem' }} onClick={clearSessionScope}>Clear</button>
+        </p>
+      )}
+
+      <div className="card" style={{ gridColumn: '1 / -1' }}>
+        <div className="card-header">
+          <h3 className="m-0 flex items-center gap-2">
+            <Clock size={20} className="text-primary" /> Sessions
+          </h3>
+        </div>
+        <div className="card table-card table-responsive" style={{ border: 'none' }}>
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Date</th><th>Duration</th><th>By</th><th><span style={{ position: 'absolute', width: '1px', height: '1px', overflow: 'hidden', clip: 'rect(0 0 0 0)' }}>Details</span></th>
+              </tr>
+            </thead>
+            <tbody>
+              {historySlice.length > 0 ? historySlice.map((s) => (
+                <tr key={s.id} data-testid={`session-row-${s.id}`}>
+                  <td className="text-muted">{new Date(s.started_at).toLocaleString()}</td>
+                  <td className="font-semibold">{formatElapsed(new Date(s.ended_at) - new Date(s.started_at))}</td>
+                  <td style={{ textTransform: 'capitalize' }}>{s.started_by || '—'}</td>
+                  <td>
+                    <button
+                      className="btn btn-secondary"
+                      style={{ minHeight: '34px', padding: '0.4rem 0.8rem', fontSize: '0.82rem' }}
+                      disabled={historyDetailLoading}
+                      onClick={() => handleViewSession(s)}
+                      data-testid={`session-view-${s.id}`}
+                    >
+                      {historyDetail?.session?.id === s.id ? 'Hide' : 'View'}
+                    </button>
+                  </td>
+                </tr>
+              )) : (
+                <tr><td colSpan="4" className="text-center py-4 text-muted">No past sessions yet.</td></tr>
+              )}
+            </tbody>
+          </table>
+          {sessions.length > 0 && (
+            <div className="table-pager">
+              <span aria-live="polite" data-testid="session-pager-count">
+                Showing {safeHistoryPage * HISTORY_PAGE_SIZE + 1}–{Math.min(safeHistoryPage * HISTORY_PAGE_SIZE + HISTORY_PAGE_SIZE, sessions.length)} of {sessions.length}
+              </span>
+              <div className="action-buttons">
+                <button className="btn btn-secondary" disabled={safeHistoryPage === 0} onClick={() => setHistoryPage(safeHistoryPage - 1)} aria-label="Previous page">Prev</button>
+                <button className="btn btn-secondary" disabled={safeHistoryPage >= totalHistoryPages - 1} onClick={() => setHistoryPage(safeHistoryPage + 1)} aria-label="Next page">Next</button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {historyDetail && (
+        <div className="card" style={{ gridColumn: '1 / -1', border: '2px solid var(--color-accent)' }}>
+          <div className="card-header">
+            <h3 className="m-0 flex items-center gap-2">
+              <Receipt size={20} className="text-primary" /> Session Details
+            </h3>
+          </div>
+          <div className="card-body" data-testid="session-handover">
+            <p className="m-0 text-muted text-sm">
+              {new Date(historyDetail.session.started_at).toLocaleString()} → {new Date(historyDetail.session.ended_at).toLocaleString()}
+              {' '}({formatElapsed(new Date(historyDetail.session.ended_at) - new Date(historyDetail.session.started_at))})
+              {historyDetail.session.started_by ? ` · ran by ${historyDetail.session.started_by}` : ''}
+            </p>
+            <p className="m-0 font-semibold text-lg" data-testid="handover-net-cash">
+              Expected cash: ₱{historyDetail.summary.net.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </p>
+            <div className="flex items-center gap-4 flex-wrap text-sm text-muted">
+              <span data-testid="handover-orders">{historyDetail.summary.orders} orders</span>
+              <span>₱{historyDetail.summary.gross.toLocaleString()} gross</span>
+              <span>₱{historyDetail.summary.discounts.toLocaleString()} discounts</span>
+              <span data-testid="handover-refunds">
+                {historyDetail.summary.refundCount} refunds (−₱{historyDetail.summary.refunded.toLocaleString()})
+              </span>
+              <span>
+                {historyDetail.summary.customers.total} customers
+                (M{historyDetail.summary.customers.male}/F{historyDetail.summary.customers.female}/U{historyDetail.summary.customers.unspecified})
+              </span>
+              <span>₱{historyDetail.summary.avgOrder.toFixed(2)}/order</span>
+              <span>{historyDetail.summary.salesPerHour.toFixed(1)} sales/hr</span>
+            </div>
+            <button className="btn btn-secondary" onClick={() => setHistoryDetail(null)}>Dismiss</button>
+          </div>
+        </div>
+      )}
 
       <div className="charts-grid">
         <div className="card">

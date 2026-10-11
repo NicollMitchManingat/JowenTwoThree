@@ -48,19 +48,19 @@ describe('db sessions', () => {
     // Straggler-close update.
     supabase.from.mockReturnValueOnce(tableStub(() => ({ data: [], error: null })))
     // Insert returning the new row.
-    const opened = { id: 's9', started_at: new Date().toISOString(), ended_at: null, started_by: 'admin' }
+    const opened = { id: 's9', started_at: new Date().toISOString(), ended_at: null, started_by: 'cashier' }
     supabase.from.mockReturnValueOnce(tableStub(() => ({ data: [opened], error: null }), (body) => { captured = body }))
     // offlineWrite does insert().select() — the stub select resolves the row.
-    const result = await db.startSession({ by: 'admin' })
+    const result = await db.startSession({ by: 'cashier', approvedBy: 'admin' })
 
     expect(supabase.from).toHaveBeenCalledWith('sessions')
-    expect(captured).toMatchObject({ started_by: 'admin', ended_at: null })
+    expect(captured).toMatchObject({ started_by: 'cashier', approved_by: 'admin', ended_at: null })
     expect(result).toMatchObject({ id: 's9' })
   })
 
   it('should stamp ended_at and ended_by on close', async () => {
     let captured = null
-    const closed = { id: 's1', ended_at: new Date().toISOString(), ended_by: 'admin' }
+    const closed = { id: 's1', ended_at: new Date().toISOString(), ended_by: 'cashier' }
     const builder = tableStub(() => ({ data: closed, error: null }))
     builder.update = vi.fn((body) => {
       captured = body
@@ -68,8 +68,8 @@ describe('db sessions', () => {
     })
     supabase.from.mockReturnValueOnce(builder)
 
-    await db.endSession('s1', { by: 'admin' })
-    expect(captured).toMatchObject({ ended_by: 'admin' })
+    await db.endSession('s1', { by: 'cashier', approvedBy: 'admin' })
+    expect(captured).toMatchObject({ ended_by: 'cashier', approved_by: 'admin' })
     expect(captured.ended_at).toEqual(expect.any(String))
   })
 
@@ -89,5 +89,42 @@ describe('db sessions', () => {
 
     supabase.from.mockReturnValueOnce(tableStub(() => Promise.reject(missing)))
     await expect(db.getSessions()).resolves.toEqual([])
+  })
+
+  it('should open a session without approver when the column is missing', async () => {
+    const columnErr = { message: "Could not find the 'approved_by' column of 'sessions' in the schema cache", code: 'PGRST204' }
+    let captured = null
+    // Straggler-close update succeeds.
+    supabase.from.mockReturnValueOnce(tableStub(() => ({ data: [], error: null })))
+    // First insert fails on the unknown column…
+    supabase.from.mockReturnValueOnce(tableStub(() => Promise.reject(columnErr)))
+    // …retry without approved_by succeeds.
+    const opened = { id: 's9', started_at: new Date().toISOString(), ended_at: null, started_by: 'cashier' }
+    supabase.from.mockReturnValueOnce(tableStub(() => ({ data: [opened], error: null }), (body) => { captured = body }))
+
+    const result = await db.startSession({ by: 'cashier', approvedBy: 'admin' })
+    expect(captured).not.toHaveProperty('approved_by')
+    expect(captured).toMatchObject({ started_by: 'cashier', ended_at: null })
+    expect(result).toMatchObject({ id: 's9' })
+  })
+
+  it('should close a session without approver when the column is missing', async () => {
+    const columnErr = { message: "Could not find the 'approved_by' column of 'sessions' in the schema cache", code: 'PGRST204' }
+    let captured = null
+    const retrying = tableStub(() => ({ data: { id: 's1', ended_at: new Date().toISOString() }, error: null }))
+    retrying.update = vi.fn((body) => {
+      captured = body
+      return retrying
+    })
+    // First update attempt rejects on the unknown column…
+    const first = tableStub(() => Promise.reject(columnErr))
+    first.update = vi.fn(() => first)
+    supabase.from.mockReturnValueOnce(first)
+    supabase.from.mockReturnValueOnce(retrying)
+
+    await db.endSession('s1', { by: 'cashier', approvedBy: 'admin' })
+    expect(captured).not.toHaveProperty('approved_by')
+    expect(captured).toMatchObject({ ended_by: 'cashier' })
+    expect(captured.ended_at).toEqual(expect.any(String))
   })
 })

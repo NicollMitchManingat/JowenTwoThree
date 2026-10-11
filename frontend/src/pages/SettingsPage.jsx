@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
-import { UserCog, RefreshCcw, Tag, Users, CookingPot, Clock, Receipt } from 'lucide-react';
+import { UserCog, RefreshCcw, Tag, Users, CookingPot, Clock, Receipt, Lock, X } from 'lucide-react';
 import { db } from '../services/db';
+import { authAPI } from '../services/authAPI';
 import { formatElapsed, loadSessionSummary } from '../services/sessionAnalytics';
 import DiscountManager from '../components/settings/DiscountManager';
 import AccountManager from '../components/settings/AccountManager';
@@ -9,6 +10,8 @@ import RecipeManager from '../components/settings/RecipeManager';
 const STALE_SESSION_MS = 24 * 3600 * 1000;
 
 export default function SettingsPage({ currentUser, onLogout }) {
+  const isAdmin = currentUser.role === 'admin';
+  const canUseSessions = isAdmin || currentUser.role === 'cashier';
   const [activeSession, setActiveSession] = useState(null);
   const [sessionLoading, setSessionLoading] = useState(true);
   const [sessionWorking, setSessionWorking] = useState(false);
@@ -16,6 +19,12 @@ export default function SettingsPage({ currentUser, onLogout }) {
   const [now, setNow] = useState(() => Date.now());
   const [handover, setHandover] = useState(null);
   const [handoverLoading, setHandoverLoading] = useState(false);
+  // Manager-approval gate for non-admins (mirrors the refund flow):
+  // 'start' | 'end' | null.
+  const [gateAction, setGateAction] = useState(null);
+  const [gatePassword, setGatePassword] = useState('');
+  const [gateError, setGateError] = useState('');
+  const [gateWorking, setGateWorking] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -45,11 +54,11 @@ export default function SettingsPage({ currentUser, onLogout }) {
     return () => clearInterval(t);
   }, [activeSession]);
 
-  const handleStart = async () => {
+  const handleStart = async (approvedBy) => {
     setSessionWorking(true);
     setSessionError('');
     try {
-      const opened = await db.startSession({ by: currentUser.username });
+      const opened = await db.startSession({ by: currentUser.username, approvedBy });
       setActiveSession(opened && opened.started_at ? opened : {
         id: opened?.id ?? null,
         started_at: new Date().toISOString(),
@@ -63,7 +72,7 @@ export default function SettingsPage({ currentUser, onLogout }) {
     }
   };
 
-  const handleEnd = async () => {
+  const handleEnd = async (approvedBy) => {
     if (!activeSession) return;
     setSessionWorking(true);
     setSessionError('');
@@ -72,7 +81,7 @@ export default function SettingsPage({ currentUser, onLogout }) {
       let closed = activeSession;
       try {
         if (activeSession.id) {
-          closed = await db.endSession(activeSession.id, { by: currentUser.username }) || activeSession;
+          closed = await db.endSession(activeSession.id, { by: currentUser.username, approvedBy }) || activeSession;
         }
       } catch (err) {
         console.error('Failed to close session remotely:', err);
@@ -87,6 +96,52 @@ export default function SettingsPage({ currentUser, onLogout }) {
     } finally {
       setHandoverLoading(false);
       setSessionWorking(false);
+    }
+  };
+
+  // Admins act directly; cashiers go through the manager-password gate.
+  // The cashier session never changes — approval is only recorded.
+  const requestStart = () => {
+    if (isAdmin) void handleStart(currentUser.username);
+    else openGate('start');
+  };
+
+  const requestEnd = () => {
+    if (isAdmin) void handleEnd(currentUser.username);
+    else openGate('end');
+  };
+
+  const openGate = (action) => {
+    setGateAction(action);
+    setGatePassword('');
+    setGateError('');
+  };
+
+  const closeGate = () => {
+    if (gateWorking) return;
+    setGateAction(null);
+    setGatePassword('');
+    setGateError('');
+  };
+
+  const handleGateConfirm = async () => {
+    setGateError('');
+    let approvedBy;
+    try {
+      const check = await authAPI.verifyManager(gatePassword);
+      approvedBy = check.username;
+    } catch (err) {
+      setGateError(err?.message || 'Manager approval failed');
+      return;
+    }
+    setGateWorking(true);
+    try {
+      if (gateAction === 'start') await handleStart(approvedBy);
+      else await handleEnd(approvedBy);
+      setGateAction(null);
+      setGatePassword('');
+    } finally {
+      setGateWorking(false);
     }
   };
 
@@ -120,7 +175,7 @@ export default function SettingsPage({ currentUser, onLogout }) {
           </div>
         </div>
 
-        {currentUser.role === 'admin' && (
+        {canUseSessions && (
           <div className="card card-stretch" style={{ border: '2px solid var(--color-accent)' }}>
             <div className="card-header">
               <h3 className="m-0 flex items-center gap-2 text-primary">Session Management</h3>
@@ -155,11 +210,16 @@ export default function SettingsPage({ currentUser, onLogout }) {
                   {sessionError && (
                     <p className="m-0 text-sm text-danger" data-testid="session-error">{sessionError}</p>
                   )}
+                  {!isAdmin && (
+                    <p className="m-0 text-sm text-muted" data-testid="session-gate-hint">
+                      Starting or ending a session needs the manager password.
+                    </p>
+                  )}
                   {activeSession ? (
                     <button
                       className="btn btn-danger btn-full"
                       disabled={sessionWorking || handoverLoading}
-                      onClick={handleEnd}
+                      onClick={requestEnd}
                       data-testid="session-end-btn"
                     >
                       {handoverLoading ? 'Closing out…' : 'End Session'}
@@ -168,7 +228,7 @@ export default function SettingsPage({ currentUser, onLogout }) {
                     <button
                       className="btn btn-success btn-full"
                       disabled={sessionWorking || !!sessionError}
-                      onClick={handleStart}
+                      onClick={requestStart}
                       data-testid="session-start-btn"
                     >
                       {sessionWorking ? 'Starting…' : 'Start Session'}
@@ -180,7 +240,7 @@ export default function SettingsPage({ currentUser, onLogout }) {
           </div>
         )}
 
-        {currentUser.role === 'admin' && handover && (
+        {canUseSessions && handover && (
           <div className="card" style={{ gridColumn: '1 / -1', border: '2px solid var(--color-accent)' }}>
             <div className="card-header">
               <h3 className="m-0 flex items-center gap-2">
@@ -211,6 +271,54 @@ export default function SettingsPage({ currentUser, onLogout }) {
                 <span>{handover.summary.salesPerHour.toFixed(1)} sales/hr</span>
               </div>
               <button className="btn btn-secondary" onClick={() => setHandover(null)}>Dismiss</button>
+            </div>
+          </div>
+        )}
+
+        {gateAction && (
+          <div className="modal-overlay" onClick={closeGate}>
+            <div className="modal-content card" onClick={(e) => e.stopPropagation()}
+              role="dialog" aria-labelledby="session-gate-title" data-testid="session-gate-modal"
+              style={{ maxWidth: '400px', width: '100%' }}>
+              <div className="modal-header">
+                <h3 id="session-gate-title">Manager approval needed</h3>
+                <button className="btn-icon-small" onClick={closeGate} aria-label="Close approval"><X size={18} /></button>
+              </div>
+              <div className="modal-body">
+                <p className="text-sm text-muted mb-3">
+                  {gateAction === 'start' ? 'Starting' : 'Ending'} a session needs a manager.
+                  Enter the admin password — you stay signed in as {currentUser.username}.
+                </p>
+                <div className="form-group">
+                  <label htmlFor="session-gate-password">Admin password</label>
+                  <div className="input-with-icon">
+                    <Lock size={18} className="input-icon" />
+                    <input
+                      id="session-gate-password"
+                      type="password"
+                      className="form-input"
+                      value={gatePassword}
+                      onChange={(e) => setGatePassword(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter' && gatePassword && !gateWorking) handleGateConfirm(); }}
+                      placeholder="Enter admin password"
+                      autoFocus
+                      data-testid="session-gate-password"
+                    />
+                  </div>
+                </div>
+                {gateError && <p className="m-0 text-sm text-danger" data-testid="session-gate-error">{gateError}</p>}
+              </div>
+              <div className="modal-footer">
+                <button className="btn btn-secondary" onClick={closeGate} disabled={gateWorking}>Cancel</button>
+                <button
+                  className="btn btn-primary"
+                  disabled={!gatePassword || gateWorking}
+                  onClick={handleGateConfirm}
+                  data-testid="session-gate-confirm-btn"
+                >
+                  {gateWorking ? 'Verifying…' : `Approve & ${gateAction === 'start' ? 'start' : 'end'}`}
+                </button>
+              </div>
             </div>
           </div>
         )}

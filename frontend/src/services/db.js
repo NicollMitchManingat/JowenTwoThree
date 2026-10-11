@@ -139,7 +139,7 @@ function splitRowToGender(row, totalKey) {
 
 function isMissingColumnError(err) {
   const msg = `${err?.message || ''} ${err?.details || ''} ${err?.hint || ''}`
-  return /male_count|female_count|unspecified_count|discount_id|'status'|"status"|refunds|discounts/i.test(msg)
+  return /male_count|female_count|unspecified_count|discount_id|approved_by|'status'|"status"|refunds|discounts/i.test(msg)
 }
 
 // Migration not applied yet on this environment (table absent entirely).
@@ -827,7 +827,7 @@ export const db = {
     }
   },
 
-  async startSession({ by } = {}) {
+  async startSession({ by, approvedBy } = {}) {
     // One global session: defensively close any straggler left open.
     try {
       await offlineSafe(async () => {
@@ -840,25 +840,42 @@ export const db = {
     } catch (err) {
       if (!isMissingColumnError(err)) throw err
     }
-    return offlineWrite('sessions', {
+    const body = {
       started_at: new Date().toISOString(),
       ended_at: null,
       started_by: by || null,
-    })
+      approved_by: approvedBy || null,
+    };
+    try {
+      return await offlineWrite('sessions', body)
+    } catch (err) {
+      if (!isMissingColumnError(err)) throw err;
+      // Stale schema without approved_by: open anyway, approval unrecorded.
+      console.warn('sessions.approved_by column missing — opening session without recorded approver.');
+      const { approved_by: _dropped, ...legacyBody } = body;
+      return offlineWrite('sessions', legacyBody);
+    }
   },
 
-  async endSession(id, { by } = {}) {
+  async endSession(id, { by, approvedBy } = {}) {
     if (!id) throw new Error('Session id is required')
-    return offlineSafe(async () => {
+    const close = (extra) => offlineSafe(async () => {
       const { data, error } = await supabase
         .from('sessions')
-        .update({ ended_at: new Date().toISOString(), ended_by: by || null })
+        .update({ ended_at: new Date().toISOString(), ended_by: by || null, ...extra })
         .eq('id', id)
         .select()
         .single()
       if (error) throw error
       return data
-    })
+    });
+    try {
+      return await close({ approved_by: approvedBy || null })
+    } catch (err) {
+      if (!isMissingColumnError(err)) throw err;
+      console.warn('sessions.approved_by column missing — closing session without recorded approver.');
+      return close({})
+    }
   },
 
   async getSessions(limit = 100) {

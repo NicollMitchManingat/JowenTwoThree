@@ -1,10 +1,26 @@
-import { useState, useEffect, useMemo } from 'react';
-import { Search, Plus, Edit, Trash2, X, Sparkles, AlertCircle, ChevronRight } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Search, Plus, Edit, Trash2, X, AlertCircle } from 'lucide-react';
 import { db, isRetryableError, isQueuedRecord } from '../services/db';
 import LowStockBell from '../components/inventory/LowStockBell';
 import LoadingSkeleton from '../components/analytics/LoadingSkeleton';
 import { saveStockCache, loadStockCache } from '../services/stockCache';
 import { processQueue, offlineQueue } from '../services/offlineQueue';
+
+const PAGE_SIZE = 10;
+
+const STATUS_OPTIONS = [
+  { key: 'all', label: 'All' },
+  { key: 'good', label: 'Good' },
+  { key: 'low', label: 'Low Stock' },
+  { key: 'out', label: 'Out of Stock' },
+];
+
+const statusKeyOf = (stock) => {
+  const s = Number(stock);
+  if (s <= 0) return 'out';
+  if (s < 5) return 'low';
+  return 'good';
+};
 
 export default function InventoryPage({ userRole }) {
   // Stockists manage stock day-to-day (add/edit/wastage/delete).
@@ -13,6 +29,9 @@ export default function InventoryPage({ userRole }) {
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleting, setDeleting] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+  const [selectedId, setSelectedId] = useState(null);
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [page, setPage] = useState(0);
   const [showModal, setShowModal] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [editId, setEditId] = useState(null);
@@ -103,10 +122,44 @@ export default function InventoryPage({ userRole }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [staleSince]);
 
-  const filteredData = inventoryData.filter(item =>
+  const searchFiltered = inventoryData.filter(item =>
     (item.name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
     String(item.id || '').toLowerCase().includes(searchTerm.toLowerCase())
   );
+
+  // Pills count within the current search so "Low (3)" always matches
+  // what the user is looking at.
+  const statusCounts = { all: searchFiltered.length, good: 0, low: 0, out: 0 };
+  searchFiltered.forEach(item => { statusCounts[statusKeyOf(item.stock_quantity)] += 1; });
+
+  const filteredData = statusFilter === 'all'
+    ? searchFiltered
+    : searchFiltered.filter(item => statusKeyOf(item.stock_quantity) === statusFilter);
+
+  const totalPages = Math.max(1, Math.ceil(filteredData.length / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages - 1);
+  const pageStart = safePage * PAGE_SIZE;
+  const pagedData = filteredData.slice(pageStart, pageStart + PAGE_SIZE);
+
+  // Selection persists by id across pages and filters; the toolbar resolves
+  // it against live data so a deleted item simply disables the buttons.
+  const selectedItem = inventoryData.find(i => String(i.id) === String(selectedId)) ?? null;
+  const selectedLocked = !!selectedItem?._pendingSync;
+  const canActOnSelected = canManage && selectedItem && !selectedLocked;
+
+  const selectedTitle = (verb) => {
+    if (!selectedItem) return `Select a row to ${verb}`;
+    if (selectedLocked) return 'Will sync when the database is back';
+    return undefined;
+  };
+
+  // A new search or filter always restarts at page one.
+  useEffect(() => { setPage(0); }, [searchTerm, statusFilter]);
+
+  const clearFilters = () => {
+    setSearchTerm('');
+    setStatusFilter('all');
+  };
 
   const handleOpenAdd = () => {
     setFormData({ name: '', category: 'Ingredients', stock_quantity: '', unit: 'kg' });
@@ -184,6 +237,7 @@ export default function InventoryPage({ userRole }) {
     try {
       await db.deleteInventoryItem(deleteTarget.id)
       setDeleteTarget(null)
+      setSelectedId(null)
       await loadInventory()
     } catch (err) {
       if (isRetryableError(err)) {
@@ -192,6 +246,7 @@ export default function InventoryPage({ userRole }) {
           const id = deleteTarget.id
           applyOptimisticList(inventoryData.filter(i => String(i.id) !== String(id)))
           setDeleteTarget(null)
+          setSelectedId(null)
           alert('Delete queued — will sync when the database is back.')
         } catch (queueErr) {
           alert('Failed to delete: ' + (queueErr?.message || err.message))
@@ -415,33 +470,91 @@ export default function InventoryPage({ userRole }) {
           <input type="text" placeholder="Search inventory..." value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)} />
         </div>
-        <div className="action-buttons" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+        <div className="action-buttons" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
           {canManage && (
-            <button className="btn btn-primary" onClick={handleOpenAdd}>
-              <Plus size={18} /> Add Item
-            </button>
+            <>
+              <button className="btn btn-primary" onClick={handleOpenAdd}>
+                <Plus size={18} /> Add Item
+              </button>
+              <button className="btn btn-secondary" onClick={() => selectedItem && handleOpenEdit(selectedItem)} disabled={!canActOnSelected} title={selectedTitle('edit')} data-testid="toolbar-edit-btn">
+                <Edit size={16} /> Edit
+              </button>
+              <button className="btn btn-secondary" onClick={() => selectedItem && handleOpenWastage(selectedItem)} disabled={!canActOnSelected} title={selectedTitle('log wastage')} data-testid="toolbar-wastage-btn">
+                <AlertCircle size={16} /> Wastage
+              </button>
+              <button className="btn btn-danger" onClick={() => selectedItem && setDeleteTarget(selectedItem)} disabled={!canActOnSelected} title={selectedTitle('delete')} data-testid="toolbar-delete-btn">
+                <Trash2 size={16} /> Delete
+              </button>
+            </>
           )}
           <LowStockBell />
         </div>
+      </div>
+
+      {canManage && selectedItem && (
+        <p className="selected-chip" data-testid="selected-chip">
+          Selected: <strong>{selectedItem.name}</strong> ({selectedItem.stock_quantity} in stock)
+          {selectedLocked && ' — pending sync, actions locked'}
+        </p>
+      )}
+      {canManage && !selectedItem && inventoryData.length > 0 && (
+        <p className="selected-hint" data-testid="selection-hint">Select a row to edit, log wastage, or delete.</p>
+      )}
+
+      <div className="inventory-filter-row" role="radiogroup" aria-label="Filter by stock status">
+        {STATUS_OPTIONS.map(opt => (
+          <button
+            key={opt.key}
+            className={`btn-filter ${statusFilter === opt.key ? 'active' : ''}`}
+            aria-pressed={statusFilter === opt.key}
+            data-testid={`status-filter-${opt.key}`}
+            onClick={() => setStatusFilter(opt.key)}
+          >
+            {opt.label} ({statusCounts[opt.key]})
+          </button>
+        ))}
       </div>
 
       <div className="card table-card table-responsive">
         <table className="data-table">
           <thead>
             <tr>
+              {canManage && <th scope="col" aria-label="Select" style={{ width: '2.5rem' }} />}
               <th>Name</th><th>Category</th><th>Stock</th><th>Status</th>
-              {canManage && <th>Actions</th>}
             </tr>
           </thead>
           <tbody>
-            {filteredData.length > 0 ? filteredData.map(item => (
-              <tr key={item.id}>
+            {filteredData.length > 0 ? pagedData.map(item => {
+              const isSelected = String(selectedId) === String(item.id);
+              const status = getStatus(item.stock_quantity);
+              return (
+              <tr
+                key={item.id}
+                className={`${canManage ? 'row-selectable' : ''} ${isSelected ? 'row-selected' : ''}`}
+                aria-selected={canManage ? isSelected : undefined}
+                onClick={canManage ? () => setSelectedId(item.id) : undefined}
+                onKeyDown={canManage ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelectedId(item.id); } } : undefined}
+                tabIndex={canManage ? 0 : undefined}
+              >
+                {canManage && (
+                  <td onClick={(e) => e.stopPropagation()}>
+                    <input
+                      type="radio"
+                      name="inventory-selection"
+                      className="row-select-radio"
+                      checked={isSelected}
+                      onChange={() => setSelectedId(item.id)}
+                      aria-label={`Select ${item.name}`}
+                      data-testid={`select-item-${item.id}`}
+                    />
+                  </td>
+                )}
                 <td className="font-semibold">{item.name}</td>
                 <td>{item.category || '-'}</td>
                 <td>{item.stock_quantity}</td>
                 <td>
-                  <span className={`badge ${getStatus(item.stock_quantity) === 'Low Stock' ? 'badge-danger' : getStatus(item.stock_quantity) === 'Out of Stock' ? 'badge-danger' : 'badge-success'}`}>
-                    {getStatus(item.stock_quantity)}
+                  <span className={`badge ${status === 'Good' ? 'badge-success' : 'badge-danger'}`}>
+                    {status}
                   </span>
                   {item._pendingSync && (
                     <span className="badge badge-neutral" data-testid={`pending-sync-${item.id}`} title="Saved offline — edits unlock after it syncs" style={{ marginLeft: '0.35rem' }}>
@@ -449,21 +562,31 @@ export default function InventoryPage({ userRole }) {
                     </span>
                   )}
                 </td>
-                {canManage && (
-                  <td>
-                    <div className="action-buttons">
-                      <button className="btn-icon-small" onClick={() => handleOpenWastage(item)} title={item._pendingSync ? 'Will sync when the database is back' : 'Log Wastage'} disabled={!!item._pendingSync}><AlertCircle size={14} /></button>
-                      <button className="btn-icon-small" onClick={() => handleOpenEdit(item)} title={item._pendingSync ? 'Will sync when the database is back' : 'Edit item'} disabled={!!item._pendingSync}><Edit size={14} /></button>
-                      <button className="btn-icon-small danger" onClick={() => setDeleteTarget(item)} title={item._pendingSync ? 'Will sync when the database is back' : 'Delete item'} disabled={!!item._pendingSync} data-testid={`delete-item-${item.id}`}><Trash2 size={14} /></button>
-                    </div>
-                  </td>
-                )}
               </tr>
-            )) : (
-              <tr><td colSpan={canManage ? "5" : "4"} className="text-center py-4 text-muted">No items found.</td></tr>
+              );
+            }) : (
+              <tr><td colSpan={canManage ? '5' : '4'} className="text-center py-4 text-muted">
+                {inventoryData.length === 0
+                  ? 'No items found.'
+                  : <>{filteredData.length === 0 && (searchTerm || statusFilter !== 'all') && (
+                    <>No {statusFilter === 'all' ? '' : `${STATUS_OPTIONS.find(o => o.key === statusFilter)?.label} `}items{searchTerm ? <> matching &ldquo;{searchTerm}&rdquo;</> : null}.{' '}
+                    <button className="btn btn-secondary" onClick={clearFilters} data-testid="clear-filters-btn">Clear filters</button></>
+                  )}</>}
+              </td></tr>
             )}
           </tbody>
         </table>
+        {filteredData.length > 0 && (
+          <div className="inventory-pager">
+            <span aria-live="polite" data-testid="pager-count">
+              Showing {pageStart + 1}–{Math.min(pageStart + PAGE_SIZE, filteredData.length)} of {filteredData.length}
+            </span>
+            <div className="action-buttons">
+              <button className="btn btn-secondary" disabled={safePage === 0} onClick={() => setPage(safePage - 1)} data-testid="inv-prev" aria-label="Previous page">Prev</button>
+              <button className="btn btn-secondary" disabled={safePage >= totalPages - 1} onClick={() => setPage(safePage + 1)} data-testid="inv-next" aria-label="Next page">Next</button>
+            </div>
+          </div>
+        )}
       </div>
 
     </div>

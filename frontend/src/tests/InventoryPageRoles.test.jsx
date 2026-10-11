@@ -38,30 +38,40 @@ describe('InventoryPage roles', () => {
     isRetryableError.mockReturnValue(false)
   })
 
-  it('should give admins add, edit, wastage, and delete controls', async () => {
+  it('should give admins toolbar edit, wastage, and delete controls', async () => {
     render(<InventoryPage userRole="admin" />)
 
     await waitFor(() => {
       expect(screen.getByText('Milk')).toBeInTheDocument()
     })
     expect(screen.getByText('Add Item')).toBeInTheDocument()
-    expect(screen.getByText('Actions')).toBeInTheDocument()
-    expect(screen.getByTitle('Log Wastage')).toBeInTheDocument()
-    expect(screen.getByTitle('Edit item')).toBeInTheDocument()
-    expect(screen.getByTitle('Delete item')).toBeInTheDocument()
+    // No per-row action column anymore — actions live in the toolbar.
+    expect(screen.queryByText('Actions')).not.toBeInTheDocument()
+    // Toolbar buttons exist but stay disabled until a row is selected.
+    expect(screen.getByTestId('toolbar-edit-btn')).toBeDisabled()
+    expect(screen.getByTestId('toolbar-wastage-btn')).toBeDisabled()
+    expect(screen.getByTestId('toolbar-delete-btn')).toBeDisabled()
+    expect(screen.getByTestId('selection-hint')).toBeInTheDocument()
+    // Status filter pills with live counts.
+    expect(screen.getByTestId('status-filter-all')).toHaveTextContent('All (1)')
+    expect(screen.getByTestId('status-filter-good')).toHaveTextContent('Good (1)')
   })
 
-  it('should give stockists add, edit, wastage, and delete controls', async () => {
+  it('should give stockists toolbar edit, wastage, and delete controls', async () => {
+    const user = userEvent.setup()
     render(<InventoryPage userRole="stockist" />)
 
     await waitFor(() => {
       expect(screen.getByText('Milk')).toBeInTheDocument()
     })
     expect(screen.getByText('Add Item')).toBeInTheDocument()
-    expect(screen.getByText('Actions')).toBeInTheDocument()
-    expect(screen.getByTitle('Log Wastage')).toBeInTheDocument()
-    expect(screen.getByTitle('Edit item')).toBeInTheDocument()
-    expect(screen.getByTitle('Delete item')).toBeInTheDocument()
+    expect(screen.queryByText('Actions')).not.toBeInTheDocument()
+    // Selecting the row enables the toolbar.
+    await user.click(screen.getByTestId('select-item-i1'))
+    expect(screen.getByTestId('toolbar-edit-btn')).not.toBeDisabled()
+    expect(screen.getByTestId('toolbar-wastage-btn')).not.toBeDisabled()
+    expect(screen.getByTestId('toolbar-delete-btn')).not.toBeDisabled()
+    expect(screen.getByTestId('selected-chip')).toHaveTextContent('Milk')
   })
 
   it('should ask for confirmation before deleting, and cancel without deleting', async () => {
@@ -69,9 +79,10 @@ describe('InventoryPage roles', () => {
     render(<InventoryPage userRole="stockist" />)
 
     await waitFor(() => {
-      expect(screen.getByTitle('Delete item')).toBeInTheDocument()
+      expect(screen.getByText('Milk')).toBeInTheDocument()
     })
-    await user.click(screen.getByTestId('delete-item-i1'))
+    await user.click(screen.getByTestId('select-item-i1'))
+    await user.click(screen.getByTestId('toolbar-delete-btn'))
 
     expect(screen.getByTestId('delete-confirm-modal')).toHaveTextContent('Delete Milk?')
     await user.click(screen.getByTestId('delete-cancel-btn'))
@@ -85,9 +96,10 @@ describe('InventoryPage roles', () => {
     render(<InventoryPage userRole="admin" />)
 
     await waitFor(() => {
-      expect(screen.getByTitle('Delete item')).toBeInTheDocument()
+      expect(screen.getByText('Milk')).toBeInTheDocument()
     })
-    await user.click(screen.getByTestId('delete-item-i1'))
+    await user.click(screen.getByTestId('select-item-i1'))
+    await user.click(screen.getByTestId('toolbar-delete-btn'))
     await user.click(screen.getByTestId('delete-confirm-btn'))
 
     await waitFor(() => {
@@ -103,6 +115,10 @@ describe('InventoryPage roles', () => {
     })
     expect(screen.queryByText('Add Item')).not.toBeInTheDocument()
     expect(screen.queryByText('Actions')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('toolbar-edit-btn')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('toolbar-wastage-btn')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('toolbar-delete-btn')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('select-item-i1')).not.toBeInTheDocument()
   })
 
   it('should show the bell right of Add Item for managers', async () => {
@@ -195,7 +211,8 @@ describe('InventoryPage roles', () => {
     await waitFor(() => {
       expect(screen.getByText('Milk')).toBeInTheDocument()
     })
-    await user.click(screen.getByTitle('Edit item'))
+    await user.click(screen.getByTestId('select-item-i1'))
+    await user.click(screen.getByTestId('toolbar-edit-btn'))
     const qty = screen.getByPlaceholderText('0')
     await user.clear(qty)
     await user.type(qty, '5')
@@ -208,7 +225,7 @@ describe('InventoryPage roles', () => {
         expect.objectContaining({ baseStockQty: 8 })
       )
     })
-    expect(screen.getByText('Milk').closest('tr')).toHaveTextContent('5')
+    expect(screen.getByTestId('select-item-i1').closest('tr')).toHaveTextContent('5')
     expect(alertSpy).toHaveBeenCalledWith(expect.stringMatching(/offline/i))
     alertSpy.mockRestore()
   })
@@ -233,8 +250,13 @@ describe('InventoryPage roles', () => {
     await waitFor(() => {
       expect(screen.getByTestId('pending-sync-temp-9')).toBeInTheDocument()
     })
-    // Pending rows can't be edited further until their real id syncs back.
-    expect(screen.getAllByTitle('Will sync when the database is back').length).toBeGreaterThanOrEqual(3)
+    // Selecting the pending row locks the toolbar until it syncs back.
+    await user.click(screen.getByTestId('select-item-temp-9'))
+    expect(screen.getByTestId('toolbar-edit-btn')).toBeDisabled()
+    expect(screen.getByTestId('toolbar-wastage-btn')).toBeDisabled()
+    expect(screen.getByTestId('toolbar-delete-btn')).toBeDisabled()
+    expect(screen.getByTestId('toolbar-edit-btn')).toHaveAttribute('title', expect.stringMatching(/sync/i))
+    expect(screen.getByTestId('selected-chip')).toHaveTextContent(/pending sync/i)
     expect(alertSpy).toHaveBeenCalledWith(expect.stringMatching(/offline/i))
     alertSpy.mockRestore()
   })
@@ -249,7 +271,8 @@ describe('InventoryPage roles', () => {
     await waitFor(() => {
       expect(screen.getByText('Milk')).toBeInTheDocument()
     })
-    await user.click(screen.getByTestId('delete-item-i1'))
+    await user.click(screen.getByTestId('select-item-i1'))
+    await user.click(screen.getByTestId('toolbar-delete-btn'))
     await user.click(screen.getByTestId('delete-confirm-btn'))
 
     await waitFor(() => {
@@ -272,7 +295,8 @@ describe('InventoryPage roles', () => {
     await waitFor(() => {
       expect(screen.getByText('Milk')).toBeInTheDocument()
     })
-    await user.click(screen.getByTitle('Log Wastage'))
+    await user.click(screen.getByTestId('select-item-i1'))
+    await user.click(screen.getByTestId('toolbar-wastage-btn'))
     await user.type(screen.getByPlaceholderText('0'), '2')
     const { container } = { container: document.body }
     await user.click(container.querySelector('.modal-overlay .modal-footer .btn-danger'))
@@ -284,8 +308,73 @@ describe('InventoryPage roles', () => {
         expect.objectContaining({ baseStockQty: 8, reason: 'spoiled', skipAdjustment: true })
       )
     })
-    expect(screen.getByText('Milk').closest('tr')).toHaveTextContent('6')
+    expect(screen.getByTestId('select-item-i1').closest('tr')).toHaveTextContent('6')
     expect(alertSpy).toHaveBeenCalledWith(expect.stringMatching(/offline/i))
     alertSpy.mockRestore()
+  })
+
+  it('should filter by status with live counts', async () => {
+    const user = userEvent.setup()
+    db.getInventory.mockResolvedValueOnce([
+      { id: 'g1', name: 'Beans', category: 'Dry', stock_quantity: 20 },
+      { id: 'l1', name: 'Flour', category: 'Dry', stock_quantity: 3 },
+      { id: 'o1', name: 'Sugar', category: 'Dry', stock_quantity: 0 },
+    ])
+    render(<InventoryPage userRole="admin" />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Beans')).toBeInTheDocument()
+    })
+    expect(screen.getByTestId('status-filter-all')).toHaveTextContent('All (3)')
+    expect(screen.getByTestId('status-filter-good')).toHaveTextContent('Good (1)')
+    expect(screen.getByTestId('status-filter-low')).toHaveTextContent('Low Stock (1)')
+    expect(screen.getByTestId('status-filter-out')).toHaveTextContent('Out of Stock (1)')
+
+    await user.click(screen.getByTestId('status-filter-low'))
+    expect(screen.getByText('Flour')).toBeInTheDocument()
+    expect(screen.queryByText('Beans')).not.toBeInTheDocument()
+    expect(screen.queryByText('Sugar')).not.toBeInTheDocument()
+    expect(screen.getByTestId('pager-count')).toHaveTextContent('Showing 1–1 of 1')
+
+    await user.click(screen.getByTestId('status-filter-all'))
+    expect(screen.getByText('Beans')).toBeInTheDocument()
+    expect(screen.getByText('Sugar')).toBeInTheDocument()
+
+    // A search with no matches offers a clear-filters escape hatch.
+    await user.type(screen.getByPlaceholderText('Search inventory...'), 'zzz-no-such-item')
+    expect(screen.getByTestId('clear-filters-btn')).toBeInTheDocument()
+    await user.click(screen.getByTestId('clear-filters-btn'))
+    expect(screen.getByText('Beans')).toBeInTheDocument()
+  })
+
+  it('should paginate at ten rows with prev/next and reset on search', async () => {
+    const user = userEvent.setup()
+    db.getInventory.mockResolvedValueOnce(
+      Array.from({ length: 12 }, (_, i) => ({
+        id: `p${i}`, name: `Item ${i}`, category: 'Dry', stock_quantity: 10,
+      }))
+    )
+    render(<InventoryPage userRole="admin" />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Item 0')).toBeInTheDocument()
+    })
+    expect(screen.getByTestId('pager-count')).toHaveTextContent('Showing 1–10 of 12')
+    expect(screen.getByTestId('inv-prev')).toBeDisabled()
+    expect(screen.queryByText('Item 11')).not.toBeInTheDocument()
+
+    await user.click(screen.getByTestId('inv-next'))
+    expect(screen.getByTestId('pager-count')).toHaveTextContent('Showing 11–12 of 12')
+    expect(screen.getByText('Item 11')).toBeInTheDocument()
+    expect(screen.getByTestId('inv-next')).toBeDisabled()
+
+    // Selection by id still works for a row on page two.
+    await user.click(screen.getByTestId('select-item-p11'))
+    expect(screen.getByTestId('toolbar-delete-btn')).not.toBeDisabled()
+
+    // A new search restarts at page one.
+    await user.type(screen.getByPlaceholderText('Search inventory...'), 'Item 1')
+    expect(screen.getByTestId('pager-count')).toHaveTextContent(/of 3/)
+    expect(screen.getByText('Item 1')).toBeInTheDocument()
   })
 })

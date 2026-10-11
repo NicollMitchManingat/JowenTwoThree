@@ -12,3 +12,6 @@ npm-debug.log*
 # Playwright test artifacts
 playwright-report/
 test-results/
+
+# Local-only database scripts (untracked by design, kept on disk only)
+*.sql

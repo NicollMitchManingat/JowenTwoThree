@@ -549,6 +549,23 @@
   justify-content: flex-start;
 }
 
+/* ── Sticky transactions search row ──
+   Same blurred-surface language as .analytics-sticky-bar and .top-header.
+   Negative margins cancel .page-container's padding so the row spans
+   edge-to-edge while stuck; KPIs above keep scrolling away. */
+.action-bar--sticky {
+  position: sticky;
+  top: -1.5rem;
+  z-index: 20;
+  margin: -1.5rem -1.5rem 0;
+  padding: 0.75rem 1.5rem;
+  background-color: var(--bg-surface);
+  background-color: color-mix(in srgb, var(--bg-surface) 88%, transparent);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--border-color);
+}
+
 .search-bar {
   display: flex;
   align-items: center;
@@ -2420,6 +2437,11 @@
   }
   .action-bar--filters .txn-date-custom {
     flex: 1 1 100%;
+  }
+  .action-bar--sticky {
+    top: -1rem;
+    margin: -1rem -1rem 0;
+    padding: 0.6rem 1rem;
   }
 }
 

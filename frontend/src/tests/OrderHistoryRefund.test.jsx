@@ -132,7 +132,24 @@ describe('OrderHistoryPage refunds', () => {
     expect(screen.queryByTestId('selected-chip')).not.toBeInTheDocument()
   })
 
-    it('should keep search and both filters on the same action-bar row', async () => {
+    it('should keep the search row sticky with the selection chip above it', async () => {
+    const user = userEvent.setup()
+    render(<OrderHistoryPage user={{ username: 'admin', role: 'admin' }} />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('order-row-t1')).toBeInTheDocument()
+    })
+    // KPIs scroll away; the whole search row sticks.
+    const bar = screen.getByPlaceholderText('Search by transaction number...').closest('.action-bar')
+    expect(bar).toHaveClass('action-bar--sticky')
+
+    // Transient selection message sits above the sticky row, never under it.
+    await user.click(screen.getByTestId('select-order-t1'))
+    const chip = screen.getByTestId('selected-chip')
+    expect(chip.compareDocumentPosition(bar) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('should keep search and both filters on the same action-bar row', async () => {
 
     render(<OrderHistoryPage user={{ username: 'admin', role: 'admin' }} />)
 

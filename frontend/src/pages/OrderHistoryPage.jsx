@@ -308,7 +308,17 @@ export default function OrderHistoryPage({ user }) {
         </div>
       </div>
 
-      <div className="action-bar action-bar--filters">
+      {canRefund && selectedOrder && (
+        <p className="selected-chip" data-testid="selected-chip">
+          Selected: <strong>{selectedOrder.transaction_number}</strong> (₱{Number(selectedOrder.total || 0).toFixed(2)} · {selectedOrder.status === 'PARTIALLY_REFUNDED' ? 'Partially refunded' : selectedOrder.status === 'REFUNDED' ? 'Refunded' : 'Completed'})
+          {selectedFullyRefunded && ' — already refunded'}
+        </p>
+      )}
+      {canRefund && !selectedOrder && orders.length > 0 && (
+        <p className="selected-hint" data-testid="selection-hint">Select a row to refund a transaction.</p>
+      )}
+
+      <div className="action-bar action-bar--filters action-bar--sticky">
         <div className="search-bar">
           <Search size={18} className="text-muted" />
           <input type="text" placeholder="Search by transaction number..." value={search} onChange={(e) => setSearch(e.target.value)} />
@@ -363,16 +373,6 @@ export default function OrderHistoryPage({ user }) {
           <button className="btn btn-secondary" onClick={handleExport}><Download size={16} /> Export</button>
         </div>
       </div>
-
-      {canRefund && selectedOrder && (
-        <p className="selected-chip" data-testid="selected-chip">
-          Selected: <strong>{selectedOrder.transaction_number}</strong> (₱{Number(selectedOrder.total || 0).toFixed(2)} · {selectedOrder.status === 'PARTIALLY_REFUNDED' ? 'Partially refunded' : selectedOrder.status === 'REFUNDED' ? 'Refunded' : 'Completed'})
-          {selectedFullyRefunded && ' — already refunded'}
-        </p>
-      )}
-      {canRefund && !selectedOrder && orders.length > 0 && (
-        <p className="selected-hint" data-testid="selection-hint">Select a row to refund a transaction.</p>
-      )}
 
       {toast && (
         <div className={`toast toast-${toast.type} toast-global`}>

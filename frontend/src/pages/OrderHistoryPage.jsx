@@ -7,12 +7,67 @@ import LoadingSkeleton from '../components/analytics/LoadingSkeleton';
 export const refundTotalFor = (refundsByTxn, transactionId) =>
   (refundsByTxn[transactionId] || []).reduce((s, r) => s + (Number(r.refund_amount) || 0), 0)
 
+const PAGE_SIZE = 20;
+
+const STATUS_OPTIONS = [
+  { key: 'all', label: 'All' },
+  { key: 'COMPLETED', label: 'Completed' },
+  { key: 'PARTIALLY_REFUNDED', label: 'Partially refunded' },
+  { key: 'REFUNDED', label: 'Refunded' },
+];
+
+const DATE_PRESETS = [
+  { key: 'all', label: 'All time' },
+  { key: 'today', label: 'Today' },
+  { key: '7d', label: 'Last 7 days' },
+  { key: '30d', label: 'Last 30 days' },
+];
+
+const normStatus = (order) => order.status || 'COMPLETED';
+
+// Start-of-day boundaries in local time so "Today" matches wall-clock days.
+const startOfDay = (d) => {
+  const c = new Date(d);
+  c.setHours(0, 0, 0, 0);
+  return c.getTime();
+};
+
+const matchesDate = (order, preset, from, to) => {
+  const t = new Date(order.created_at || 0).getTime();
+  if (Number.isNaN(t)) return false;
+  const now = new Date();
+  if (preset === 'today') {
+    const s = startOfDay(now);
+    if (t < s || t >= s + 86400000) return false;
+  } else if (preset === '7d') {
+    if (t < startOfDay(now) - 6 * 86400000) return false;
+  } else if (preset === '30d') {
+    if (t < startOfDay(now) - 29 * 86400000) return false;
+  }
+  if (from) {
+    const f = startOfDay(new Date(`${from}T00:00:00`));
+    if (t < f) return false;
+  }
+  if (to) {
+    const e = startOfDay(new Date(`${to}T00:00:00`)) + 86400000;
+    if (t >= e) return false;
+  }
+  return true;
+};
+
 export default function OrderHistoryPage({ user }) {
   const [orders, setOrders] = useState([]);
   const [refundsByTxn, setRefundsByTxn] = useState({});
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(null);
   const [search, setSearch] = useState('');
+  const [selectedId, setSelectedId] = useState(null);
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [datePreset, setDatePreset] = useState('all');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+  const [customOpen, setCustomOpen] = useState(false);
+  const [page, setPage] = useState(0);
   const [sortField, setSortField] = useState('created_at');
   const [sortDir, setSortDir] = useState('desc');
   const [refundOrder, setRefundOrder] = useState(null);
@@ -74,10 +129,22 @@ export default function OrderHistoryPage({ user }) {
     }
   };
 
-  const filtered = [...orders]
-    .filter(o =>
-      (o.transaction_number || '').toLowerCase().includes(search.toLowerCase())
-    )
+  // Search narrows first; pills count within the search; status and date
+  // narrow further; paging slices the visible page. Sort applies last so
+  // the pager always reflects the sorted, filtered list.
+  const searchFiltered = orders.filter(o =>
+    (o.transaction_number || '').toLowerCase().includes(search.toLowerCase())
+  );
+
+  const statusCounts = { all: searchFiltered.length, COMPLETED: 0, PARTIALLY_REFUNDED: 0, REFUNDED: 0 };
+  searchFiltered.forEach(o => {
+    const k = normStatus(o);
+    if (statusCounts[k] !== undefined) statusCounts[k] += 1;
+  });
+
+  const filtered = searchFiltered
+    .filter(o => statusFilter === 'all' || normStatus(o) === statusFilter)
+    .filter(o => matchesDate(o, datePreset, dateFrom, dateTo))
     .sort((a, b) => {
       const aVal = a[sortField];
       const bVal = b[sortField];
@@ -92,6 +159,54 @@ export default function OrderHistoryPage({ user }) {
         : String(bVal || '').localeCompare(String(aVal || ''));
     });
 
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages - 1);
+  const pageStart = safePage * PAGE_SIZE;
+  const pagedOrders = filtered.slice(pageStart, pageStart + PAGE_SIZE);
+
+  // Selection persists by id across pages and filters; the toolbar resolves
+  // it against live data so a removed order simply disables the button.
+  const selectedOrder = orders.find(o => String(o.id) === String(selectedId)) ?? null;
+  const selectedFullyRefunded = selectedOrder && (selectedOrder.status || 'COMPLETED') === 'REFUNDED';
+  const canRefund = user?.role !== 'stockist';
+  const canActOnSelected = canRefund && selectedOrder && !selectedFullyRefunded;
+
+  const refundTitle = () => {
+    if (!selectedOrder) return 'Select a transaction to refund';
+    if (selectedFullyRefunded) return 'Already fully refunded';
+    return undefined;
+  };
+
+  // Clicking the selected row again unselects it — otherwise there is no
+  // way to return to the "nothing selected" state.
+  const toggleSelect = (id) => {
+    setSelectedId(prev => (prev !== null && String(prev) === String(id) ? null : id));
+  };
+
+  // A new search or filter always restarts at page one.
+  useEffect(() => { setPage(0); }, [search, statusFilter, datePreset, dateFrom, dateTo]);
+
+  const clearFilters = () => {
+    setSearch('');
+    setStatusFilter('all');
+    setDatePreset('all');
+    setDateFrom('');
+    setDateTo('');
+    setCustomOpen(false);
+  };
+
+  const pickPreset = (key) => {
+    setDatePreset(key);
+    setDateFrom('');
+    setDateTo('');
+    setCustomOpen(false);
+  };
+
+  const setCustomBound = (which, value) => {
+    if (which === 'from') setDateFrom(value);
+    else setDateTo(value);
+    setDatePreset('all');
+  };
   // Net revenue: fully refunded orders excluded, partial refunds subtracted.
   const totalRevenue = orders.reduce((s, o) => {
     if ((o.status || 'COMPLETED') === 'REFUNDED') return s
@@ -172,13 +287,71 @@ export default function OrderHistoryPage({ user }) {
         </div>
       </div>
 
-      <div className="action-bar">
+      <div className="action-bar action-bar--filters">
         <div className="search-bar">
           <Search size={18} className="text-muted" />
           <input type="text" placeholder="Search by transaction number..." value={search} onChange={(e) => setSearch(e.target.value)} />
         </div>
-        <button className="btn btn-secondary" onClick={handleExport}><Download size={16} /> Export</button>
+        <label className="txn-filter-field">Status
+          <select
+            className="form-input"
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            data-testid="txn-status-select"
+            aria-label="Filter by status"
+          >
+            {STATUS_OPTIONS.map(opt => (
+              <option key={opt.key} value={opt.key}>
+                {opt.label} ({statusCounts[opt.key] ?? 0})
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="txn-filter-field">Date
+          <select
+            className="form-input"
+            value={dateFrom || dateTo || customOpen ? 'custom' : datePreset}
+            onChange={(e) => {
+              if (e.target.value === 'custom') {
+                setCustomOpen(true);
+              } else {
+                pickPreset(e.target.value);
+              }
+            }}
+            data-testid="txn-date-select"
+            aria-label="Filter by date"
+          >
+            {DATE_PRESETS.map(opt => (
+              <option key={opt.key} value={opt.key}>{opt.label}</option>
+            ))}
+            <option value="custom">Custom range…</option>
+          </select>
+        </label>
+        {(dateFrom || dateTo || customOpen) && (
+          <span className="txn-date-custom">
+            <label>From <input type="date" autoFocus className="form-input" value={dateFrom} max={dateTo || undefined} onChange={(e) => setCustomBound('from', e.target.value)} data-testid="filter-date-from" aria-label="From date" /></label>
+            <label>To <input type="date" className="form-input" value={dateTo} min={dateFrom || undefined} onChange={(e) => setCustomBound('to', e.target.value)} data-testid="filter-date-to" aria-label="To date" /></label>
+          </span>
+        )}
+        <div className="action-buttons" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+          {canRefund && (
+            <button className="btn btn-secondary" onClick={() => selectedOrder && setRefundOrder(selectedOrder)} disabled={!canActOnSelected} title={user?.role === 'admin' ? (refundTitle() || 'Refund (admin)') : (refundTitle() || 'Refund (requires manager approval)')} data-testid="toolbar-refund-btn">
+              <Undo2 size={16} /> Refund
+            </button>
+          )}
+          <button className="btn btn-secondary" onClick={handleExport}><Download size={16} /> Export</button>
+        </div>
       </div>
+
+      {canRefund && selectedOrder && (
+        <p className="selected-chip" data-testid="selected-chip">
+          Selected: <strong>{selectedOrder.transaction_number}</strong> (₱{Number(selectedOrder.total || 0).toFixed(2)} · {selectedOrder.status === 'PARTIALLY_REFUNDED' ? 'Partially refunded' : selectedOrder.status === 'REFUNDED' ? 'Refunded' : 'Completed'})
+          {selectedFullyRefunded && ' — already refunded'}
+        </p>
+      )}
+      {canRefund && !selectedOrder && orders.length > 0 && (
+        <p className="selected-hint" data-testid="selection-hint">Select a row to refund a transaction.</p>
+      )}
 
       {toast && (
         <div className={`toast toast-${toast.type} toast-global`}>
@@ -191,6 +364,7 @@ export default function OrderHistoryPage({ user }) {
         <table className="data-table">
           <thead>
             <tr>
+              {canRefund && <th scope="col" aria-label="Select" style={{ width: '2.5rem' }} />}
               <th onClick={() => handleSort('transaction_number')} style={{ cursor: 'pointer' }}>Transaction # {sortField === 'transaction_number' && (sortDir === 'asc' ? '▲' : '▼')}</th>
               <th onClick={() => handleSort('subtotal')} style={{ cursor: 'pointer' }}>Subtotal {sortField === 'subtotal' && (sortDir === 'asc' ? '▲' : '▼')}</th>
               <th onClick={() => handleSort('discount')} style={{ cursor: 'pointer' }}>Discount {sortField === 'discount' && (sortDir === 'asc' ? '▲' : '▼')}</th>
@@ -200,15 +374,38 @@ export default function OrderHistoryPage({ user }) {
               <th>Payment</th>
               <th>Customers</th>
               <th onClick={() => handleSort('created_at')} style={{ cursor: 'pointer' }}>Date {sortField === 'created_at' && (sortDir === 'asc' ? '▲' : '▼')}</th>
-              <th>Actions</th>
             </tr>
           </thead>
           <tbody>
-            {filtered.map((order) => {
+            {filtered.length > 0 ? pagedOrders.map((order) => {
               const refunded = refundTotalFor(refundsByTxn, order.id)
-              const fullyRefunded = (order.status || 'COMPLETED') === 'REFUNDED'
+              const isSelected = String(selectedId) === String(order.id);
               return (
-              <tr key={order.id} data-testid={`order-row-${order.id}`}>
+              <tr
+                key={order.id}
+                data-testid={`order-row-${order.id}`}
+                className={`${canRefund ? 'row-selectable' : ''} ${isSelected ? 'row-selected' : ''}`}
+                aria-selected={canRefund ? isSelected : undefined}
+                onClick={canRefund ? () => toggleSelect(order.id) : undefined}
+                onKeyDown={canRefund ? (e) => {
+                  if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleSelect(order.id); }
+                  else if (e.key === 'Escape') { setSelectedId(null); }
+                } : undefined}
+                tabIndex={canRefund ? 0 : undefined}
+              >
+                {canRefund && (
+                  <td onClick={(e) => e.stopPropagation()}>
+                    <input
+                      type="radio"
+                      name="transaction-selection"
+                      className="row-select-radio"
+                      checked={isSelected}
+                      onChange={() => toggleSelect(order.id)}
+                      aria-label={`Select ${order.transaction_number}`}
+                      data-testid={`select-order-${order.id}`}
+                    />
+                  </td>
+                )}
                 <td className="font-semibold">{order.transaction_number}</td>
                 <td>₱{Number(order.subtotal).toFixed(2)}</td>
                 <td>{Number(order.discount) > 0 ? `-₱${Number(order.discount).toFixed(2)}` : '-'}</td>
@@ -218,23 +415,29 @@ export default function OrderHistoryPage({ user }) {
                 <td>{order.payment_method || 'Cash'}</td>
                 <td>{order.customer_count || 0}{((order.male_count ?? 0) + (order.female_count ?? 0) + (order.unspecified_count ?? 0) > 0) ? ` (M${order.male_count ?? 0}/F${order.female_count ?? 0}${(order.unspecified_count ?? 0) > 0 ? `/U${order.unspecified_count}` : ''})` : ''}</td>
                 <td className="text-muted">{new Date(order.created_at).toLocaleString()}</td>
-                <td>
-                  {/* Refunds are cash-handling: cashier (with manager approval) + admin only. */}
-                  {!fullyRefunded && user?.role !== 'stockist' && (
-                    <button className="btn btn-secondary" onClick={() => setRefundOrder(order)}
-                      data-testid={`refund-btn-${order.id}`} title={user?.role === 'admin' ? 'Refund (admin)' : 'Refund (requires manager approval)'}>
-                      <Undo2 size={14} /> Refund
-                    </button>
-                  )}
-                </td>
               </tr>
               )
-            })}
-            {filtered.length === 0 && (
-              <tr><td colSpan="10" className="text-center py-4 text-muted">No transactions found.</td></tr>
+            }) : (
+              <tr><td colSpan={canRefund ? '10' : '9'} className="text-center py-4 text-muted">
+                {orders.length === 0
+                  ? 'No transactions found.'
+                  : <>No transactions match these filters.{' '}
+                    <button className="btn btn-secondary" onClick={clearFilters} data-testid="clear-txn-filters-btn">Clear filters</button></>}
+              </td></tr>
             )}
           </tbody>
         </table>
+        {filtered.length > 0 && (
+          <div className="table-pager">
+            <span aria-live="polite" data-testid="txn-pager-count">
+              Showing {pageStart + 1}–{Math.min(pageStart + PAGE_SIZE, filtered.length)} of {filtered.length}
+            </span>
+            <div className="action-buttons">
+              <button className="btn btn-secondary" disabled={safePage === 0} onClick={() => setPage(safePage - 1)} data-testid="txn-prev" aria-label="Previous page">Prev</button>
+              <button className="btn btn-secondary" disabled={safePage >= totalPages - 1} onClick={() => setPage(safePage + 1)} data-testid="txn-next" aria-label="Next page">Next</button>
+            </div>
+          </div>
+        )}
       </div>
 
       {refundOrder && (

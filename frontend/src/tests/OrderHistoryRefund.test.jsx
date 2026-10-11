@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import OrderHistoryPage from '../pages/OrderHistoryPage'
 
@@ -79,17 +79,25 @@ describe('OrderHistoryPage refunds', () => {
     expect(screen.getByText('Total Revenue').parentElement).toHaveTextContent('₱480')
   })
 
-  it('should hide the refund button on fully refunded orders and open the modal otherwise', async () => {
+  it('should keep the refund button in the toolbar and open the modal for the selected order', async () => {
     const user = userEvent.setup()
     render(<OrderHistoryPage user={{ username: 'cashier', role: 'cashier' }} />)
 
     await waitFor(() => {
       expect(screen.getByTestId('order-row-t1')).toBeInTheDocument()
     })
-    expect(screen.queryByTestId('refund-btn-t2')).not.toBeInTheDocument()
-    expect(screen.getByTestId('refund-btn-t1')).toBeInTheDocument()
+    // Nothing selected yet — toolbar refund stays disabled.
+    expect(screen.getByTestId('toolbar-refund-btn')).toBeDisabled()
 
-    await user.click(screen.getByTestId('refund-btn-t1'))
+    // Fully refunded selection keeps it disabled.
+    await user.click(screen.getByTestId('select-order-t2'))
+    expect(screen.getByTestId('toolbar-refund-btn')).toBeDisabled()
+    expect(screen.getByTestId('toolbar-refund-btn')).toHaveAttribute('title', 'Already fully refunded')
+
+    // Selecting a refundable order enables it and opens the modal.
+    await user.click(screen.getByTestId('select-order-t1'))
+    expect(screen.getByTestId('toolbar-refund-btn')).not.toBeDisabled()
+    await user.click(screen.getByTestId('toolbar-refund-btn'))
     expect(screen.getByTestId('refund-modal-mock')).toBeInTheDocument()
   })
 
@@ -99,9 +107,134 @@ describe('OrderHistoryPage refunds', () => {
     await waitFor(() => {
       expect(screen.getByTestId('order-row-t1')).toBeInTheDocument()
     })
-    expect(screen.queryByTestId('refund-btn-t1')).not.toBeInTheDocument()
-    expect(screen.queryByTestId('refund-btn-t3')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('toolbar-refund-btn')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('select-order-t1')).not.toBeInTheDocument()
     // History itself stays visible
     expect(screen.getByTestId('order-row-t2')).toHaveTextContent('Refunded')
+  })
+
+  it('should toggle selection when the selected row is clicked again', async () => {
+    const user = userEvent.setup()
+    render(<OrderHistoryPage user={{ username: 'admin', role: 'admin' }} />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('order-row-t1')).toBeInTheDocument()
+    })
+    await user.click(screen.getByTestId('select-order-t1'))
+    expect(screen.getByTestId('toolbar-refund-btn')).not.toBeDisabled()
+    expect(screen.getByTestId('selected-chip')).toHaveTextContent('TXN-1')
+
+    await user.click(screen.getByTestId('select-order-t1').closest('tr'))
+    expect(screen.getByTestId('toolbar-refund-btn')).toBeDisabled()
+    expect(screen.queryByTestId('selected-chip')).not.toBeInTheDocument()
+  })
+
+  it('should keep search and both filters on the same action-bar row', async () => {
+    render(<OrderHistoryPage user={{ username: 'admin', role: 'admin' }} />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('order-row-t1')).toBeInTheDocument()
+    })
+    const bar = screen.getByPlaceholderText('Search by transaction number...').closest('.action-bar')
+    expect(bar).toBeInTheDocument()
+    expect(bar).toContainElement(screen.getByTestId('txn-status-select'))
+    expect(bar).toContainElement(screen.getByTestId('txn-date-select'))
+    expect(bar).toContainElement(screen.getByTestId('toolbar-refund-btn'))
+  })
+
+  it('should filter by status with live counts', async () => {
+    render(<OrderHistoryPage user={{ username: 'admin', role: 'admin' }} />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('order-row-t1')).toBeInTheDocument()
+    })
+    const statusSelect = screen.getByTestId('txn-status-select')
+    expect(statusSelect).toHaveTextContent('All (3)')
+    expect(statusSelect).toHaveTextContent('Completed (1)')
+    expect(statusSelect).toHaveTextContent('Partially refunded (1)')
+    expect(statusSelect).toHaveTextContent('Refunded (1)')
+
+    fireEvent.change(statusSelect, { target: { value: 'REFUNDED' } })
+    expect(screen.getByTestId('order-row-t2')).toBeInTheDocument()
+    expect(screen.queryByTestId('order-row-t1')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('order-row-t3')).not.toBeInTheDocument()
+
+    fireEvent.change(statusSelect, { target: { value: 'all' } })
+    expect(screen.getByTestId('order-row-t1')).toBeInTheDocument()
+    expect(screen.getByTestId('order-row-t3')).toBeInTheDocument()
+  })
+
+  it('should filter by date presets and custom range', async () => {
+    const today = new Date()
+    const tenDaysAgo = new Date(today)
+    tenDaysAgo.setDate(tenDaysAgo.getDate() - 10)
+    const localDay = (d) => d.toLocaleDateString('en-CA')
+    db.getTransactions.mockResolvedValueOnce([
+      { id: 'recent', transaction_number: 'TXN-NEW', subtotal: 100, discount: 0, total: 100, payment_method: 'CASH', customer_count: 1, status: 'COMPLETED', created_at: today.toISOString() },
+      { id: 'old', transaction_number: 'TXN-OLD', subtotal: 50, discount: 0, total: 50, payment_method: 'CASH', customer_count: 1, status: 'COMPLETED', created_at: tenDaysAgo.toISOString() },
+    ])
+    render(<OrderHistoryPage user={{ username: 'admin', role: 'admin' }} />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('order-row-recent')).toBeInTheDocument()
+    })
+    expect(screen.getByTestId('order-row-old')).toBeInTheDocument()
+    const dateSelect = screen.getByTestId('txn-date-select')
+
+    fireEvent.change(dateSelect, { target: { value: 'today' } })
+    expect(screen.getByTestId('order-row-recent')).toBeInTheDocument()
+    expect(screen.queryByTestId('order-row-old')).not.toBeInTheDocument()
+
+    fireEvent.change(dateSelect, { target: { value: '7d' } })
+    expect(screen.getByTestId('order-row-recent')).toBeInTheDocument()
+    expect(screen.queryByTestId('order-row-old')).not.toBeInTheDocument()
+
+    fireEvent.change(dateSelect, { target: { value: '30d' } })
+    expect(screen.getByTestId('order-row-old')).toBeInTheDocument()
+
+    // Custom range isolating the old transaction only — the inputs appear
+    // once a custom bound is entered and the select shows "Custom range…".
+    expect(screen.queryByTestId('filter-date-from')).not.toBeInTheDocument()
+    fireEvent.change(dateSelect, { target: { value: 'custom' } })
+    fireEvent.change(screen.getByTestId('filter-date-from'), { target: { value: localDay(tenDaysAgo) } })
+    fireEvent.change(screen.getByTestId('filter-date-to'), { target: { value: localDay(tenDaysAgo) } })
+    expect(screen.getByTestId('txn-date-select')).toHaveValue('custom')
+    expect(screen.getByTestId('order-row-old')).toBeInTheDocument()
+    expect(screen.queryByTestId('order-row-recent')).not.toBeInTheDocument()
+  })
+
+  it('should paginate at twenty rows and reset the page on search', async () => {
+    const user = userEvent.setup()
+    // Distinct timestamps (one minute apart, newest first) so the default
+    // created_at-desc sort is deterministic regardless of ms boundaries.
+    const base = Date.now()
+    db.getTransactions.mockResolvedValueOnce(
+      Array.from({ length: 21 }, (_, i) => ({
+        id: `x${i}`,
+        transaction_number: `TXN-${String(i).padStart(2, '0')}`,
+        subtotal: 100, discount: 0, total: 100, payment_method: 'CASH',
+        customer_count: 1, status: 'COMPLETED', created_at: new Date(base - i * 60000).toISOString(),
+      }))
+    )
+    render(<OrderHistoryPage user={{ username: 'admin', role: 'admin' }} />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('order-row-x0')).toBeInTheDocument()
+    })
+    expect(screen.getByTestId('txn-pager-count')).toHaveTextContent('Showing 1–20 of 21')
+    expect(screen.getByTestId('txn-prev')).toBeDisabled()
+    expect(screen.queryByTestId('order-row-x20')).not.toBeInTheDocument()
+
+    await user.click(screen.getByTestId('txn-next'))
+    expect(screen.getByTestId('txn-pager-count')).toHaveTextContent('Showing 21–21 of 21')
+    expect(screen.getByTestId('order-row-x20')).toBeInTheDocument()
+
+    // Selection by id works on page two.
+    await user.click(screen.getByTestId('select-order-x20'))
+    expect(screen.getByTestId('toolbar-refund-btn')).not.toBeDisabled()
+
+    // A new search restarts at page one.
+    await user.type(screen.getByPlaceholderText('Search by transaction number...'), 'TXN-1')
+    expect(screen.getByTestId('txn-pager-count')).toHaveTextContent('Showing 1–10 of 10')
   })
 })

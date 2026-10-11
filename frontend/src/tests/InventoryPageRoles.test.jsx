@@ -74,6 +74,30 @@ describe('InventoryPage roles', () => {
     expect(screen.getByTestId('selected-chip')).toHaveTextContent('Milk')
   })
 
+  it('should unselect the row when clicked again or escaped', async () => {
+    const user = userEvent.setup()
+    render(<InventoryPage userRole="admin" />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Milk')).toBeInTheDocument()
+    })
+    await user.click(screen.getByTestId('select-item-i1'))
+    expect(screen.getByTestId('toolbar-edit-btn')).not.toBeDisabled()
+
+    // Clicking the selected row again clears the selection.
+    await user.click(screen.getByTestId('select-item-i1').closest('tr'))
+    expect(screen.getByTestId('toolbar-edit-btn')).toBeDisabled()
+    expect(screen.queryByTestId('selected-chip')).not.toBeInTheDocument()
+    expect(screen.getByTestId('selection-hint')).toBeInTheDocument()
+
+    // Escape clears it too after re-selecting.
+    await user.click(screen.getByTestId('select-item-i1'))
+    expect(screen.getByTestId('toolbar-edit-btn')).not.toBeDisabled()
+    await user.keyboard('{Escape}')
+    expect(screen.getByTestId('toolbar-edit-btn')).toBeDisabled()
+    expect(screen.queryByTestId('selected-chip')).not.toBeInTheDocument()
+  })
+
   it('should ask for confirmation before deleting, and cancel without deleting', async () => {
     const user = userEvent.setup()
     render(<InventoryPage userRole="stockist" />)

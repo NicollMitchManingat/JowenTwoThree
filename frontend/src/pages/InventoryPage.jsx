@@ -147,6 +147,12 @@ export default function InventoryPage({ userRole }) {
   const selectedLocked = !!selectedItem?._pendingSync;
   const canActOnSelected = canManage && selectedItem && !selectedLocked;
 
+  // Clicking the selected row again unselects it — otherwise there is no
+  // way to return to the "nothing selected" state.
+  const toggleSelect = (id) => {
+    setSelectedId(prev => (prev !== null && String(prev) === String(id) ? null : id));
+  };
+
   const selectedTitle = (verb) => {
     if (!selectedItem) return `Select a row to ${verb}`;
     if (selectedLocked) return 'Will sync when the database is back';
@@ -532,8 +538,11 @@ export default function InventoryPage({ userRole }) {
                 key={item.id}
                 className={`${canManage ? 'row-selectable' : ''} ${isSelected ? 'row-selected' : ''}`}
                 aria-selected={canManage ? isSelected : undefined}
-                onClick={canManage ? () => setSelectedId(item.id) : undefined}
-                onKeyDown={canManage ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelectedId(item.id); } } : undefined}
+                onClick={canManage ? () => toggleSelect(item.id) : undefined}
+                onKeyDown={canManage ? (e) => {
+                  if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleSelect(item.id); }
+                  else if (e.key === 'Escape') { setSelectedId(null); }
+                } : undefined}
                 tabIndex={canManage ? 0 : undefined}
               >
                 {canManage && (
@@ -543,7 +552,7 @@ export default function InventoryPage({ userRole }) {
                       name="inventory-selection"
                       className="row-select-radio"
                       checked={isSelected}
-                      onChange={() => setSelectedId(item.id)}
+                      onChange={() => toggleSelect(item.id)}
                       aria-label={`Select ${item.name}`}
                       data-testid={`select-item-${item.id}`}
                     />

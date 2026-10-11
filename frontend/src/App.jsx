@@ -144,6 +144,9 @@ function App() {
             <span className="sidebar-footer-name">{currentUser.username}</span>
             <span className="sidebar-footer-role">{currentUser.role}</span>
           </div>
+          <button className="sidebar-logout-btn" onClick={handleLogout} title="Logout" aria-label="Log out of POS">
+            <LogOut size={17} />
+          </button>
         </div>
       </aside>
 
@@ -152,15 +155,6 @@ function App() {
           <div className="flex items-center gap-4">
             <button className="menu-toggle desktop-hidden" onClick={handleMenuToggle}><Menu size={20} /></button>
             <h2>{visibleMenuItems.find(i => i.id === currentPage)?.label || "Jowen's Cafe"}</h2>
-          </div>
-          <div className="header-actions">
-            <div className="user-profile">
-              <div className="avatar">{currentUser.username?.charAt(0)}</div>
-              <span className="user-role-text" style={{ textTransform: 'capitalize' }}>{currentUser.username}</span>
-            </div>
-            <button className="btn-icon-small text-danger" onClick={handleLogout} title="Logout">
-              <LogOut size={18} />
-            </button>
           </div>
         </header>
         <div className={`page-container${currentPage !== 'pos' ? ' page-container--scroll' : ''}`}>

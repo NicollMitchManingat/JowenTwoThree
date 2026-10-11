@@ -436,23 +436,26 @@ export default function DashboardContent({ activeTab, user }) {
 
   return (
     <div className="page-content">
-      <div className="flex justify-between items-center mb-6">
+      <div className="flex justify-between items-center mb-6 analytics-sticky-bar">
         <h2 className="m-0 text-2xl font-bold">Sales Analytics</h2>
         <div className="flex items-center gap-3 flex-wrap">
-          <div role="group" aria-label="Chart granularity" data-testid="granularity-group" className="flex items-center granularity-group">
-            {[['hourly', 'Hourly'], ['daily', 'Daily'], ['weekly', 'Weekly']].map(([val, label]) => (
-              <button
-                key={val}
-                type="button"
-                data-testid={`granularity-${val}`}
-                aria-pressed={granularity === val}
-                onClick={() => setGranularity(val)}
-                className={`btn ${granularity === val ? 'btn-primary' : 'btn-secondary'}`}
-              >
-                {label}
-              </button>
-            ))}
+          <div className="analytics-filter-field">Detail
+            <div role="group" aria-label="Chart detail" data-testid="granularity-group" className="flex items-center granularity-group">
+              {[['hourly', 'Per hour'], ['daily', 'Per day'], ['weekly', 'Per week']].map(([val, label]) => (
+                <button
+                  key={val}
+                  type="button"
+                  data-testid={`granularity-${val}`}
+                  aria-pressed={granularity === val}
+                  onClick={() => setGranularity(val)}
+                  className={`btn ${granularity === val ? 'btn-primary' : 'btn-secondary'}`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
           </div>
+          <label className="analytics-filter-field">Period
           <select
             value={dateFilter}
             onChange={(e) => { setDateFilter(e.target.value); setCustomStartDate(""); setCustomEndDate(""); }}
@@ -465,6 +468,7 @@ export default function DashboardContent({ activeTab, user }) {
             <option value="Year">This Year</option>
             <option value="Custom">Custom Range</option>
           </select>
+          </label>
           {dateFilter === "Custom" && (
             <DateRangeFilter
               startDate={customStartDate}

@@ -126,6 +126,28 @@ describe('DashboardContent granularity', () => {
     expect(screen.getAllByTestId('sales-summary').some((s) => /Best day/.test(s.textContent))).toBe(true)
   })
 
+  it('should label granularity as chart detail with per-unit names in a sticky bar', async () => {
+    render(
+      <AnalyticsProvider>
+        <DashboardContent activeTab="Sales" user={{ role: 'admin' }} />
+      </AnalyticsProvider>
+    )
+
+    await waitFor(() => {
+      expect(screen.getByTestId('granularity-group')).toBeInTheDocument()
+    })
+    // Per-unit labels disambiguate bucket size from the Period date range.
+    expect(screen.getByTestId('granularity-hourly')).toHaveTextContent('Per hour')
+    expect(screen.getByTestId('granularity-daily')).toHaveTextContent('Per day')
+    expect(screen.getByTestId('granularity-weekly')).toHaveTextContent('Per week')
+    expect(screen.getByTestId('granularity-group')).toHaveAttribute('aria-label', 'Chart detail')
+    // Captions + sticky header row.
+    const header = screen.getByText('Sales Analytics').closest('.analytics-sticky-bar')
+    expect(header).toBeInTheDocument()
+    expect(header).toHaveTextContent('Detail')
+    expect(header).toHaveTextContent('Period')
+  })
+
   it('should reload sales when the browser reconnects', async () => {
     render(
       <AnalyticsProvider>

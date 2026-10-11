@@ -1937,6 +1937,43 @@
   border-left: 1px solid var(--border-color);
 }
 
+/* ── Analytics sticky filter bar ──
+   Whole header row (title + Detail/Period controls) sticks to the top of
+   .page-container--scroll with the same blurred-surface language as
+   .top-header. Negative margins cancel .page-container's padding so the
+   bar spans edge-to-edge while stuck. */
+.analytics-sticky-bar {
+  position: sticky;
+  top: -1.5rem;
+  z-index: 20;
+  margin: -1.5rem -1.5rem 0;
+  padding: 1rem 1.5rem;
+  background-color: var(--bg-surface);
+  background-color: color-mix(in srgb, var(--bg-surface) 88%, transparent);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.analytics-filter-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+@media (max-width: 768px) {
+  .analytics-sticky-bar {
+    top: -1rem;
+    margin: -1rem -1rem 0;
+    padding: 0.75rem 1rem;
+  }
+}
+
 .recipe-trigger-btn {
   height: var(--filter-control-h);
   min-height: var(--filter-control-h);

@@ -87,7 +87,7 @@ async function offlineWrite(table, body) {
 }
 
 // ── Gender-split traffic helpers ───────────────────────────
-// Accepts a legacy total (number) or { male, female, unspecified [, customer_count/total] }.
+// Accepts a legacy total (number) or { male, female, unspecified [, customer_count] }.
 // Always returns non-negative ints with total === male + female + unspecified.
 // Legacy totals with no split land in `unspecified` so old rows still balance.
 function toNonNegativeInt(n) {
@@ -104,8 +104,12 @@ function normalizeGenderCounts(input, totalFallback) {
   const male = toNonNegativeInt(src.male ?? src.male_count)
   const female = toNonNegativeInt(src.female ?? src.female_count)
   let unspecified = toNonNegativeInt(src.unspecified ?? src.unspecified_count)
+  // NOTE: never read `src.total` here. Transaction payloads carry a peso
+  // `total` under that exact key, and mistaking it for a headcount once
+  // wrote peso totals into customer_count (e.g. ₱432 → 432 customers).
+  // Headcounts arrive as customer_count / number_of_customer / fallback.
   let total = toNonNegativeInt(
-    src.total ?? src.customer_count ?? src.number_of_customer ?? totalFallback
+    src.customer_count ?? src.number_of_customer ?? totalFallback
   )
   if (male + female + unspecified === 0 && total > 0) {
     unspecified = total

@@ -111,6 +111,42 @@ describe('MainPOS', () => {
     expect(screen.getByTestId('receipt-customer-breakdown')).toHaveTextContent('M1/F2')
   })
 
+  it('should ask for confirmation before checking out an unusually large party', async () => {
+    const user = userEvent.setup()
+    render(<MainPOS user={mockUser} />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Espresso')).toBeInTheDocument()
+    })
+    const male = screen.getByTestId('male-count-input')
+    await user.clear(male)
+    await user.type(male, '25')
+    await user.click(screen.getByText('Espresso'))
+    await user.click(screen.getByText('Checkout & Log Traffic'))
+
+    // Blocked: confirm modal instead of a write.
+    expect(screen.getByTestId('large-party-modal')).toHaveTextContent('25 customers')
+    expect(screen.getByTestId('large-party-modal')).toHaveTextContent('M25/F0')
+    expect(db.createTransaction).not.toHaveBeenCalled()
+
+    // Going back keeps the order intact for correction.
+    await user.click(screen.getByTestId('large-party-back-btn'))
+    expect(screen.queryByTestId('large-party-modal')).not.toBeInTheDocument()
+    expect(db.createTransaction).not.toHaveBeenCalled()
+    expect(screen.getByTestId('traffic-total')).toHaveTextContent('Total: 25')
+
+    // Confirming writes through with the split.
+    await user.click(screen.getByText('Checkout & Log Traffic'))
+    await user.click(screen.getByTestId('large-party-confirm-btn'))
+
+    await waitFor(() => {
+      expect(db.createTransaction).toHaveBeenCalledWith(
+        expect.objectContaining({ customer_count: 25, male: 25, female: 0, unspecified: 0 })
+      )
+    })
+    expect(db.logTraffic).toHaveBeenCalledWith({ male: 25, female: 0, unspecified: 0 })
+  })
+
   it('should show the saved menu with a stale banner when the database is down', async () => {
     saveMenuCache({
       products: [{ id: 'c1', name: 'Cached Brew', price: 99, category: 'Drinks' }],

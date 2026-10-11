@@ -38,6 +38,12 @@ export function resolveDiscount(subtotal, discountType, vouchers = []) {
   return { amount: 0, rate: 0, voucherId: null, label: 'None' }
 }
 
+// Headcounts above this ask for confirmation at checkout — no cafe party
+// is this big, so anything over is virtually always a typo (or worth a
+// deliberate confirm). Deliberately a soft gate, never a hard cap: a real
+// large group must still be able to check out.
+const PARTY_CONFIRM_THRESHOLD = 20;
+
 export default function MainPOS({ user }) {
   const [maleCount, setMaleCount] = useState(0);
   const [femaleCount, setFemaleCount] = useState(0);
@@ -79,18 +85,19 @@ export default function MainPOS({ user }) {
   const [selectedIds, setSelectedIds] = useState([]);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [batchRemoving, setBatchRemoving] = useState(false);
+  const [showPartyConfirm, setShowPartyConfirm] = useState(false);
 
   // Esc exits speed-dial / select modes.
   useEffect(() => {
     const onKey = (e) => {
       if (e.key !== 'Escape') return;
-      if (showDeleteConfirm || showAddProductModal || showRemoved) return;
+      if (showDeleteConfirm || showAddProductModal || showRemoved || showPartyConfirm) return;
       if (manageMode !== 'idle') exitManageMode();
       else if (fabOpen) setFabOpen(false);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [manageMode, fabOpen, showDeleteConfirm, showAddProductModal, showRemoved]);
+  }, [manageMode, fabOpen, showDeleteConfirm, showAddProductModal, showRemoved, showPartyConfirm]);
 
   // Auto-dismiss success toasts (Undo window) after 8s.
   useEffect(() => {
@@ -710,6 +717,15 @@ export default function MainPOS({ user }) {
 
   const handleCheckout = () => {
     if ((cart.length === 0 && customerCount === 0) || checkoutLoading) return;
+    // Implausibly large parties stop for an explicit confirm instead of
+    // writing a typo to the books. Going back keeps the order intact.
+    if (customerCount > PARTY_CONFIRM_THRESHOLD) { setShowPartyConfirm(true); return; }
+    setCheckoutLoading(true)
+    runCheckout(false)
+  }
+
+  const handleConfirmLargeParty = () => {
+    setShowPartyConfirm(false);
     setCheckoutLoading(true)
     runCheckout(false)
   }
@@ -1217,6 +1233,28 @@ export default function MainPOS({ user }) {
               <button className="btn btn-primary" disabled={checkoutLoading} onClick={handleProceedShortfall}>
                 {checkoutLoading ? 'Processing...' : 'Proceed anyway'}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {showPartyConfirm && (
+        <div className="modal-overlay" onClick={() => setShowPartyConfirm(false)}>
+          <div className="modal-content card" onClick={(e) => e.stopPropagation()}
+            role="dialog" aria-labelledby="large-party-title" data-testid="large-party-modal"
+            style={{ maxWidth: '440px', width: '100%' }}>
+            <div className="modal-header">
+              <h3 id="large-party-title">Large party?</h3>
+              <button className="btn-icon-small" onClick={() => setShowPartyConfirm(false)} aria-label="Close large party confirmation"><X size={18} /></button>
+            </div>
+            <div className="modal-body">
+              <p className="text-sm text-muted m-0">
+                This sale records <strong>{customerCount} customers</strong> (M{clampCount(maleCount)}/F{clampCount(femaleCount)}{clampCount(unspecifiedCount) > 0 ? `/U${clampCount(unspecifiedCount)}` : ''}).
+                If that&apos;s a typo, go back and fix the headcount — otherwise confirm to proceed.
+              </p>
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-secondary" onClick={() => setShowPartyConfirm(false)} data-testid="large-party-back-btn">Go back</button>
+              <button className="btn btn-primary" onClick={handleConfirmLargeParty} data-testid="large-party-confirm-btn">Confirm sale</button>
             </div>
           </div>
         </div>

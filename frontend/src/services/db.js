@@ -142,6 +142,12 @@ function isMissingColumnError(err) {
   return /male_count|female_count|unspecified_count|discount_id|'status'|"status"|refunds|discounts/i.test(msg)
 }
 
+// Migration not applied yet on this environment (table absent entirely).
+function isMissingTableError(err) {
+  const msg = `${err?.message || ''} ${err?.details || ''} ${err?.hint || ''} ${err?.code || ''}`
+  return /could not find the table|relation .* does not exist|^404$|PGRST205/i.test(msg)
+}
+
 export const db = {
   // ── Products ──────────────────────────────────────────
   async getProducts() {
@@ -479,10 +485,11 @@ export const db = {
   // Narrow-column transaction fetch shared by every Analytics widget.
   // Deliberately excludes the bulky cart JSONB: list-level aggregations
   // (payment mix, vouchers, net revenue, order counts) never need it.
+  // Gender columns included for session handover M/F/U (ignored elsewhere).
   async getTransactionsForAnalytics(startDate, endDate) {
     return queryWithTimeout((signal) => supabase
       .from('transactions')
-      .select('id, created_at, subtotal, discount, total, payment_method, discount_type, discount_id, status, customer_count')
+      .select('id, created_at, subtotal, discount, total, payment_method, discount_type, discount_id, status, customer_count, male_count, female_count, unspecified_count')
       .gte('created_at', startDate)
       .lte('created_at', endDate)
       .order('created_at', { ascending: true })
@@ -798,6 +805,72 @@ export const db = {
       })
     } catch (err) {
       if (isMissingColumnError(err)) return null
+      throw err
+    }
+  },
+
+  // ── Shop sessions (one global service period at a time) ──
+  async getActiveSession() {
+    try {
+      const rows = await queryWithTimeout((signal) => supabase
+        .from('sessions')
+        .select('*')
+        .is('ended_at', null)
+        .order('started_at', { ascending: false })
+        .limit(1)
+        .abortSignal(signal))
+      return rows?.[0] ?? null
+    } catch (err) {
+      // Table missing (migration not applied yet) — no active session.
+      if (isMissingColumnError(err) || isMissingTableError(err)) return null
+      throw err
+    }
+  },
+
+  async startSession({ by } = {}) {
+    // One global session: defensively close any straggler left open.
+    try {
+      await offlineSafe(async () => {
+        const { error } = await supabase
+          .from('sessions')
+          .update({ ended_at: new Date().toISOString(), ended_by: by || null })
+          .is('ended_at', null)
+        if (error) throw error
+      })
+    } catch (err) {
+      if (!isMissingColumnError(err)) throw err
+    }
+    return offlineWrite('sessions', {
+      started_at: new Date().toISOString(),
+      ended_at: null,
+      started_by: by || null,
+    })
+  },
+
+  async endSession(id, { by } = {}) {
+    if (!id) throw new Error('Session id is required')
+    return offlineSafe(async () => {
+      const { data, error } = await supabase
+        .from('sessions')
+        .update({ ended_at: new Date().toISOString(), ended_by: by || null })
+        .eq('id', id)
+        .select()
+        .single()
+      if (error) throw error
+      return data
+    })
+  },
+
+  async getSessions(limit = 100) {
+    try {
+      return await queryWithTimeout((signal) => supabase
+        .from('sessions')
+        .select('*')
+        .order('started_at', { ascending: false })
+        .limit(limit)
+        .abortSignal(signal))
+    } catch (err) {
+      if (isMissingColumnError(err) || isMissingTableError(err)) return []
       throw err
     }
   },

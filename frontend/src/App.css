@@ -2263,6 +2263,11 @@
   border-top: 1px solid var(--border-color);
   font-size: 0.85rem;
   color: var(--text-muted);
+  position: sticky;
+  bottom: 0;
+  background: var(--bg-surface);
+  border-radius: 0 0 12px 12px;
+  z-index: 5;
 }
 
 .inventory-pager .btn,
@@ -2315,6 +2320,48 @@
   font-size: 0.85rem;
   width: auto;
   min-height: 38px;
+}
+
+@keyframes txn-fab-pop {
+  from { opacity: 0; transform: scale(0.6) translateY(8px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+.txn-jump-btn:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+.txn-jump-btn {
+  position: fixed;
+  right: 1.5rem;
+  bottom: 1.5rem;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 1px solid var(--border-color);
+  background: var(--bg-surface);
+  color: var(--text-muted);
+  box-shadow: var(--shadow-md);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 60;
+  animation: txn-fab-pop 0.2s ease-out;
+  transition: transform 0.15s ease, color 0.15s ease;
+}
+
+.txn-jump-btn:hover {
+  transform: translateY(-2px);
+  color: var(--text-main);
+}
+
+@media (max-width: 768px) {
+  .txn-jump-btn {
+    right: 1rem;
+    bottom: 1rem;
+  }
 }
 
 @media (max-width: 768px) {
@@ -3140,6 +3187,7 @@
   .btn-primary,
   .btn-accent,
   .toast,
+  .txn-jump-btn,
   .data-table tbody tr.row-selectable {
     transition: none;
     animation: none;

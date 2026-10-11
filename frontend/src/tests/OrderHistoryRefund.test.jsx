@@ -97,17 +97,20 @@ describe('OrderHistoryPage refunds', () => {
     // Selecting a refundable order enables it and opens the modal.
     await user.click(screen.getByTestId('select-order-t1'))
     expect(screen.getByTestId('toolbar-refund-btn')).not.toBeDisabled()
+    // No floating refund button — the toolbar is the single refund entry point.
+    expect(screen.queryByTestId('refund-fab')).not.toBeInTheDocument()
     await user.click(screen.getByTestId('toolbar-refund-btn'))
     expect(screen.getByTestId('refund-modal-mock')).toBeInTheDocument()
   })
 
-  it('should hide all refund buttons from stockists', async () => {
+  it('should hide the refund entry point from stockists', async () => {
     render(<OrderHistoryPage user={{ username: 'stockist', role: 'stockist' }} />)
 
     await waitFor(() => {
       expect(screen.getByTestId('order-row-t1')).toBeInTheDocument()
     })
     expect(screen.queryByTestId('toolbar-refund-btn')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('refund-fab')).not.toBeInTheDocument()
     expect(screen.queryByTestId('select-order-t1')).not.toBeInTheDocument()
     // History itself stays visible
     expect(screen.getByTestId('order-row-t2')).toHaveTextContent('Refunded')
@@ -129,7 +132,8 @@ describe('OrderHistoryPage refunds', () => {
     expect(screen.queryByTestId('selected-chip')).not.toBeInTheDocument()
   })
 
-  it('should keep search and both filters on the same action-bar row', async () => {
+    it('should keep search and both filters on the same action-bar row', async () => {
+
     render(<OrderHistoryPage user={{ username: 'admin', role: 'admin' }} />)
 
     await waitFor(() => {
@@ -236,5 +240,15 @@ describe('OrderHistoryPage refunds', () => {
     // A new search restarts at page one.
     await user.type(screen.getByPlaceholderText('Search by transaction number...'), 'TXN-1')
     expect(screen.getByTestId('txn-pager-count')).toHaveTextContent('Showing 1–10 of 10')
+  })
+
+  it('should keep the back-to-filters button hidden without a scroll container', async () => {
+    render(<OrderHistoryPage user={{ username: 'admin', role: 'admin' }} />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('order-row-t1')).toBeInTheDocument()
+    })
+    // Bare renders have no .page-container--scroll, so the jump button stays hidden.
+    expect(screen.queryByTestId('jump-to-filters-btn')).not.toBeInTheDocument()
   })
 })

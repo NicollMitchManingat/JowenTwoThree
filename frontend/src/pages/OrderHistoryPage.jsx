@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { Search, Download, Receipt, Clock, CheckCircle, XCircle, Undo2 } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { Search, Download, Receipt, Clock, CheckCircle, XCircle, Undo2, ChevronUp } from 'lucide-react';
 import { db } from '../services/db';
 import RefundModal from '../components/pos/RefundModal';
 import LoadingSkeleton from '../components/analytics/LoadingSkeleton';
@@ -72,6 +72,8 @@ export default function OrderHistoryPage({ user }) {
   const [sortDir, setSortDir] = useState('desc');
   const [refundOrder, setRefundOrder] = useState(null);
   const [toast, setToast] = useState(null);
+  const [showJump, setShowJump] = useState(false);
+  const pageRef = useRef(null);
 
   const loadAll = async () => {
     const data = await db.getTransactions()
@@ -119,6 +121,25 @@ export default function OrderHistoryPage({ user }) {
     return () => window.removeEventListener('online', onOnline)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // The page scrolls inside App's .page-container--scroll, not window — so
+  // the back-to-filters button watches that container. In bare renders
+  // (tests) there is no scroll container and the button simply stays hidden.
+  useEffect(() => {
+    const container = pageRef.current?.closest('.page-container--scroll');
+    if (!container) return;
+    const onScroll = () => setShowJump(container.scrollTop > 300);
+    onScroll();
+    container.addEventListener('scroll', onScroll, { passive: true });
+    return () => container.removeEventListener('scroll', onScroll);
+  }, [loading]);
+
+  const jumpToFilters = () => {
+    const container = pageRef.current?.closest('.page-container--scroll');
+    if (!container) return;
+    const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    container.scrollTo({ top: 0, behavior: reduceMotion ? 'auto' : 'smooth' });
+  };
 
   const handleSort = (field) => {
     if (sortField === field) {
@@ -271,7 +292,7 @@ export default function OrderHistoryPage({ user }) {
   }
 
   return (
-    <div className="page-content">
+    <div className="page-content" ref={pageRef}>
       <div className="metrics-grid" style={{ gridTemplateColumns: 'repeat(3, 1fr)' }}>
         <div className="card metric-card">
           <div className="metric-icon" style={{ backgroundColor: '#e8f8f5' }}><Receipt size={24} style={{ color: '#27ae60' }} /></div>
@@ -439,6 +460,18 @@ export default function OrderHistoryPage({ user }) {
           </div>
         )}
       </div>
+
+      {showJump && (
+        <button
+          className="txn-jump-btn"
+          onClick={jumpToFilters}
+          title="Back to search and filters"
+          aria-label="Back to search and filters"
+          data-testid="jump-to-filters-btn"
+        >
+          <ChevronUp size={18} />
+        </button>
+      )}
 
       {refundOrder && (
         <RefundModal

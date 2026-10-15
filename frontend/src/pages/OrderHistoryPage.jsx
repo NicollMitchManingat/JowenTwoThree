@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
-import { Search, Download, Receipt, Clock, CheckCircle, XCircle, Undo2, ChevronUp } from 'lucide-react';
+import { Search, FileSpreadsheet, Receipt, Clock, CheckCircle, XCircle, Undo2, ChevronUp } from 'lucide-react';
 import { db } from '../services/db';
+import { downloadTransactionsExcel } from '../utils/exportTransactionsExcel';
 import RefundModal from '../components/pos/RefundModal';
 import LoadingSkeleton from '../components/analytics/LoadingSkeleton';
 
@@ -72,6 +73,7 @@ export default function OrderHistoryPage({ user }) {
   const [sortDir, setSortDir] = useState('desc');
   const [refundOrder, setRefundOrder] = useState(null);
   const [toast, setToast] = useState(null);
+  const [exportingExcel, setExportingExcel] = useState(false);
   const [showJump, setShowJump] = useState(false);
   const pageRef = useRef(null);
 
@@ -261,26 +263,33 @@ export default function OrderHistoryPage({ user }) {
     }
   }
 
-  const handleExport = () => {
-    const headers = ["Transaction #", "Subtotal", "Discount", "Total", "Refunded", "Net", "Status", "Payment", "Customers", "Male", "Female", "Unspecified", "Date"]
-    const csvRows = [headers.join(",")]
-    for (const order of filtered) {
-      const refunded = refundTotalFor(refundsByTxn, order.id)
-      csvRows.push([
-        order.transaction_number, order.subtotal, order.discount, order.total,
-        refunded.toFixed(2), (Number(order.total || 0) - refunded).toFixed(2), order.status || 'COMPLETED',
-        order.payment_method, order.customer_count || 0,
-        order.male_count ?? "", order.female_count ?? "", order.unspecified_count ?? "",
-        new Date(order.created_at).toLocaleString()
-      ].join(","))
+  const handleExportExcel = async () => {
+    if (exportingExcel) return
+    setExportingExcel(true)
+    try {
+      const statusLabel = (STATUS_OPTIONS.find((o) => o.key === statusFilter) || {}).label || statusFilter
+      const dateLabel = dateFrom || dateTo
+        ? `Custom (${dateFrom || '…'} to ${dateTo || '…'})`
+        : (DATE_PRESETS.find((o) => o.key === datePreset) || {}).label || datePreset
+      const filename = await downloadTransactionsExcel({
+        orders: filtered,
+        refundsByTxn,
+        meta: {
+          storeName: 'JowenTwoThree',
+          statusLabel,
+          dateLabel,
+          search,
+          generatedAt: new Date(),
+          generatedBy: user?.name || user?.email || user?.role || '',
+        },
+      })
+      setToast({ type: 'success', message: `Excel report downloaded (${filename}).` })
+    } catch (err) {
+      console.error('Failed to export Excel:', err)
+      setToast({ type: 'error', message: 'Excel export failed. Please try again.' })
+    } finally {
+      setExportingExcel(false)
     }
-    const blob = new Blob([csvRows.join("\n")], { type: "text/csv" })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement("a")
-    a.href = url
-    a.download = `transactions-${new Date().toISOString().slice(0, 10)}.csv`
-    a.click()
-    URL.revokeObjectURL(url)
   }
 
   if (loading) {
@@ -370,7 +379,7 @@ export default function OrderHistoryPage({ user }) {
               <Undo2 size={16} /> Refund
             </button>
           )}
-          <button className="btn btn-secondary" onClick={handleExport}><Download size={16} /> Export</button>
+          <button className="btn btn-primary" onClick={handleExportExcel} disabled={exportingExcel} data-testid="txn-export-btn" title="Download filtered transactions as a formatted Excel report"><FileSpreadsheet size={16} /> {exportingExcel ? 'Exporting…' : 'Export'}</button>
         </div>
       </div>
 

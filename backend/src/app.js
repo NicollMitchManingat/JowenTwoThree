@@ -9,7 +9,6 @@ const customerTrafficRouter = require("./routes/customerTrafficRoute")
 const predictiveForecastRouter = require("./routes/predictiveForecastRoute")
 const aiInsightsRouter = require("./routes/aiInsightsRoute")
 const consolidatedDataRouter = require("./routes/consolidatedDataRoute")
-const csvExportRouter = require("./routes/csvExportRoute")
 const transactionRouter = require("./routes/transactionRoute") // NEW
 const productRouter = require("./routes/productRoute");
 const authRouter = require("./routes/auth");
@@ -33,7 +32,6 @@ app.use("/api/customer-traffic", customerTrafficRouter)
 app.use("/api/predictive-forecast", predictiveForecastRouter)
 app.use("/api/ai-insights", aiInsightsRouter)
 app.use("/api/consolidated-data", consolidatedDataRouter)
-app.use("/api/export/csv", csvExportRouter)
 app.use("/api/transactions", transactionRouter) // NEW
 app.use("/api/products", productRouter);
 app.use("/api/auth", authRouter);

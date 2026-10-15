@@ -21,23 +21,20 @@ describe("Consolidated Data Route", () => {
       expect(res.body).toHaveProperty("data")
     })
 
-    it("should return summary with totalRevenue", async () => {
+    it("should return a summary with revenue, units, and customer fields", async () => {
       const res = await request(app).get("/api/consolidated-data")
+      const { summary } = res.body.data
 
-      expect(res.body.data.summary).toHaveProperty("totalRevenue")
-      expect(res.body.data.summary.totalRevenue).toBe(4908)
-    })
-
-    it("should return summary with totalUnitsSold", async () => {
-      const res = await request(app).get("/api/consolidated-data")
-
-      expect(res.body.data.summary.totalUnitsSold).toBe(40)
-    })
-
-    it("should return summary with totalCustomers", async () => {
-      const res = await request(app).get("/api/consolidated-data")
-
-      expect(res.body.data.summary.totalCustomers).toBe(5)
+      expect(summary).toHaveProperty("totalRevenue")
+      expect(summary).toHaveProperty("grossRevenue")
+      expect(summary).toHaveProperty("totalRefunded")
+      expect(summary).toHaveProperty("totalUnitsSold")
+      expect(summary).toHaveProperty("totalCustomers")
+      expect(summary).toHaveProperty("totalTransactions")
+      expect(summary).toHaveProperty("avgTicket")
+      expect(summary).toHaveProperty("totalInventoryItems")
+      // Gross − Refunded = Net holds regardless of live or mock data.
+      expect(summary.totalRevenue).toBe(summary.grossRevenue - summary.totalRefunded)
     })
 
     it("should return rows array", async () => {
@@ -57,9 +54,46 @@ describe("Consolidated Data Route", () => {
         expect(row).toHaveProperty("category")
         expect(row).toHaveProperty("quantitySold")
         expect(row).toHaveProperty("totalAmount")
+        expect(row).toHaveProperty("refunded")
+        expect(row).toHaveProperty("status")
         expect(row).toHaveProperty("inStock")
         expect(row).toHaveProperty("inventoryStatus")
       })
+    })
+
+    it("should return per-category rollups", async () => {
+      const res = await request(app).get("/api/consolidated-data")
+
+      expect(Array.isArray(res.body.data.categories)).toBe(true)
+      res.body.data.categories.forEach((cat) => {
+        expect(cat).toHaveProperty("name")
+        expect(cat).toHaveProperty("revenue")
+        expect(cat).toHaveProperty("units")
+        expect(cat).toHaveProperty("transactions")
+      })
+    })
+
+    it("should report its data source in meta", async () => {
+      const res = await request(app).get("/api/consolidated-data")
+
+      expect(res.body.data.meta).toHaveProperty("dataSource")
+      expect(["live", "cart", "mock"]).toContain(res.body.data.meta.dataSource)
+    })
+
+    it("should accept date filters and echo them in meta", async () => {
+      const res = await request(app)
+        .get("/api/consolidated-data?from=2026-10-01&to=2026-10-31")
+
+      expect(res.status).toBe(200)
+      expect(res.body.data.meta.from).toBe("2026-10-01")
+      expect(res.body.data.meta.to).toBe("2026-10-31")
+    })
+
+    it("should reject invalid date filters with a 400", async () => {
+      const res = await request(app).get("/api/consolidated-data?from=not-a-date")
+
+      expect(res.status).toBe(400)
+      expect(res.body).toHaveProperty("error")
     })
 
     it("should return salesByItem", async () => {

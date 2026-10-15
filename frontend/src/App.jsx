@@ -102,7 +102,7 @@ function App() {
       case 'orders':
         return <OrderHistoryPage user={currentUser} />;
       case 'reports':
-        return currentUser.role === 'admin' ? <AnalyticsProvider><DashboardContent activeTab="Sales" user={currentUser} /></AnalyticsProvider> : <MainPOS user={currentUser} />;
+        return currentUser.role === 'admin' ? <AnalyticsProvider><DashboardContent activeTab="Sales" user={currentUser} onNavigate={handleNavClick} /></AnalyticsProvider> : <MainPOS user={currentUser} />;
       case 'settings':
         return <SettingsPage currentUser={currentUser} onLogout={handleLogout} />;
       default:

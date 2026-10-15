@@ -17,7 +17,7 @@ import PaymentMixChart from "../components/analytics/PaymentMixChart";
 import VoucherEffectivenessChart from "../components/analytics/VoucherEffectivenessChart";
 import RefundInsights from "../components/analytics/RefundInsights";
 import TrafficConversionChart from "../components/analytics/TrafficConversionChart";
-import AiInsights from "../components/analytics/AiInsights";
+import AiInsights, { RESOLVE_TARGETS } from "../components/analytics/AiInsights";
 
 function getDateRange(filter) {
   const now = new Date();
@@ -100,7 +100,7 @@ export function aggregateWeeklySales(salesData) {
     }));
 }
 
-export default function DashboardContent({ activeTab, user }) {
+export default function DashboardContent({ activeTab, user, onNavigate }) {
   const { dateFilter, setDateFilter, granularity = 'daily', setGranularity = () => {} } = useContext(AnalyticsContext);
   const [customStartDate, setCustomStartDate] = useState("");
   const [customEndDate, setCustomEndDate] = useState("");
@@ -783,6 +783,10 @@ export default function DashboardContent({ activeTab, user }) {
             loading={!insights && !insightsError}
             error={insightsError}
             onRetry={() => setInsightsRetryKey((k) => k + 1)}
+            onResolve={(key) => {
+              const target = RESOLVE_TARGETS[key]
+              if (target && onNavigate) onNavigate(target)
+            }}
           />
         </div>
       </div>

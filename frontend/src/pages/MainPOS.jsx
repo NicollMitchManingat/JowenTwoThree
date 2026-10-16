@@ -53,6 +53,9 @@ export default function MainPOS({ user }) {
   const customerCount = clampCount(maleCount) + clampCount(femaleCount) + clampCount(unspecifiedCount);
   const [cart, setCart] = useState([]);
   const [discountType, setDiscountType] = useState('none');
+  const [paymentMethod, setPaymentMethod] = useState('CASH');
+  const [cashReceived, setCashReceived] = useState('');
+  const [tenderError, setTenderError] = useState(null);
   const [vouchers, setVouchers] = useState([]);
   // DB-driven discounts (seeded PWD/Senior/Promo + custom vouchers).
   // Empty pre-migration → legacy hardcoded options below take over.
@@ -271,7 +274,24 @@ export default function MainPOS({ user }) {
   const female = makeCountHandlers(setFemaleCount);
   const unspecified = makeCountHandlers(setUnspecifiedCount);
 
-  const resetOrder = () => { setCart([]); setMaleCount(0); setFemaleCount(0); setUnspecifiedCount(0); setDiscountType('none'); };
+  const resetOrder = () => { setCart([]); setMaleCount(0); setFemaleCount(0); setUnspecifiedCount(0); setDiscountType('none'); setPaymentMethod('CASH'); setCashReceived(''); setTenderError(null); };
+
+  // Cash tender helpers: empty input means exact payment (back-compat with
+  // one-tap checkout). A typed value below the total blocks checkout.
+  const parseCashInput = (raw) => {
+    if (raw === '' || raw == null) return null;
+    const n = Number(raw);
+    return Number.isFinite(n) ? Math.round(n * 100) / 100 : NaN;
+  };
+  const resolveTender = (totalAmount) => {
+    const roundedTotal = Math.round(Number(totalAmount || 0) * 100) / 100;
+    if (paymentMethod !== 'CASH') return { cash: roundedTotal, change: 0 };
+    const parsed = parseCashInput(cashReceived);
+    if (parsed === null) return { cash: roundedTotal, change: 0 };
+    if (!Number.isFinite(parsed) || parsed < 0) return { error: 'Enter a valid cash amount.' };
+    if (parsed < roundedTotal) return { error: `Insufficient cash — short ₱${(roundedTotal - parsed).toFixed(2)}.` };
+    return { cash: parsed, change: Math.round((parsed - roundedTotal) * 100) / 100 };
+  };
 
   // Tapping a card adds straight to the cart (no modal). Lines without notes
   // merge by product; annotated lines stay separate.
@@ -514,7 +534,7 @@ export default function MainPOS({ user }) {
   // replayQueuedSale in services/offlineQueue.js. Progress flags skip steps
   // that already succeeded before a mid-write failure, and the shared
   // idempotency key collapses duplicates.
-  const checkoutOffline = async ({ subtotal, discountAmount, total, resolved, transactionNumber, idempotencyKey, progress = {} }) => {
+  const checkoutOffline = async ({ subtotal, discountAmount, total, resolved, transactionNumber, idempotencyKey, progress = {}, paymentMethod: method = 'CASH', cash = null, change = null }) => {
     const traffic = customerCount > 0 ? {
       male: clampCount(maleCount),
       female: clampCount(femaleCount),
@@ -531,9 +551,9 @@ export default function MainPOS({ user }) {
             subtotal,
             discount: discountAmount,
             total,
-            payment_method: 'CASH',
-            cash_received: total,
-            change_amount: 0,
+            payment_method: method,
+            cash_received: cash ?? total,
+            change_amount: change ?? 0,
             customer_count: customerCount,
             male_count: clampCount(maleCount),
             female_count: clampCount(femaleCount),
@@ -578,6 +598,9 @@ export default function MainPOS({ user }) {
       discountType,
       discountLabel: resolved.label,
       total,
+      paymentMethod: method,
+      cashReceived: cash ?? total,
+      changeAmount: change ?? 0,
       customerCount,
       maleCount: clampCount(maleCount),
       femaleCount: clampCount(femaleCount),
@@ -597,6 +620,16 @@ export default function MainPOS({ user }) {
     const resolved = resolveDiscount(subtotal, discountType, vouchers);
     const discountAmount = resolved.amount;
     const total = subtotal - discountAmount;
+    // Cash/GCash tender: GCash is always exact; Cash validates tendered >= total.
+    const tender = resolveTender(total);
+    if (tender.error) {
+      setTenderError(tender.error);
+      setCheckoutLoading(false);
+      return;
+    }
+    setTenderError(null);
+    const tenderCash = tender.cash;
+    const tenderChange = tender.change;
     // Generated once per attempt so an offline retry replays idempotently
     // instead of duplicating the transaction.
     const transactionNumber = `TXN-${Date.now()}`;
@@ -618,7 +651,7 @@ export default function MainPOS({ user }) {
         else if (isRetryableError(stockErr)) {
           // Recipe/inventory reads are unreachable — queue the whole sale
           // (deductions recompute from the cart at sync time).
-          return await checkoutOffline({ subtotal, discountAmount, total, resolved, transactionNumber, idempotencyKey });
+          return await checkoutOffline({ subtotal, discountAmount, total, resolved, transactionNumber, idempotencyKey, paymentMethod, cash: tenderCash, change: tenderChange });
         }
         else throw stockErr;
       }
@@ -629,9 +662,9 @@ export default function MainPOS({ user }) {
         subtotal,
         discount: discountAmount,
         total,
-        payment_method: 'CASH',
-        cash_received: total,
-        change_amount: 0,
+        payment_method: paymentMethod,
+        cash_received: tenderCash,
+        change_amount: tenderChange,
         customer_count: customerCount,
         male: clampCount(maleCount),
         female: clampCount(femaleCount),
@@ -683,6 +716,9 @@ export default function MainPOS({ user }) {
         discountType,
         discountLabel: resolved.label,
         total,
+        paymentMethod,
+        cashReceived: tenderCash,
+        changeAmount: tenderChange,
         customerCount,
         maleCount: clampCount(maleCount),
         femaleCount: clampCount(femaleCount),
@@ -706,7 +742,7 @@ export default function MainPOS({ user }) {
       } else if (isRetryableError(err)) {
         // Database died mid-write: queue the remainder (finished steps are
         // skipped on sync via progress, duplicates collapse on idempotency).
-        return await checkoutOffline({ subtotal, discountAmount, total, resolved, transactionNumber, idempotencyKey, progress });
+        return await checkoutOffline({ subtotal, discountAmount, total, resolved, transactionNumber, idempotencyKey, progress, paymentMethod, cash: tenderCash, change: tenderChange });
       } else {
         alert('Checkout failed: ' + err.message)
       }
@@ -1040,6 +1076,65 @@ export default function MainPOS({ user }) {
               <span>Total</span>
               <span>₱{total.toFixed(2)}</span>
             </div>
+            <div className="payment-selector">
+              <label>Payment</label>
+              <div className="payment-btns" role="radiogroup" aria-label="Payment method">
+                <button
+                  type="button"
+                  className={`btn-filter ${paymentMethod === 'CASH' ? 'active' : ''}`}
+                  onClick={() => { setPaymentMethod('CASH'); setTenderError(null); }}
+                  data-testid="payment-cash"
+                  aria-pressed={paymentMethod === 'CASH'}
+                >
+                  Cash
+                </button>
+                <button
+                  type="button"
+                  className={`btn-filter ${paymentMethod === 'GCASH' ? 'active' : ''}`}
+                  onClick={() => { setPaymentMethod('GCASH'); setTenderError(null); }}
+                  data-testid="payment-gcash"
+                  aria-pressed={paymentMethod === 'GCASH'}
+                >
+                  GCash
+                </button>
+              </div>
+            </div>
+            {paymentMethod === 'CASH' ? (
+              <div className="tender-box">
+                <label htmlFor="cash-received">Cash received (₱)</label>
+                <input
+                  id="cash-received"
+                  type="number"
+                  className="form-input"
+                  placeholder={total.toFixed(2)}
+                  step="0.01"
+                  min="0"
+                  value={cashReceived}
+                  onChange={(e) => { setCashReceived(e.target.value); setTenderError(null); }}
+                  data-testid="cash-received-input"
+                />
+                <div className="tender-bills">
+                  {[20, 50, 100, 500, 1000].map((d) => (
+                    <button key={d} type="button" className="btn btn-secondary tender-bill" onClick={() => { const cur = Number(cashReceived); setCashReceived(String(Math.round(((Number.isFinite(cur) && cur > 0 ? cur : 0) + d) * 100) / 100)); setTenderError(null); }} data-testid={`cash-bill-${d}`}>
+                      ₱{d}
+                    </button>
+                  ))}
+                  <button type="button" className="btn btn-secondary tender-bill" onClick={() => { setCashReceived(total.toFixed(2)); setTenderError(null); }} data-testid="cash-exact-btn">
+                    Exact
+                  </button>
+                  <button type="button" className="btn btn-secondary tender-bill" onClick={() => { setCashReceived(''); setTenderError(null); }} data-testid="cash-clear-btn">
+                    Clear
+                  </button>
+                </div>
+                {(() => {
+                  const t = resolveTender(total);
+                  if (t.error) return <p className="text-danger text-sm tender-error" data-testid="tender-error">{tenderError || t.error}</p>;
+                  return <div className="summary-row"><span>Change</span><span data-testid="change-amount">₱{t.change.toFixed(2)}</span></div>;
+                })()}
+              </div>
+            ) : (
+              <div className="summary-row"><span>GCash amount</span><span>₱{total.toFixed(2)} (exact)</span></div>
+            )}
             <button className="btn btn-primary w-full mt-2" disabled={(cart.length === 0 && customerCount === 0) || checkoutLoading} onClick={handleCheckout}>
               {checkoutLoading ? 'Processing...' : 'Checkout & Log Traffic'}
             </button>
@@ -1079,7 +1174,13 @@ export default function MainPOS({ user }) {
                   <div className="receipt-total-row discount"><span>Discount ({receipt.discountLabel || (receipt.discountType === 'pwd' ? 'PWD 20%' : receipt.discountType === 'senior' ? 'Senior 20%' : receipt.discountType === 'promo' ? 'Promo 10%' : 'Voucher')})</span><span>- ₱{receipt.discountAmount.toFixed(2)}</span></div>
                 )}
                 <div className="receipt-total-row grand-total"><span>Total</span><span>₱{receipt.total.toFixed(2)}</span></div>
-                <div className="receipt-total-row payment"><span>Payment</span><span>Cash</span></div>
+                <div className="receipt-total-row payment"><span>Payment</span><span>{receipt.paymentMethod === 'GCASH' ? 'GCash' : 'Cash'}</span></div>
+                {receipt.paymentMethod !== 'GCASH' && (
+                  <>
+                    <div className="receipt-total-row"><span>Cash received</span><span>₱{Number(receipt.cashReceived ?? receipt.total).toFixed(2)}</span></div>
+                    <div className="receipt-total-row"><span>Change</span><span>₱{Number(receipt.changeAmount ?? 0).toFixed(2)}</span></div>
+                  </>
+                )}
                 {(receipt.stockShortfall || []).length > 0 && (
                   <div className="receipt-total-row discount"><span>Low stock</span><span>{receipt.stockShortfall.join(', ')}</span></div>
                 )}

@@ -67,7 +67,7 @@ describe('InventoryAdjustmentForm Component', () => {
         onSubmit={mockOnSubmit}
       />
     );
-    expect(screen.getByTestId('current-stock-display')).toHaveTextContent('25 units');
+    expect(screen.getByTestId('current-stock-display')).toHaveTextContent('25.00 units');
   });
 
   it('renders quantity input component', () => {

@@ -57,7 +57,7 @@ describe('InventoryTable Integration Tests', () => {
 
     await user.click(editBtn);
     expect(screen.getByTestId('item-name-display')).toHaveTextContent('Milk');
-    expect(screen.getByTestId('current-stock-display')).toHaveTextContent('5 units');
+    expect(screen.getByTestId('current-stock-display')).toHaveTextContent('5.00 units');
   });
 
   it('closes modal when cancel button is clicked', async () => {
@@ -136,7 +136,7 @@ describe('InventoryTable Integration Tests', () => {
     const expiringBadges = screen.getAllByTestId('stock-badge-NearingExpiration');
 
     expect(goodBadges[0]).toHaveStyle({ backgroundColor: '#4CAF50' });
-    expect(lowBadges[0]).toHaveStyle({ backgroundColor: '#FF0000' });
+    expect(lowBadges[0]).toHaveStyle({ backgroundColor: '#FFC107' });
     expect(expiringBadges[0]).toHaveStyle({ backgroundColor: '#FFC107' });
   });
 

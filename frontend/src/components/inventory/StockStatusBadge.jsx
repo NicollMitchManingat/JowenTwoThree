@@ -6,6 +6,8 @@ const getStatusColor = (status) => {
     case 'Good':
       return '#4CAF50'; // Green
     case 'Low':
+      return '#FFC107'; // Yellow
+    case 'OutOfStock':
       return '#FF0000'; // Red
     case 'NearingExpiration':
       return '#FFC107'; // Yellow
@@ -20,6 +22,8 @@ const getStatusLabel = (status) => {
       return 'In Stock';
     case 'Low':
       return 'Low Stock';
+    case 'OutOfStock':
+      return 'Out of Stock';
     case 'NearingExpiration':
       return 'Expiring Soon';
     default:

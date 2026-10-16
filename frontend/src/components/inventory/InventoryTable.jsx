@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import { formatStock } from '../../utils/formatStock';
 import StockStatusBadge from './StockStatusBadge';
 import SearchInput from './SearchInput';
 import FilterDropdown from './FilterDropdown';
@@ -115,7 +116,7 @@ export default function InventoryTable() {
                   <td data-testid={`cell-id-${item.id}`}>{item.id}</td>
                   <td data-testid={`cell-name-${item.id}`}>{item.name}</td>
                   <td data-testid={`cell-category-${item.id}`}>{item.category}</td>
-                  <td data-testid={`cell-stock-${item.id}`}>{item.inStock}</td>
+                  <td data-testid={`cell-stock-${item.id}`}>{formatStock(item.inStock)}</td>
                   <td>
                     <StockStatusBadge 
                       status={item.status} 

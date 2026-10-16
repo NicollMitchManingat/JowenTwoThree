@@ -4,6 +4,7 @@ import { db, isRetryableError, isQueuedRecord } from '../services/db';
 import LowStockBell from '../components/inventory/LowStockBell';
 import LoadingSkeleton from '../components/analytics/LoadingSkeleton';
 import { saveStockCache, loadStockCache } from '../services/stockCache';
+import { formatStock } from '../utils/formatStock';
 import { processQueue, offlineQueue } from '../services/offlineQueue';
 
 const PAGE_SIZE = 10;
@@ -387,7 +388,7 @@ export default function InventoryPage({ userRole }) {
               <button className="btn-icon-small" onClick={() => setShowWastageModal(false)}><X size={18} /></button>
             </div>
             <div className="modal-body">
-              <p className="text-sm text-muted mb-3">Item: <strong>{wastageItem.name}</strong> (Current stock: {wastageItem.stock_quantity})</p>
+              <p className="text-sm text-muted mb-3">Item: <strong>{wastageItem.name}</strong> (Current stock: {formatStock(wastageItem.stock_quantity)})</p>
               <div className="form-group">
                 <label>Wasted Quantity</label>
                 <input type="number" className="form-input" placeholder="0"
@@ -426,7 +427,7 @@ export default function InventoryPage({ userRole }) {
             </div>
             <div className="modal-body">
               <p className="text-sm text-muted m-0">
-                This permanently removes <strong>{deleteTarget.name}</strong> ({deleteTarget.stock_quantity} in stock) from inventory.
+                This permanently removes <strong>{deleteTarget.name}</strong> ({formatStock(deleteTarget.stock_quantity)} in stock) from inventory.
                 Past transactions are kept. This cannot be undone.
               </p>
             </div>
@@ -499,7 +500,7 @@ export default function InventoryPage({ userRole }) {
 
       {canManage && selectedItem && (
         <p className="selected-chip" data-testid="selected-chip">
-          Selected: <strong>{selectedItem.name}</strong> ({selectedItem.stock_quantity} in stock)
+          Selected: <strong>{selectedItem.name}</strong> ({formatStock(selectedItem.stock_quantity)} in stock)
           {selectedLocked && ' — pending sync, actions locked'}
         </p>
       )}
@@ -560,9 +561,9 @@ export default function InventoryPage({ userRole }) {
                 )}
                 <td className="font-semibold">{item.name}</td>
                 <td>{item.category || '-'}</td>
-                <td>{item.stock_quantity}</td>
+                <td>{formatStock(item.stock_quantity)}</td>
                 <td>
-                  <span className={`badge ${status === 'Good' ? 'badge-success' : 'badge-danger'}`}>
+                  <span className={`badge ${status === 'Good' ? 'badge-success' : status === 'Low Stock' ? 'badge-warning' : 'badge-danger'}`}>
                     {status}
                   </span>
                   {item._pendingSync && (

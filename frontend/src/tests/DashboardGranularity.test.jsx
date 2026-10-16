@@ -195,7 +195,7 @@ describe('DashboardContent granularity', () => {
     })
     const outBadge = screen.getByText('Out of stock')
     expect(outBadge).toHaveClass('badge-danger')
-    const lowBadge = screen.getByText('2 left')
+    const lowBadge = screen.getByText('2.00 left')
     expect(lowBadge).toHaveClass('badge-warning')
     // Critical rows sort first.
     expect(

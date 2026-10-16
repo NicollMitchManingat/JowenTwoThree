@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { CookingPot, Plus, Pencil, Trash2, X, AlertTriangle, Search, Minus, CopyPlus, Check, ChevronDown } from 'lucide-react'
 import { db } from '../../services/db'
+import { formatStock } from '../../utils/formatStock'
 
 // Admin recipe management: which inventory (and how much of it, in the
 // inventory row's own unit) each sale of a product deducts.
@@ -554,7 +555,7 @@ export default function RecipeManager() {
                       <tr key={`${line.product_id}-${line.inventory_id}`} data-testid={`recipe-line-${idx}`}>
                         <td className="font-semibold">{line.inventory?.name || inv?.name || 'Unknown'}</td>
                         <td>{Number(line.qty_per_sale)} {inv?.unit || line.inventory?.unit || ''}</td>
-                        <td className="text-muted">{inv != null ? `${inv.stock_quantity} ${inv.unit || ''}` : '-'}</td>
+                        <td className="text-muted">{inv != null ? `${formatStock(inv.stock_quantity)} ${inv.unit || ''}` : '-'}</td>
                         <td>
                           <div className="flex gap-2">
                             <button className="btn-icon-small" title="Edit quantity" aria-label={`Edit quantity for ${inv?.name || 'ingredient'}`}
@@ -628,7 +629,7 @@ export default function RecipeManager() {
                           const already = existingIdsForSelected.has(String(i.id))
                           return (
                             <option key={i.id} value={i.id}>
-                              {i.name}{i.unit ? ` (${i.unit})` : ''} — {i.stock_quantity} in stock{already ? ' ✓ in recipe' : ''}
+                              {i.name}{i.unit ? ` (${i.unit})` : ''} — {formatStock(i.stock_quantity)} in stock{already ? ' ✓ in recipe' : ''}
                             </option>
                           )
                         })}
@@ -672,7 +673,7 @@ export default function RecipeManager() {
                     )}
                     {previewExceedsStock && (
                       <p className="text-sm text-danger" data-testid="recipe-stock-warning">
-                        Qty exceeds on-hand stock ({previewIngredient.stock_quantity} {previewIngredient.unit || ''}) — one sale would drive it negative.
+                        Qty exceeds on-hand stock ({formatStock(previewIngredient.stock_quantity)} {previewIngredient.unit || ''}) — one sale would drive it negative.
                       </p>
                     )}
                   </div>
@@ -750,7 +751,7 @@ export default function RecipeManager() {
                               {already && <span className="text-muted"> — ✓ in recipe</span>}
                             </div>
                             <div className="text-sm text-muted">
-                              {i.stock_quantity} in stock
+                              {formatStock(i.stock_quantity)} in stock
                               {servings != null && qty !== '' && ` → ~${servings} sale(s)`}
                             </div>
                           </div>

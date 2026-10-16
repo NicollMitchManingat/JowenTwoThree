@@ -1,4 +1,5 @@
 import React from 'react';
+import { formatStock } from '../../utils/formatStock';
 
 export default function AlertItem({ alert }) {
   const formatTime = (timestamp) => {
@@ -57,10 +58,10 @@ export default function AlertItem({ alert }) {
         <div className="stock-bar-container">
           <div className="stock-bar-label">
             <span className="current-stock" data-testid={`alert-current-${alert.id}`}>
-              Current: {alert.currentStock} units
+              Current: {formatStock(alert.currentStock)} units
             </span>
             <span className="threshold-stock">
-              Threshold: {alert.threshold} units
+              Threshold: {formatStock(alert.threshold)} units
             </span>
           </div>
           <div className="stock-bar">

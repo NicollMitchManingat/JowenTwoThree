@@ -48,7 +48,7 @@ describe('RecipeManager', () => {
     })
     expect(screen.getByTestId('recipe-line-0')).toHaveTextContent('Whole Milk')
     expect(screen.getByTestId('recipe-line-0')).toHaveTextContent('0.2 L')
-    expect(screen.getByTestId('recipe-line-0')).toHaveTextContent('8 L')
+    expect(screen.getByTestId('recipe-line-0')).toHaveTextContent('8.00 L')
   })
 
   it('should flag products without recipes', async () => {

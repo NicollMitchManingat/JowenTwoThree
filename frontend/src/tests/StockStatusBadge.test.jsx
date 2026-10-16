@@ -30,9 +30,17 @@ describe('StockStatusBadge Component', () => {
     expect(badge).toHaveStyle({ backgroundColor: '#4CAF50' });
   });
 
-  it('applies correct red color for Low status', () => {
+  it('applies correct yellow color for Low status', () => {
     render(<StockStatusBadge status="Low" inStock={5} />);
     const badge = screen.getByTestId('stock-badge-Low');
+    expect(badge).toHaveStyle({ backgroundColor: '#FFC107' });
+  });
+
+  it('renders Out of Stock label with red color for OutOfStock status', () => {
+    render(<StockStatusBadge status="OutOfStock" inStock={0} />);
+    const badge = screen.getByTestId('stock-badge-OutOfStock');
+    expect(badge).toBeInTheDocument();
+    expect(badge).toHaveTextContent('Out of Stock');
     expect(badge).toHaveStyle({ backgroundColor: '#FF0000' });
   });
 

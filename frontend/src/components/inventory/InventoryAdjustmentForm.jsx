@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import Modal from './Modal';
 import QuantityInput from './QuantityInput';
 import AdjustmentReasonDropdown from './AdjustmentReasonDropdown';
+import { formatStock } from '../../utils/formatStock';
 
 export default function InventoryAdjustmentForm({ isOpen, onClose, item, onSubmit }) {
   const [quantity, setQuantity] = useState(1);
@@ -70,7 +71,7 @@ export default function InventoryAdjustmentForm({ isOpen, onClose, item, onSubmi
         <div className="form-group">
           <label className="form-label">Current Stock</label>
           <div className="form-value" data-testid="current-stock-display">
-            {item.inStock} units
+            {formatStock(item.inStock)} units
           </div>
         </div>
 

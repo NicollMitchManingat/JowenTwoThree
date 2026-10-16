@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { Bell, BellOff, Loader2, Package, AlertTriangle, X } from 'lucide-react'
 import { db } from '../../services/db'
 import { loadStockCache } from '../../services/stockCache'
+import { formatStock } from '../../utils/formatStock'
 
 // Exit duration (ms) for the stock-alerts modal — kept in sync with the
 // `stockAlertsOut` keyframes in App.css so unmount lands as the fade ends.
@@ -194,7 +195,7 @@ export default function LowStockBell({ size = 'default' }) {
                               <p className="font-medium">{item.name}</p>
                               <p className="text-sm text-muted">{item.category || 'Uncategorized'}</p>
                             </div>
-                            <span className="badge badge-danger">0 {item.unit || 'units'}</span>
+                            <span className="badge badge-danger">{formatStock(item.stock_quantity)} {item.unit || 'units'}</span>
                           </div>
                         ))}
                       </div>
@@ -212,7 +213,7 @@ export default function LowStockBell({ size = 'default' }) {
                               <p className="font-medium">{item.name}</p>
                               <p className="text-sm text-muted">{item.category || 'Uncategorized'}</p>
                             </div>
-                            <span className="badge badge-warning">{item.stock_quantity} {item.unit || 'units'} left</span>
+                            <span className="badge badge-warning">{formatStock(item.stock_quantity)} {item.unit || 'units'} left</span>
                           </div>
                         ))}
                       </div>

@@ -4,6 +4,7 @@ import { TrendingUp, AlertTriangle, Package, BarChart3, ShoppingBag, Calendar, C
 import { db } from '../services/db';
 import { formatElapsed, loadSessionSummary, HISTORY_PAGE_SIZE } from '../services/sessionAnalytics';
 import { productAPI } from '../services/productAPI';
+import { formatStock } from '../utils/formatStock';
 import { netRevenue, paymentMix, voucherStats, refundSummary, customerTotals, bucketHourlySales, aggregateWeekdayPattern } from '../services/salesAnalytics';
 
 import SummaryCard from "../components/analytics/SummaryCard";
@@ -810,7 +811,7 @@ export default function DashboardContent({ activeTab, user, onNavigate }) {
                   {out ? (
                     <span className="badge badge-danger">Out of stock</span>
                   ) : (
-                    <span className="badge badge-warning">{item.stock_quantity} left</span>
+                    <span className="badge badge-warning">{formatStock(item.stock_quantity)} left</span>
                   )}
                 </div>
               )

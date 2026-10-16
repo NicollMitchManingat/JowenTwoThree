@@ -42,7 +42,7 @@ describe('AlertItem - Ob2W3D1', () => {
   it('displays current stock quantity', () => {
     render(<AlertItem alert={mockAlert} />);
     const currentStock = screen.getByTestId('alert-current-ALERT-001');
-    expect(currentStock).toHaveTextContent('Current: 5 units');
+    expect(currentStock).toHaveTextContent('Current: 5.00 units');
   });
 
   it('displays stock progress bar', () => {

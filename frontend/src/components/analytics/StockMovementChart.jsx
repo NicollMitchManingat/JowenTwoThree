@@ -30,7 +30,7 @@ export const FALLBACK_STOCK = [
 export function stockColor(stockQty) {
   const n = Number(stockQty);
   if (!Number.isFinite(n) || n <= 0) return "#dc2626";
-  if (n < 5) return "#f59e0b";
+  if (n <= 5) return "#f59e0b";
   return "#3b82f6";
 }
 
@@ -125,7 +125,7 @@ export default function StockMovementChart({ data, startDate, endDate }) {
     });
     const low = items.filter((i) => {
       const n = Number(i.stock);
-      return Number.isFinite(n) && n < 5;
+      return Number.isFinite(n) && n <= 5;
     }).length;
     return {
       topSeller: top,

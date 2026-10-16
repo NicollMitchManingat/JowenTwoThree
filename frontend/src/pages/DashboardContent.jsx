@@ -237,7 +237,7 @@ export default function DashboardContent({ activeTab, user, onNavigate }) {
           db.getAdjustments(),
         ]);
         setTodayStats(stats);
-        setLowStock(inv.filter(i => Number(i.stock_quantity) < 5));
+        setLowStock(inv.filter(i => Number(i.stock_quantity) <= 5));
         setAdjustments(adj);
       } catch (err) {
         console.error('Analytics load error:', err);

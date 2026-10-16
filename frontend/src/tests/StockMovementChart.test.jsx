@@ -23,7 +23,7 @@ vi.mock("../services/db", () => ({
   },
 }));
 
-import StockMovementChart from "../components/analytics/StockMovementChart";
+import StockMovementChart, { stockColor } from "../components/analytics/StockMovementChart";
 import { db } from "../services/db";
 import inventoryData from "../data/inventoryData";
 
@@ -102,5 +102,16 @@ describe("StockMovementChart", () => {
     expect(canvas).toHaveAttribute("data-border-radius", "6");
     expect(canvas).toHaveAttribute("data-bar-percentage", "0.5");
     expect(canvas).toHaveAttribute("data-category-percentage", "0.6");
+  });
+
+  it("should treat exactly 5 as low stock (inclusive boundary)", () => {
+    // Unified with the bell query (0 < stock <= 5) and the inventory table:
+    // 5.00 must read low everywhere, not good.
+    expect(stockColor(0)).toBe("#dc2626");
+    expect(stockColor(4.99)).toBe("#f59e0b");
+    expect(stockColor(5)).toBe("#f59e0b");
+    expect(stockColor("5.00")).toBe("#f59e0b");
+    expect(stockColor(5.01)).toBe("#3b82f6");
+    expect(stockColor(25)).toBe("#3b82f6");
   });
 });

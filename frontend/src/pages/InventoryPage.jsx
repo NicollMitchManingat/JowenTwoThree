@@ -19,7 +19,7 @@ const STATUS_OPTIONS = [
 const statusKeyOf = (stock) => {
   const s = Number(stock);
   if (s <= 0) return 'out';
-  if (s < 5) return 'low';
+  if (s <= 5) return 'low';
   return 'good';
 };
 
@@ -330,7 +330,7 @@ export default function InventoryPage({ userRole }) {
 
   const getStatus = (stock) => {
     if (stock <= 0) return 'Out of Stock'
-    if (stock < 5) return 'Low Stock'
+    if (stock <= 5) return 'Low Stock'
     return 'Good'
   }
 

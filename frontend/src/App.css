@@ -549,6 +549,10 @@
   justify-content: flex-start;
 }
 
+.consolidated-table .action-bar--filters {
+  margin-bottom: 1rem;
+}
+
 /* ── Sticky transactions search row ──
    Same blurred-surface language as .analytics-sticky-bar and .top-header.
    Negative margins cancel .page-container's padding so the row spans

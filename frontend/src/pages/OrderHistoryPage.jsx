@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
-import { Search, FileSpreadsheet, Receipt, Clock, CheckCircle, XCircle, Undo2, ChevronUp } from 'lucide-react';
+import { Search, FileSpreadsheet, Receipt, Clock, CheckCircle, XCircle, Undo2, ChevronUp, Users } from 'lucide-react';
 import { db } from '../services/db';
+import { customerTotals } from '../services/salesAnalytics';
 import { downloadTransactionsExcel } from '../utils/exportTransactionsExcel';
 import RefundModal from '../components/pos/RefundModal';
 import LoadingSkeleton from '../components/analytics/LoadingSkeleton';
@@ -230,12 +231,8 @@ export default function OrderHistoryPage({ user }) {
     else setDateTo(value);
     setDatePreset('all');
   };
-  // Net revenue: fully refunded orders excluded, partial refunds subtracted.
-  const totalRevenue = orders.reduce((s, o) => {
-    if ((o.status || 'COMPLETED') === 'REFUNDED') return s
-    return s + Number(o.total || 0) - refundTotalFor(refundsByTxn, o.id)
-  }, 0);
-  const completedCount = orders.filter(o => (o.status || 'COMPLETED') === 'COMPLETED').length;
+  const totalCustomers = customerTotals(filtered).total;
+  const completedCount = filtered.filter(o => (o.status || 'COMPLETED') === 'COMPLETED').length;
 
   const statusIcon = (status) => {
     switch (status) {
@@ -305,15 +302,15 @@ export default function OrderHistoryPage({ user }) {
       <div className="metrics-grid" style={{ gridTemplateColumns: 'repeat(3, 1fr)' }}>
         <div className="card metric-card">
           <div className="metric-icon" style={{ backgroundColor: '#e8f8f5' }}><Receipt size={24} style={{ color: '#27ae60' }} /></div>
-          <div><div className="text-sm text-muted">Total Transactions</div><div className="text-lg font-semibold">{orders.length}</div></div>
+          <div><div className="text-sm text-muted">Total Transactions</div><div className="text-lg font-semibold">{filtered.length}</div></div>
         </div>
         <div className="card metric-card">
           <div className="metric-icon" style={{ backgroundColor: '#f0edf7' }}><Receipt size={24} style={{ color: 'var(--color-primary)' }} /></div>
           <div><div className="text-sm text-muted">Completed</div><div className="text-lg font-semibold">{completedCount}</div></div>
         </div>
         <div className="card metric-card">
-          <div className="metric-icon" style={{ backgroundColor: '#fef5e7' }}><Receipt size={24} style={{ color: '#f59e0b' }} /></div>
-          <div><div className="text-sm text-muted">Total Revenue</div><div className="text-lg font-semibold">₱{totalRevenue.toLocaleString()}</div></div>
+          <div className="metric-icon" style={{ backgroundColor: '#fef5e7' }}><Users size={24} style={{ color: '#f59e0b' }} /></div>
+          <div><div className="text-sm text-muted">Total Customers</div><div className="text-lg font-semibold">{totalCustomers.toLocaleString()}</div></div>
         </div>
       </div>
 

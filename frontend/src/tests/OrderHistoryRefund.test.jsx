@@ -16,6 +16,9 @@ vi.mock('../components/pos/RefundModal', () => ({
 
 import { db } from '../services/db'
 
+const kpiCard = (label) =>
+  screen.getByText(label, { selector: '.text-sm.text-muted' }).parentElement
+
 const ORDERS = [
   {
     id: 't1', transaction_number: 'TXN-1', subtotal: 300, discount: 0, total: 300,
@@ -69,14 +72,14 @@ describe('OrderHistoryPage refunds', () => {
     expect(screen.getByTestId('order-row-t3')).toHaveTextContent('-₱180.00')
   })
 
-  it('should net refunded amounts out of total revenue', async () => {
+  it('should show the total number of customers', async () => {
     render(<OrderHistoryPage user={{ username: 'admin', role: 'admin' }} />)
 
     await waitFor(() => {
       expect(screen.getByTestId('order-row-t1')).toBeInTheDocument()
     })
-    // 300 (t1) + 0 (t2 fully refunded) + 360 − 180 (t3 partial) = ₱480
-    expect(screen.getByText('Total Revenue').parentElement).toHaveTextContent('₱480')
+    // 2 (t1) + 1 (t2, refunded) + 1 (t3, partially refunded) = 4
+    expect(screen.getByText('Total Customers').parentElement).toHaveTextContent('4')
   })
 
   it('should keep the refund button in the toolbar and open the modal for the selected order', async () => {
@@ -179,10 +182,14 @@ describe('OrderHistoryPage refunds', () => {
     expect(screen.getByTestId('order-row-t2')).toBeInTheDocument()
     expect(screen.queryByTestId('order-row-t1')).not.toBeInTheDocument()
     expect(screen.queryByTestId('order-row-t3')).not.toBeInTheDocument()
+    expect(kpiCard('Total Transactions')).toHaveTextContent('1')
+    expect(kpiCard('Completed')).toHaveTextContent('0')
+    expect(kpiCard('Total Customers')).toHaveTextContent('1')
 
     fireEvent.change(statusSelect, { target: { value: 'all' } })
     expect(screen.getByTestId('order-row-t1')).toBeInTheDocument()
     expect(screen.getByTestId('order-row-t3')).toBeInTheDocument()
+    expect(kpiCard('Total Transactions')).toHaveTextContent('3')
   })
 
   it('should filter by date presets and custom range', async () => {
@@ -205,6 +212,8 @@ describe('OrderHistoryPage refunds', () => {
     fireEvent.change(dateSelect, { target: { value: 'today' } })
     expect(screen.getByTestId('order-row-recent')).toBeInTheDocument()
     expect(screen.queryByTestId('order-row-old')).not.toBeInTheDocument()
+    expect(kpiCard('Total Transactions')).toHaveTextContent('1')
+    expect(kpiCard('Total Customers')).toHaveTextContent('1')
 
     fireEvent.change(dateSelect, { target: { value: '7d' } })
     expect(screen.getByTestId('order-row-recent')).toBeInTheDocument()
@@ -212,6 +221,8 @@ describe('OrderHistoryPage refunds', () => {
 
     fireEvent.change(dateSelect, { target: { value: '30d' } })
     expect(screen.getByTestId('order-row-old')).toBeInTheDocument()
+    expect(kpiCard('Total Transactions')).toHaveTextContent('2')
+    expect(kpiCard('Total Customers')).toHaveTextContent('2')
 
     // Custom range isolating the old transaction only — the inputs appear
     // once a custom bound is entered and the select shows "Custom range…".
@@ -222,6 +233,8 @@ describe('OrderHistoryPage refunds', () => {
     expect(screen.getByTestId('txn-date-select')).toHaveValue('custom')
     expect(screen.getByTestId('order-row-old')).toBeInTheDocument()
     expect(screen.queryByTestId('order-row-recent')).not.toBeInTheDocument()
+    expect(kpiCard('Total Transactions')).toHaveTextContent('1')
+    expect(kpiCard('Total Customers')).toHaveTextContent('1')
   })
 
   it('should paginate at twenty rows and reset the page on search', async () => {
@@ -257,6 +270,8 @@ describe('OrderHistoryPage refunds', () => {
     // A new search restarts at page one.
     await user.type(screen.getByPlaceholderText('Search by transaction number...'), 'TXN-1')
     expect(screen.getByTestId('txn-pager-count')).toHaveTextContent('Showing 1–10 of 10')
+    expect(kpiCard('Total Transactions')).toHaveTextContent('10')
+    expect(kpiCard('Total Customers')).toHaveTextContent('10')
   })
 
   it('should keep the back-to-filters button hidden without a scroll container', async () => {

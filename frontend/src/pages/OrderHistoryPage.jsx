@@ -151,7 +151,23 @@ export default function OrderHistoryPage({ user }) {
       setSortField(field);
       setSortDir('desc');
     }
+    setPage(0);
   };
+
+  const sortValue = (order, field) => {
+    switch (field) {
+      case 'refunded': return refundTotalFor(refundsByTxn, order.id);
+      case 'status': return normStatus(order);
+      case 'payment_method': return order.payment_method || 'Cash';
+      case 'customer_count': return Number(order.customer_count) || 0;
+      case 'subtotal':
+      case 'discount':
+      case 'total': return Number(order[field]) || 0;
+      default: return order[field];
+    }
+  };
+
+  const sortArrow = (field) => (sortField === field ? ` ${sortDir === 'asc' ? '▲' : '▼'}` : '');
 
   // Search narrows first; pills count within the search; status and date
   // narrow further; paging slices the visible page. Sort applies last so
@@ -170,8 +186,8 @@ export default function OrderHistoryPage({ user }) {
     .filter(o => statusFilter === 'all' || normStatus(o) === statusFilter)
     .filter(o => matchesDate(o, datePreset, dateFrom, dateTo))
     .sort((a, b) => {
-      const aVal = a[sortField];
-      const bVal = b[sortField];
+      const aVal = sortValue(a, sortField);
+      const bVal = sortValue(b, sortField);
       if (typeof aVal === 'number') return sortDir === 'asc' ? aVal - bVal : bVal - aVal;
       if (sortField === 'created_at') {
         const da = new Date(aVal || 0).getTime()
@@ -392,15 +408,15 @@ export default function OrderHistoryPage({ user }) {
           <thead>
             <tr>
               {canRefund && <th scope="col" aria-label="Select" style={{ width: '2.5rem' }} />}
-              <th onClick={() => handleSort('transaction_number')} style={{ cursor: 'pointer' }}>Transaction # {sortField === 'transaction_number' && (sortDir === 'asc' ? '▲' : '▼')}</th>
-              <th onClick={() => handleSort('subtotal')} style={{ cursor: 'pointer' }}>Subtotal {sortField === 'subtotal' && (sortDir === 'asc' ? '▲' : '▼')}</th>
-              <th onClick={() => handleSort('discount')} style={{ cursor: 'pointer' }}>Discount {sortField === 'discount' && (sortDir === 'asc' ? '▲' : '▼')}</th>
-              <th onClick={() => handleSort('total')} style={{ cursor: 'pointer' }}>Total {sortField === 'total' && (sortDir === 'asc' ? '▲' : '▼')}</th>
-              <th>Refunded</th>
-              <th>Status</th>
-              <th>Payment</th>
-              <th>Customers</th>
-              <th onClick={() => handleSort('created_at')} style={{ cursor: 'pointer' }}>Date {sortField === 'created_at' && (sortDir === 'asc' ? '▲' : '▼')}</th>
+              <th onClick={() => handleSort('transaction_number')} style={{ cursor: 'pointer' }}>Transaction #{sortArrow('transaction_number')}</th>
+              <th onClick={() => handleSort('subtotal')} style={{ cursor: 'pointer' }}>Subtotal{sortArrow('subtotal')}</th>
+              <th onClick={() => handleSort('discount')} style={{ cursor: 'pointer' }}>Discount{sortArrow('discount')}</th>
+              <th onClick={() => handleSort('total')} style={{ cursor: 'pointer' }}>Total{sortArrow('total')}</th>
+              <th onClick={() => handleSort('refunded')} style={{ cursor: 'pointer' }}>Refunded{sortArrow('refunded')}</th>
+              <th onClick={() => handleSort('status')} style={{ cursor: 'pointer' }}>Status{sortArrow('status')}</th>
+              <th onClick={() => handleSort('payment_method')} style={{ cursor: 'pointer' }}>Payment{sortArrow('payment_method')}</th>
+              <th onClick={() => handleSort('customer_count')} style={{ cursor: 'pointer' }}>Customers{sortArrow('customer_count')}</th>
+              <th onClick={() => handleSort('created_at')} style={{ cursor: 'pointer' }}>Date{sortArrow('created_at')}</th>
             </tr>
           </thead>
           <tbody>

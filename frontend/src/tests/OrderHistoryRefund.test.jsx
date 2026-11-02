@@ -237,6 +237,72 @@ describe('OrderHistoryPage refunds', () => {
     expect(kpiCard('Total Customers')).toHaveTextContent('1')
   })
 
+  it('should sort by customer count when the Customers header is clicked', async () => {
+    render(<OrderHistoryPage user={{ username: 'admin', role: 'admin' }} />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('order-row-t1')).toBeInTheDocument()
+    })
+    const header = screen.getByRole('columnheader', { name: /Customers/ })
+    const rowIds = () =>
+      screen.getAllByTestId(/^order-row-/).map((row) => row.getAttribute('data-testid'))
+
+    fireEvent.click(header)
+    expect(header).toHaveTextContent('▼')
+    expect(rowIds()[0]).toBe('order-row-t1')
+
+    fireEvent.click(header)
+    expect(header).toHaveTextContent('▲')
+    const ascending = rowIds()
+    expect(ascending[ascending.length - 1]).toBe('order-row-t1')
+  })
+
+  it('should make every data header sortable with asc/desc indicators', async () => {
+    render(<OrderHistoryPage user={{ username: 'admin', role: 'admin' }} />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('order-row-t1')).toBeInTheDocument()
+    })
+    const headers = screen
+      .getAllByRole('columnheader')
+      .filter((header) => header.textContent.trim())
+    expect(headers).toHaveLength(9)
+
+    headers.forEach((header) => {
+      fireEvent.click(header)
+      expect(header).toHaveTextContent('▼')
+      fireEvent.click(header)
+      expect(header).toHaveTextContent('▲')
+    })
+  })
+
+  it('should sort refunded and status columns by their displayed values', async () => {
+    render(<OrderHistoryPage user={{ username: 'admin', role: 'admin' }} />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('order-row-t1')).toBeInTheDocument()
+    })
+    const rowIds = () =>
+      screen.getAllByTestId(/^order-row-/).map((row) => row.getAttribute('data-testid'))
+
+    const refundedHeader = screen.getByRole('columnheader', { name: /Refunded/ })
+    fireEvent.click(refundedHeader)
+    expect(rowIds()[0]).toBe('order-row-t3')
+    fireEvent.click(refundedHeader)
+    const refundedAsc = rowIds()
+    expect(refundedAsc[refundedAsc.length - 1]).toBe('order-row-t3')
+
+    const statusHeader = screen.getByRole('columnheader', { name: /Status/ })
+    fireEvent.click(statusHeader)
+    let ids = rowIds()
+    expect(ids[0]).toBe('order-row-t2')
+    expect(ids[ids.length - 1]).toBe('order-row-t1')
+    fireEvent.click(statusHeader)
+    ids = rowIds()
+    expect(ids[0]).toBe('order-row-t1')
+    expect(ids[ids.length - 1]).toBe('order-row-t2')
+  })
+
   it('should paginate at twenty rows and reset the page on search', async () => {
     const user = userEvent.setup()
     // Distinct timestamps (one minute apart, newest first) so the default
@@ -266,6 +332,10 @@ describe('OrderHistoryPage refunds', () => {
     // Selection by id works on page two.
     await user.click(screen.getByTestId('select-order-x20'))
     expect(screen.getByTestId('toolbar-refund-btn')).not.toBeDisabled()
+
+    // Changing the sort restarts at page one.
+    fireEvent.click(screen.getByRole('columnheader', { name: /Customers/ }))
+    expect(screen.getByTestId('txn-pager-count')).toHaveTextContent('Showing 1–20 of 21')
 
     // A new search restarts at page one.
     await user.type(screen.getByPlaceholderText('Search by transaction number...'), 'TXN-1')

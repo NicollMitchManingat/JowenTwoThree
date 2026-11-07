@@ -33,7 +33,7 @@ describe("receiptAPI.js - getReceipt()", () => {
         json: () =>
           Promise.resolve({
             success: true,
-            receipt: mockReceipt,
+            transaction: mockReceipt,
           }),
       })
     );
@@ -41,7 +41,7 @@ describe("receiptAPI.js - getReceipt()", () => {
     const result = await getReceipt("TXN-12345");
 
     expect(fetch).toHaveBeenCalledWith(
-      "http://localhost:5000/api/transactions/TXN-12345/receipt"
+      "/api/transactions/TXN-12345/receipt", expect.objectContaining({ credentials: "include" })
     );
     expect(result).toEqual(mockReceipt);
   });

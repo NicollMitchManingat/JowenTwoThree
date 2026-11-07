@@ -433,7 +433,7 @@ export default function DashboardContent({ activeTab, user, onNavigate }) {
       setInsightsError(null);
       try {
         const params = new URLSearchParams({ start: dateRange.start, end: dateRange.end });
-        const res = await fetch(`${INSIGHTS_API_BASE}/api/ai-insights?${params}`, { signal: controller.signal });
+        const res = await fetch(`${INSIGHTS_API_BASE}/api/ai-insights?${params}`, { credentials: 'include', signal: controller.signal });
         if (!res.ok) throw new Error("Failed to load insights.");
         const json = await res.json();
         if (!cancelled) setInsights(json.data ? json.data.insights : json.insights || []);

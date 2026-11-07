@@ -1,4 +1,4 @@
-let supabaseClientGetter = () => require('./supabaseClient').getSupabase()
+let supabaseClientGetter = () => require('../config/supabaseClient').supabase
 
 function __setSupabaseClient(getterFn) {
   // getterFn must return a Supabase-like client with `.from()`.

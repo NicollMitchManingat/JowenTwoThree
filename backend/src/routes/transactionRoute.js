@@ -1,135 +1,19 @@
-const express = require("express");
-const router = express.Router();
-
-const TransactionService = require("../services/transactionService");
-
-// Create transaction
-router.post("/", async (req, res) => {
-  try {
-    const { customerCount, cart } = req.body;
-
-    if (
-      !customerCount ||
-      customerCount <= 0 ||
-      !Array.isArray(cart) ||
-      cart.length === 0
-    ) {
-      return res.status(400).json({
-        success: false,
-        error: "Invalid transaction data",
-      });
-    }
-
-    const transaction = await TransactionService.saveTransaction(req.body);
-
-    return res.status(201).json({
-      success: true,
-      message: "Transaction saved successfully",
-      transaction,
-    });
-  } catch (error) {
-    console.error("Transaction Save Error:", error);
-
-    return res.status(500).json({
-      success: false,
-      error: error.message,
-    });
-  }
-});
-
-// Get transaction history from Supabase
-router.get("/history", async (req, res) => {
-  try {
-    const history = await TransactionService.getTransactionHistory();
-
-    return res.status(200).json({
-      success: true,
-      history,
-    });
-  } catch (error) {
-    console.error("Transaction History Error:", error);
-
-    return res.status(500).json({
-      success: false,
-      error: error.message,
-    });
-  }
-});
-
-// Get all transactions
-router.get("/", async (req, res) => {
-  try {
-    const transactions = await TransactionService.getTransactionHistory();
-
-    return res.status(200).json({
-      success: true,
-      transactions,
-    });
-  } catch (error) {
-    console.error("Get Transactions Error:", error);
-
-    return res.status(500).json({
-      success: false,
-      error: error.message,
-    });
-  }
-});
-
-// Record a refund (money-only; inventory is never restocked).
-// Body: { transaction_id, items, refund_amount, reason, notes?, approved_by, created_by?, fullRefund? }
-router.post("/:id/refund", async (req, res) => {
-  try {
-    const refund = await TransactionService.recordRefund(
-      { ...req.body, transaction_id: req.params.id },
-      req.body.fullRefund === true
-    );
-
-    return res.status(201).json({
-      success: true,
-      message: "Refund recorded successfully",
-      refund,
-    });
-  } catch (error) {
-    const status = /required|greater than 0|at least one/i.test(error.message)
-      ? 400
-      : 500;
-    console.error("Refund Error:", error);
-
-    return res.status(status).json({
-      success: false,
-      error: error.message,
-    });
-  }
-});
-
-// Generate receipt
-router.get("/:id/receipt", async (req, res) => {
-  try {
-    const transaction = await TransactionService.getTransactionById(
-      req.params.id
-    );
-
-    if (!transaction) {
-      return res.status(404).json({
-        success: false,
-        error: "Transaction not found",
-      });
-    }
-
-    const receipt = TransactionService.formatReceipt(transaction);
-
-    return res.status(200).json({
-      success: true,
-      receipt,
-    });
-  } catch (error) {
-    console.error("Receipt Error:", error);
-
-    return res.status(500).json({
-      success: false,
-      error: error.message,
-    });
-  }
-});
-
-module.exports = router;
+const router = require('express').Router()
+const a = require('../services/accessService')
+const { modules } = require('../middleware/authentication')
+const service = require('../services/transactionService')
+const checkout = require('../services/checkoutService')
+const run = fn => (req, res, next) => Promise.resolve(fn(req, res)).catch(next)
+router.post('/', modules('pos'), run(async (req, res) => res.status(201).json({ success: true, ...(await checkout.checkout(req.auth, req.body)) })))
+router.get(['/','/history'], modules('transactions'), run(async (req, res) => {
+  const history = await service.getTransactionHistory()
+  res.json({ success: true, history, transactions: history })
+}))
+router.post('/:id/refund', (req, res) => res.status(410).json({ error: 'Use the authenticated refund command with administrator approval' }))
+router.get('/:id/receipt', run(async (req, res) => {
+  const { data, error } = await a.database().from('transactions').select('*').eq('id', req.params.id).maybeSingle()
+  if (error || !data) throw a.httpError('Transaction not found', 404)
+  if (!a.hasModule(req.user, 'transactions') && data.created_by_user_id !== req.user.id) throw a.httpError('Receipt access is not allowed', 403)
+  res.json({ success: true, transaction: data, receipt: service.formatReceipt(data) })
+}))
+module.exports = router

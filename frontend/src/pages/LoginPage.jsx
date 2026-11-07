@@ -101,7 +101,7 @@ export default function LoginPage({ onLogin }) {
     try {
       // Backend (bcrypt) first; falls back to built-in accounts when offline.
       const user = await authAPI.login({ username, password })
-      onLogin({ username: user.username, role: user.role })
+      onLogin(user)
     } catch (err) {
       setError(err?.message || 'Invalid username or password')
     } finally {

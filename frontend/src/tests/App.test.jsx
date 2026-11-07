@@ -1,104 +1,19 @@
-import { describe, it, expect, vi } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import {it,expect,vi,beforeEach} from 'vitest'
+import {render,screen,waitFor} from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import App from '../App'
+import {authAPI} from '../services/authAPI'
+vi.mock('../services/db',()=>({db:{getProducts:vi.fn().mockResolvedValue([]),getCategories:vi.fn().mockResolvedValue([]),getActiveDiscounts:vi.fn().mockResolvedValue([]),getLowStockItems:vi.fn().mockResolvedValue([]),getOutOfStockItems:vi.fn().mockResolvedValue([]),getInventory:vi.fn().mockResolvedValue([]),getTransactions:vi.fn().mockResolvedValue([]),getRefundsForTransactions:vi.fn().mockResolvedValue([])}}))
+vi.mock('../services/authAPI',()=>({authAPI:{me:vi.fn(),login:vi.fn(),logout:vi.fn()}}))
 
-vi.mock('../services/db', () => ({
-  db: {
-    getProducts: vi.fn().mockResolvedValue([]),
-    getCategories: vi.fn().mockResolvedValue([]),
-    getTransactions: vi.fn().mockResolvedValue([]),
-    getInventory: vi.fn().mockResolvedValue([]),
-    getTodayStats: vi.fn().mockResolvedValue({ totalOrders: 0, totalSales: 0, totalCustomers: 0 }),
-    getInventoryStatus: vi.fn().mockResolvedValue([]),
-    createTransaction: vi.fn(),
-    createTransactionItems: vi.fn(),
-    logTraffic: vi.fn(),
-  }
-}))
-
-describe('App Integration', () => {
-  it('should render login page initially', () => {
-    render(<App />)
-
-    expect(screen.getByText("Jowen's Kitchen & Cafe")).toBeInTheDocument()
-    expect(screen.getByTestId('login-button')).toBeInTheDocument()
-  })
-
-  it('should navigate to main POS after login with admin credentials', async () => {
-    const user = userEvent.setup()
-    render(<App />)
-
-    const usernameInput = screen.getByTestId('username-input')
-    const passwordInput = screen.getByTestId('password-input')
-    const loginButton = screen.getByTestId('login-button')
-
-    await user.type(usernameInput, 'admin')
-    await user.type(passwordInput, 'admin123')
-    await user.click(loginButton)
-
-    await waitFor(() => {
-      expect(screen.getAllByText('POS & Traffic').length).toBeGreaterThanOrEqual(1)
-    })
-  })
-
-  it('should display user profile in top header after login', async () => {
-    const user = userEvent.setup()
-    render(<App />)
-
-    const usernameInput = screen.getByTestId('username-input')
-    const passwordInput = screen.getByTestId('password-input')
-    const loginButton = screen.getByTestId('login-button')
-
-    await user.type(usernameInput, 'admin')
-    await user.type(passwordInput, 'admin123')
-    await user.click(loginButton)
-
-    await waitFor(() => {
-      expect(screen.getByText('admin')).toBeInTheDocument()
-    })
-  })
-
-  it('should show POS content after login', async () => {
-    const user = userEvent.setup()
-    render(<App />)
-
-    const usernameInput = screen.getByTestId('username-input')
-    const passwordInput = screen.getByTestId('password-input')
-    const loginButton = screen.getByTestId('login-button')
-
-    await user.type(usernameInput, 'admin')
-    await user.type(passwordInput, 'admin123')
-    await user.click(loginButton)
-
-    await waitFor(() => {
-      expect(screen.getByText('Menu')).toBeInTheDocument()
-      expect(screen.getByPlaceholderText('Search menu...')).toBeInTheDocument()
-    })
-  })
-
-  it('should return to login page after logout', async () => {
-    const user = userEvent.setup()
-    render(<App />)
-
-    const usernameInput = screen.getByTestId('username-input')
-    const passwordInput = screen.getByTestId('password-input')
-    const loginButton = screen.getByTestId('login-button')
-
-    await user.type(usernameInput, 'admin')
-    await user.type(passwordInput, 'admin123')
-    await user.click(loginButton)
-
-    await waitFor(() => {
-      expect(screen.getByPlaceholderText('Search menu...')).toBeInTheDocument()
-    })
-
-    const logoutButton = screen.getByTitle('Logout')
-    await user.click(logoutButton)
-
-    await waitFor(() => {
-      expect(screen.getByText("Jowen's Kitchen & Cafe")).toBeInTheDocument()
-      expect(screen.getByTestId('login-button')).toBeInTheDocument()
-    })
-  })
+beforeEach(()=>{vi.clearAllMocks();localStorage.clear();authAPI.me.mockRejectedValue(new Error('Sign in'));authAPI.logout.mockResolvedValue({})})
+it('ignores forged localStorage identities',async()=>{
+ localStorage.setItem('jowen_user',JSON.stringify({role:'admin'}));render(<App/>);expect(await screen.findByTestId('login-button')).toBeInTheDocument()
+ expect(screen.queryByRole('navigation')).not.toBeInTheDocument()
+})
+it('logs in through the backend and revokes the session when signing out',async()=>{
+ authAPI.login.mockResolvedValue({id:'a',username:'admin',role:'admin'});const u=userEvent.setup();render(<App/>);
+ await u.type(await screen.findByTestId('username-input'),'admin');await u.type(screen.getByTestId('password-input'),'test-password');await u.click(screen.getByTestId('login-button'))
+ expect(await screen.findByPlaceholderText('Search menu...')).toBeInTheDocument();await u.click(screen.getByLabelText('Log out of POS'))
+ await waitFor(()=>expect(authAPI.logout).toHaveBeenCalled());expect(await screen.findByTestId('login-button')).toBeInTheDocument()
 })

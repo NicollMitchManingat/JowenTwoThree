@@ -1,7 +1,6 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useRef } from 'react'
 import { X, Lock } from 'lucide-react'
 import { db } from '../../services/db'
-import { authAPI } from '../../services/authAPI'
 
 export const REFUND_REASONS = [
   'Wrong item served',
@@ -63,6 +62,7 @@ export default function RefundModal({ order, user, existingRefunds = [], onClose
   const [managerPassword, setManagerPassword] = useState('')
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
+  const operationKey = useRef(crypto.randomUUID())
 
   const isAdmin = user?.role === 'admin'
 
@@ -95,18 +95,6 @@ export default function RefundModal({ order, user, existingRefunds = [], onClose
 
   const handleConfirm = async () => {
     setError('')
-    let approvedBy = user?.username
-    if (!isAdmin) {
-      // Backend bcrypt check (falls back to built-in admin password offline).
-      // Session never changes; approval is recorded as approved_by.
-      try {
-        const check = await authAPI.verifyManager(managerPassword)
-        approvedBy = check.username
-      } catch (err) {
-        setError(err?.message || 'Manager approval failed')
-        return
-      }
-    }
     setSaving(true)
     try {
       const items = selections.map((line) => ({
@@ -117,19 +105,14 @@ export default function RefundModal({ order, user, existingRefunds = [], onClose
       }))
       await db.createRefund({
         transaction_id: order.id,
+        operationKey: operationKey.current,
         items,
         refund_amount: amount,
         reason,
         notes,
-        approved_by: approvedBy,
+        managerPassword,
         created_by: user?.username,
       })
-      await db.updateTransactionStatus(
-        order.id,
-        lines.every((line) => (refundedQty[lineKey(line)] || 0) + Math.min(Number(qtyByKey[lineKey(line)]) || 0, remainingFor(line)) >= (Number(line.qty ?? line.quantity) || 0))
-          ? 'REFUNDED'
-          : 'PARTIALLY_REFUNDED'
-      )
       onRefunded?.()
       onClose?.()
     } catch (err) {

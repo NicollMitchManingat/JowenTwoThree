@@ -55,12 +55,12 @@ describe('RefundModal', () => {
           transaction_id: 'txn-1',
           refund_amount: 300,
           reason: 'Double-charged',
-          approved_by: 'admin',
+          managerPassword: '',
           created_by: 'admin',
         })
       )
     })
-    expect(db.updateTransactionStatus).toHaveBeenCalledWith('txn-1', 'REFUNDED')
+    expect(db.updateTransactionStatus).not.toHaveBeenCalled()
     expect(onRefunded).toHaveBeenCalled()
   })
 
@@ -84,7 +84,7 @@ describe('RefundModal', () => {
     await waitFor(() => {
       expect(db.createRefund).toHaveBeenCalledWith(expect.objectContaining({ refund_amount: 180 }))
     })
-    expect(db.updateTransactionStatus).toHaveBeenCalledWith('txn-1', 'PARTIALLY_REFUNDED')
+    expect(db.updateTransactionStatus).not.toHaveBeenCalled()
   })
 
   it('should subtract already-refunded quantities from what remains', () => {
@@ -113,12 +113,13 @@ describe('RefundModal', () => {
     expect(screen.getByTestId('refund-confirm')).toBeDisabled()
 
     // Wrong password → error, no write (approval is async: backend, then offline fallback)
+    db.createRefund.mockRejectedValueOnce(new Error('Manager approval failed'))
     await user.type(screen.getByTestId('refund-manager-password'), 'wrongpass')
     await user.click(screen.getByTestId('refund-confirm'))
     await waitFor(() => {
       expect(screen.getByTestId('refund-error')).toHaveTextContent(/Manager approval failed/)
     })
-    expect(db.createRefund).not.toHaveBeenCalled()
+    expect(db.createRefund).toHaveBeenCalledWith(expect.objectContaining({ managerPassword: 'wrongpass' }))
 
     // Correct admin password → approved_by admin, created_by cashier
     await user.clear(screen.getByTestId('refund-manager-password'))
@@ -127,7 +128,7 @@ describe('RefundModal', () => {
 
     await waitFor(() => {
       expect(db.createRefund).toHaveBeenCalledWith(
-        expect.objectContaining({ approved_by: 'admin', created_by: 'cashier' })
+        expect.objectContaining({ managerPassword: 'admin123', created_by: 'cashier' })
       )
     })
   })

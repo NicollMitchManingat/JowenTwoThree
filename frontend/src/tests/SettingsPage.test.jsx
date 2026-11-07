@@ -1,3 +1,5 @@
+vi.mock('../services/apiClient', () => ({ apiRequest: vi.fn() }))
+import { apiRequest } from '../services/apiClient'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -31,13 +33,14 @@ vi.mock('../components/settings/RecipeManager', () => ({
 }))
 
 const ADMIN = { username: 'admin', role: 'admin' }
-const CASHIER = { username: 'cashier', role: 'cashier' }
+const CASHIER = { username: 'cashier', role: 'cashier', permissions: ['pos','settings'] }
 const STOCKIST = { username: 'stockist', role: 'stockist' }
 const noop = () => {}
 
 describe('SettingsPage sessions', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    apiRequest.mockImplementation(async () => ({ txns: await db.getTransactionsForAnalytics(), refunds: await db.getRefundsForTransactions() }))
     localStorage.clear()
     db.getActiveSession.mockResolvedValue(null)
     db.getSessions.mockResolvedValue([])
@@ -69,7 +72,7 @@ describe('SettingsPage sessions', () => {
     await user.click(screen.getByTestId('session-start-btn'))
 
     await waitFor(() => {
-      expect(db.startSession).toHaveBeenCalledWith({ by: 'admin', approvedBy: 'admin' })
+      expect(db.startSession).toHaveBeenCalledWith({ managerPassword: undefined })
     })
     expect(screen.getByTestId('session-timer')).toBeInTheDocument()
     // Admins act directly — no approval gate.
@@ -91,7 +94,7 @@ describe('SettingsPage sessions', () => {
     await user.click(screen.getByTestId('session-end-btn'))
 
     await waitFor(() => {
-      expect(db.endSession).toHaveBeenCalledWith('s1', { by: 'admin', approvedBy: 'admin' })
+      expect(db.endSession).toHaveBeenCalledWith('s1', { managerPassword: undefined })
     })
     expect(screen.getByTestId('session-handover')).toBeInTheDocument()
     expect(screen.getByTestId('handover-net-cash')).toHaveTextContent('₱300.00')
@@ -115,7 +118,7 @@ describe('SettingsPage sessions', () => {
     })
     expect(screen.queryByTestId('session-start-btn')).not.toBeInTheDocument()
     expect(screen.queryByTestId('session-timer')).not.toBeInTheDocument()
-    expect(screen.getByText('Stock Management')).toBeInTheDocument()
+    expect(screen.getByText('Stockman')).toBeInTheDocument()
   })
 
   it('should gate cashier start behind the manager password', async () => {
@@ -133,18 +136,20 @@ describe('SettingsPage sessions', () => {
     expect(db.startSession).not.toHaveBeenCalled()
 
     // Wrong password blocks with an inline error.
-    authAPI.verifyManager.mockRejectedValueOnce(new Error('Manager approval failed: incorrect admin password'))
+    db.startSession.mockReset().mockRejectedValueOnce(new Error('Manager approval failed: incorrect admin password'))
     await user.type(screen.getByTestId('session-gate-password'), 'nope')
     await user.click(screen.getByTestId('session-gate-confirm-btn'))
-    expect(screen.getByTestId('session-gate-error')).toHaveTextContent(/incorrect admin password/)
-    expect(db.startSession).not.toHaveBeenCalled()
+    expect(await screen.findByTestId('session-gate-error')).toHaveTextContent(/incorrect admin password/)
+    expect(db.startSession).toHaveBeenCalledWith({ managerPassword: 'nope' })
 
     // Correct password proceeds, attributed to the cashier, approved by the admin.
-    authAPI.verifyManager.mockResolvedValueOnce({ username: 'admin' })
+    db.startSession.mockResolvedValueOnce({ id: 's9', started_at: new Date().toISOString(), started_by: 'cashier' })
+    await user.clear(screen.getByTestId('session-gate-password'))
+    await user.type(screen.getByTestId('session-gate-password'), 'admin123')
     await user.click(screen.getByTestId('session-gate-confirm-btn'))
 
     await waitFor(() => {
-      expect(db.startSession).toHaveBeenCalledWith({ by: 'cashier', approvedBy: 'admin' })
+      expect(db.startSession).toHaveBeenCalledWith({ managerPassword: 'admin123' })
     })
     expect(screen.queryByTestId('session-gate-modal')).not.toBeInTheDocument()
     expect(screen.getByTestId('session-timer')).toBeInTheDocument()
@@ -171,7 +176,7 @@ describe('SettingsPage sessions', () => {
     await user.click(screen.getByTestId('session-gate-confirm-btn'))
 
     await waitFor(() => {
-      expect(db.endSession).toHaveBeenCalledWith('s1', { by: 'cashier', approvedBy: 'admin' })
+      expect(db.endSession).toHaveBeenCalledWith('s1', { managerPassword: 'admin123' })
     })
     expect(screen.getByTestId('session-handover')).toBeInTheDocument()
     expect(screen.getByTestId('handover-net-cash')).toHaveTextContent('₱150.00')

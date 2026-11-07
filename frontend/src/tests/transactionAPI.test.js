@@ -40,9 +40,11 @@ describe("transactionAPI", () => {
 
     expect(fetch).toHaveBeenCalledTimes(1);
     expect(fetch).toHaveBeenCalledWith(
-      "http://localhost:5000/api/transactions",
+      "/api/commands/checkout",
       {
         method: "POST",
+        credentials: "include",
+        signal: undefined,
         headers: {
           "Content-Type": "application/json",
         },
@@ -77,7 +79,7 @@ describe("transactionAPI", () => {
     });
 
     await expect(createTransaction({})).rejects.toThrow(
-      "Failed to save transaction"
+      "Request failed"
     );
   })
   

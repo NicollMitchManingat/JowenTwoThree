@@ -41,7 +41,7 @@ describe('ReceiptModal', () => {
   it('Should display the customer count', () => {
     const props = { ...baseProps }
     render(<ReceiptModal {...props} />)
-    expect(screen.getByText(/Customers:\s*2/)).toBeInTheDocument()
+    expect(screen.getByText('Customers').parentElement).toHaveTextContent('2')
   })
 
   it('Should display special instructions when provided', () => {

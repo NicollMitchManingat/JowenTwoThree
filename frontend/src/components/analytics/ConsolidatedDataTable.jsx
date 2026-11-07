@@ -147,9 +147,9 @@ export default function ConsolidatedDataTable() {
     if (queryBounds.to) params.set("to", queryBounds.to)
     const qs = params.toString() ? `?${params.toString()}` : ""
 
-    fetch(`${API_BASE}/api/consolidated-data${qs}`, { signal: controller.signal })
+    fetch(`${API_BASE}/api/consolidated-data${qs}`, { credentials: 'include', signal: controller.signal })
       .then((res) => {
-        if (!res.ok) throw new Error(`Backend answered ${res.status} — showing demo rows.`)
+        if (!res.ok) throw Object.assign(new Error(`Backend answered ${res.status}`), { status: res.status })
         return res.json()
       })
       .then((json) => {
@@ -160,6 +160,12 @@ export default function ConsolidatedDataTable() {
       })
       .catch((err) => {
         if (cancelled) return
+        if (err.status === 401 || err.status === 403) {
+          setData(null)
+          setLoadError('You are not authorized to view this report.')
+          setLoading(false)
+          return
+        }
         if (err?.name === "AbortError") {
           setLoadError("Request timed out after 8s — backend unreachable. Showing demo rows.")
         } else {
@@ -256,6 +262,7 @@ export default function ConsolidatedDataTable() {
   if (loading) {
     return <div data-testid="consolidated-loading">Loading consolidated data...</div>
   }
+  if (!data && loadError) return <p role="alert">{loadError}</p>
 
   const summary = data?.summary || {}
   const sourceLabel = DATA_SOURCE_LABELS[data?.meta?.dataSource] || "Demo data"

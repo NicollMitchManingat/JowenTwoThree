@@ -1,3 +1,5 @@
+vi.mock('../services/apiClient', () => ({ apiRequest: vi.fn() }))
+import { apiRequest } from '../services/apiClient'
 import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
@@ -63,6 +65,7 @@ function renderDashboard() {
 describe('DashboardContent sessions', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    apiRequest.mockImplementation(async () => ({ txns: await db.getTransactionsForAnalytics(), refunds: await db.getRefundsForTransactions() }))
     setup()
   })
 
@@ -91,7 +94,7 @@ describe('DashboardContent sessions', () => {
 
     await user.click(screen.getByTestId('session-view-s1'))
     await waitFor(() => {
-      expect(db.getTransactionsForAnalytics).toHaveBeenCalledWith(s1start, s1end)
+      expect(apiRequest).toHaveBeenCalledWith('/api/commands/session-summary/s1')
     })
     expect(screen.getByTestId('session-handover')).toBeInTheDocument()
     expect(screen.getByTestId('handover-net-cash')).toHaveTextContent('₱100.00')

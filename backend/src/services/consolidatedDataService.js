@@ -423,7 +423,7 @@ async function getConsolidatedData({ from, to, category } = {}, deps = {}) {
   const fetchInventory =
     deps.fetchInventory !== undefined ? deps.fetchInventory : defaultFetchInventory
 
-  let inventorySummary = []
+  let inventorySummary
   try {
     inventorySummary = (await fetchInventory()) || []
   } catch {

@@ -1,124 +1,29 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { it,expect,vi,beforeEach } from 'vitest'
+import { render,screen,waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import AccountManager from '../components/settings/AccountManager'
-
-vi.mock('../services/authAPI', () => ({
-  authAPI: {
-    listUsers: vi.fn(),
-    createUser: vi.fn().mockResolvedValue({ id: 'new-1' }),
-    updateUser: vi.fn().mockResolvedValue({}),
-  },
-}))
-
 import { authAPI } from '../services/authAPI'
-
-const ACCOUNTS = [
-  { id: 'a1', username: 'admin', fullName: 'Admin User', email: 'admin@jowen.com', role: 'admin', isActive: true },
-  { id: 'c1', username: 'cashier', fullName: 'Cashier', email: 'cashier@jowen.com', role: 'cashier', isActive: true },
-  { id: 's1', username: 'stockist', fullName: 'Stockist', email: 'stockist@jowen.com', role: 'stockist', isActive: false },
-]
-
-const ADMIN_USER = { username: 'admin', role: 'admin' }
-
-async function unlock(user) {
-  await user.type(screen.getByTestId('account-unlock-password'), 'admin123')
-  await user.click(screen.getByTestId('account-unlock-btn'))
-}
-
-describe('AccountManager', () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-    authAPI.listUsers.mockResolvedValue(ACCOUNTS)
-  })
-
-  it('should require the admin password before listing accounts', async () => {
-    const user = userEvent.setup()
-    render(<AccountManager currentUser={ADMIN_USER} />)
-
-    expect(screen.getByTestId('account-unlock-password')).toBeInTheDocument()
-    expect(authAPI.listUsers).not.toHaveBeenCalled()
-
-    await unlock(user)
-
-    await waitFor(() => {
-      expect(authAPI.listUsers).toHaveBeenCalledWith('admin', 'admin123')
-    })
-    expect(screen.getByTestId('account-row-a1')).toBeInTheDocument()
-  })
-
-  it('should surface unlock failures without listing', async () => {
-    const user = userEvent.setup()
-    authAPI.listUsers.mockRejectedValueOnce(new Error('Manager approval failed: incorrect admin password'))
-    render(<AccountManager currentUser={ADMIN_USER} />)
-
-    await unlock(user)
-
-    await waitFor(() => {
-      expect(screen.getByTestId('account-error')).toHaveTextContent(/incorrect admin password/)
-    })
-    expect(screen.queryByTestId('account-row-a1')).not.toBeInTheDocument()
-  })
-
-  it('should list roles and statuses, marking the current admin', async () => {
-    const user = userEvent.setup()
-    render(<AccountManager currentUser={ADMIN_USER} />)
-    await unlock(user)
-
-    await waitFor(() => {
-      expect(screen.getByTestId('account-row-s1')).toBeInTheDocument()
-    })
-    expect(screen.getByTestId('account-row-a1')).toHaveTextContent('You')
-    expect(screen.getByTestId('account-row-s1')).toHaveTextContent('Inactive')
-    expect(screen.getByTestId('account-row-s1')).toHaveTextContent('Stock Management')
-    // No deactivate toggle for your own row
-    expect(screen.queryByTestId('account-toggle-a1')).not.toBeInTheDocument()
-    expect(screen.getByTestId('account-toggle-s1')).toHaveTextContent('Activate')
-  })
-
-  it('should create a new cashier account from the form', async () => {
-    const user = userEvent.setup()
-    render(<AccountManager currentUser={ADMIN_USER} />)
-    await unlock(user)
-
-    await waitFor(() => {
-      expect(screen.getByTestId('account-add-btn')).toBeInTheDocument()
-    })
-    await user.click(screen.getByTestId('account-add-btn'))
-    expect(screen.getByRole('option', { name: 'Stock Management' })).toHaveValue('stockist')
-    await user.type(screen.getByTestId('account-username-input'), 'cashier2')
-    await user.type(screen.getByTestId('account-name-input'), 'Cashier Two')
-    await user.type(screen.getByTestId('account-email-input'), 'cashier2@jowen.com')
-    await user.selectOptions(screen.getByTestId('account-role-select'), 'cashier')
-    await user.type(screen.getByTestId('account-password-input'), 'cafe123')
-    await user.click(screen.getByTestId('account-save-btn'))
-
-    await waitFor(() => {
-      expect(authAPI.createUser).toHaveBeenCalledWith(
-        expect.objectContaining({
-          username: 'cashier2',
-          email: 'cashier2@jowen.com',
-          role: 'cashier',
-          password: 'cafe123',
-        }),
-        'admin',
-        'admin123'
-      )
-    })
-  })
-
-  it('should deactivate another account via the toggle', async () => {
-    const user = userEvent.setup()
-    render(<AccountManager currentUser={ADMIN_USER} />)
-    await unlock(user)
-
-    await waitFor(() => {
-      expect(screen.getByTestId('account-toggle-c1')).toBeInTheDocument()
-    })
-    await user.click(screen.getByTestId('account-toggle-c1'))
-
-    await waitFor(() => {
-      expect(authAPI.updateUser).toHaveBeenCalledWith('c1', { isActive: false }, 'admin', 'admin123')
-    })
-  })
+vi.mock('../services/authAPI',()=>({authAPI:{listUsers:vi.fn(),createUser:vi.fn(),updateUser:vi.fn()}}))
+const admin={id:'a',username:'admin',role:'admin',isActive:true,permissions:['pos','inventory','transactions','analytics','settings']}
+const staff={id:'s',username:'stockman',fullName:'Stockman',role:'stockist',isActive:true,permissions:['inventory']}
+beforeEach(()=>{vi.clearAllMocks();authAPI.listUsers.mockResolvedValue([admin,staff]);authAPI.createUser.mockResolvedValue({});authAPI.updateUser.mockResolvedValue({})})
+it('loads accounts using the authenticated admin session and replaces email with access level',async()=>{
+ render(<AccountManager currentUser={admin}/>);expect(await screen.findByTestId('account-row-s')).toHaveTextContent('stockman')
+ expect(screen.getByText('Access Level')).toBeInTheDocument();expect(screen.queryByText('Email')).not.toBeInTheDocument()
+ expect(authAPI.listUsers).toHaveBeenCalledWith();expect(screen.queryByTestId('account-unlock-password')).not.toBeInTheDocument()
+})
+it('edits names and module grants without sending email or existing passwords',async()=>{
+ const u=userEvent.setup();render(<AccountManager currentUser={admin}/>);await screen.findByTestId('account-row-s');await u.click(screen.getByTestId('account-edit-s'))
+ await u.click(screen.getByLabelText('Transactions'));await u.click(screen.getByTestId('account-save-btn'))
+ await waitFor(()=>expect(authAPI.updateUser).toHaveBeenCalledWith('s',expect.objectContaining({username:'stockman',permissions:['inventory','transactions']})))
+ expect(authAPI.updateUser.mock.calls[0][1]).not.toHaveProperty('email');expect(authAPI.updateUser.mock.calls[0][1]).not.toHaveProperty('password')
+})
+it('cannot disable or demote the currently signed-in admin from the form',async()=>{
+ const u=userEvent.setup();render(<AccountManager currentUser={admin}/>);await screen.findByTestId('account-edit-a')
+ expect(screen.queryByTestId('account-toggle-a')).not.toBeInTheDocument();await u.click(screen.getByTestId('account-edit-a'))
+ expect(screen.getByTestId('account-role-select')).toBeDisabled()
+})
+it('shows backend permission failures',async()=>{
+ authAPI.listUsers.mockRejectedValue(new Error('Administrator access is required'));render(<AccountManager currentUser={admin}/>)
+ expect(await screen.findByRole('alert')).toHaveTextContent('Administrator access is required')
 })

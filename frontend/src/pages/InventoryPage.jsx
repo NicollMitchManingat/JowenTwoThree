@@ -8,6 +8,8 @@ import { formatStock } from '../utils/formatStock';
 import { processQueue, offlineQueue } from '../services/offlineQueue';
 
 const PAGE_SIZE = 10;
+const stockVersion = item => ({ baseStockQty: Number(item?.stock_quantity),
+  ...(item?.updated_at ? { expectedUpdatedAt: item.updated_at } : {}) });
 
 const STATUS_OPTIONS = [
   { key: 'all', label: 'All' },
@@ -24,8 +26,8 @@ const statusKeyOf = (stock) => {
 };
 
 export default function InventoryPage({ userRole }) {
-  // Stockists manage stock day-to-day (add/edit/wastage/delete).
-  // Deletes always ask for confirmation first since they are permanent.
+  // Stockman staff manage stock day-to-day.
+  // Archiving retains the item and its adjustment history.
   const canManage = userRole === 'admin' || userRole === 'stockist';
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleting, setDeleting] = useState(false);
@@ -36,6 +38,7 @@ export default function InventoryPage({ userRole }) {
   const [showModal, setShowModal] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [editId, setEditId] = useState(null);
+  const [editVersion, setEditVersion] = useState(null);
   const [inventoryData, setInventoryData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(null);
@@ -181,6 +184,7 @@ export default function InventoryPage({ userRole }) {
     setFormData({ name: item.name, category: item.category || 'Other', stock_quantity: item.stock_quantity, unit: item.unit || 'kg' });
     setIsEditing(true);
     setEditId(item.id);
+    setEditVersion(stockVersion(item));
     setShowModal(true);
   };
 
@@ -202,7 +206,7 @@ export default function InventoryPage({ userRole }) {
     }
     try {
       if (isEditing && editId) {
-        await db.updateInventoryItem(editId, updates)
+        await db.updateInventoryItem(editId, updates, editVersion)
       } else {
         const created = await db.createInventoryItem({
           name: formData.name,
@@ -224,8 +228,7 @@ export default function InventoryPage({ userRole }) {
     } catch (err) {
       if (isRetryableError(err) && isEditing && editId) {
         try {
-          const current = inventoryData.find(i => String(i.id) === String(editId))
-          await db.queueInventoryUpdate(editId, updates, { baseStockQty: Number(current?.stock_quantity) })
+          await db.queueInventoryUpdate(editId, updates, { ...editVersion, ...(err.command || {}) })
           applyOptimisticList(inventoryData.map(i =>
             String(i.id) === String(editId) ? { ...i, ...updates } : i
           ))
@@ -251,7 +254,8 @@ export default function InventoryPage({ userRole }) {
     } catch (err) {
       if (isRetryableError(err)) {
         try {
-          await db.queueInventoryDelete(deleteTarget.id)
+          if (err.command) await db.queueInventoryDelete(deleteTarget.id, { operationKey: err.command.operationKey })
+          else await db.queueInventoryDelete(deleteTarget.id)
           const id = deleteTarget.id
           applyOptimisticList(inventoryData.filter(i => String(i.id) !== String(id)))
           setDeleteTarget(null)
@@ -283,23 +287,11 @@ export default function InventoryPage({ userRole }) {
     const qty = Number(wastageQty);
     const prevQty = Number(wastageItem.stock_quantity);
     const newQty = Math.max(0, prevQty - qty);
-    // Tracks whether the adjustment already queued itself (createAdjustment
-    // auto-queues on retryable errors) so the replay below doesn't log it
-    // a second time.
-    let adjustmentQueued = false;
+    // The server commits the quantity and adjustment together.
     try {
-      const adj = await db.createAdjustment({
-        inventory_id: wastageItem.id,
-        previous_quantity: prevQty,
-        new_quantity: newQty,
-        change_amount: -qty,
-        reason: wastageReason,
-        notes: wastageNotes || null,
-      });
-      adjustmentQueued = isQueuedRecord(adj);
       await db.updateInventoryItem(wastageItem.id, {
         stock_quantity: newQty,
-      });
+      }, { ...stockVersion(wastageItem), reason: wastageReason, notes: wastageNotes || null });
       setShowWastageModal(false);
       await loadInventory();
     } catch (err) {
@@ -309,10 +301,10 @@ export default function InventoryPage({ userRole }) {
             wastageItem.id,
             { stock_quantity: newQty },
             {
-              baseStockQty: prevQty,
+              ...stockVersion(wastageItem),
               reason: wastageReason,
               notes: wastageNotes || null,
-              skipAdjustment: adjustmentQueued,
+              ...(err.command || {}),
             }
           );
           const id = wastageItem.id;
@@ -429,8 +421,8 @@ export default function InventoryPage({ userRole }) {
             </div>
             <div className="modal-body">
               <p className="text-sm text-muted m-0">
-                This permanently removes <strong>{deleteTarget.name}</strong> ({formatStock(deleteTarget.stock_quantity)} in stock) from inventory.
-                Past transactions are kept. This cannot be undone.
+                This removes <strong>{deleteTarget.name}</strong> ({formatStock(deleteTarget.stock_quantity)} in stock) from active inventory.
+                Past transactions and inventory adjustments are kept.
               </p>
             </div>
             <div className="modal-footer">

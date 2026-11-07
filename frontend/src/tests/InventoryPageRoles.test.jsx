@@ -136,7 +136,7 @@ describe('InventoryPage roles', () => {
 
     await waitFor(() => expect(db.updateInventoryItem).toHaveBeenCalledWith('i1', {
       name: 'Milk', category: 'Dairy', stock_quantity: 7.125, unit: 'L',
-    }))
+    }, { baseStockQty: 8.25 }))
     expect(db.updateInventoryItem).toHaveBeenCalledTimes(1)
     expect(db.createInventoryItem).not.toHaveBeenCalled()
   })
@@ -389,7 +389,7 @@ describe('InventoryPage roles', () => {
       expect(db.queueInventoryUpdate).toHaveBeenCalledWith(
         'i1',
         { stock_quantity: 6 },
-        expect.objectContaining({ baseStockQty: 8, reason: 'spoiled', skipAdjustment: true })
+        expect.objectContaining({ baseStockQty: 8, reason: 'spoiled',  })
       )
     })
     expect(screen.getByTestId('select-item-i1').closest('tr')).toHaveTextContent('6')

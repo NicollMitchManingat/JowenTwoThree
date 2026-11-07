@@ -1,13 +1,13 @@
 import { useState, useEffect, useRef, useEffect as useLayoutEffect } from "react";
 import { ShoppingCart, Plus, Minus, Users, Tag, X, Search, RefreshCcw, Printer, AlertCircle, CheckCircle, Edit, Pencil } from 'lucide-react';
-import { db, isRetryableError } from '../services/db';
+import { db } from '../services/db';
 import { productAPI } from '../services/productAPI';
 import RadialFabMenu from '../components/pos/RadialFabMenu';
 import LowStockBell from '../components/inventory/LowStockBell';
 import LoadingSkeleton from '../components/analytics/LoadingSkeleton';
 import { saveMenuCache, loadMenuCache } from '../services/menuCache';
 import { mockProducts } from '../data/mockProducts';
-import { offlineQueue, processQueue } from '../services/offlineQueue';
+import { processQueue } from '../services/offlineQueue';
 import { getProductIcon } from '../components/pos/productIcons';
 import { formatDiscountLabel } from '../components/settings/DiscountManager';
 
@@ -53,6 +53,35 @@ export default function MainPOS({ user }) {
   const customerCount = clampCount(maleCount) + clampCount(femaleCount) + clampCount(unspecifiedCount);
   const [cart, setCart] = useState([]);
   const [discountType, setDiscountType] = useState('none');
+  const [orderKey, setOrderKey] = useState(() => crypto.randomUUID());
+  const [approvalId, setApprovalId] = useState(null);
+  const [pendingDiscount, setPendingDiscount] = useState(null);
+  const [approvalPassword, setApprovalPassword] = useState('');
+  const [approvalError, setApprovalError] = useState('');
+  const [approvalWorking, setApprovalWorking] = useState(false);
+  const latestOrderKey = useRef(orderKey);
+  latestOrderKey.current = orderKey;
+  useEffect(() => {
+    setOrderKey(crypto.randomUUID()); setApprovalId(null); setPendingDiscount(null); setApprovalPassword('');
+    if (user?.role !== 'admin') setDiscountType('none');
+  }, [cart, maleCount, femaleCount, unspecifiedCount, user?.id, user?.role]);
+  const orderInput = (choice = discountType) => ({ orderKey, cart, discountType: choice,
+    counts: { male: clampCount(maleCount), female: clampCount(femaleCount), unspecified: clampCount(unspecifiedCount) } });
+  const chooseDiscount = (choice) => {
+    setApprovalId(null);
+    if (choice === 'none' || user?.role === 'admin') { setDiscountType(choice); return; }
+    setDiscountType('none'); setPendingDiscount(choice); setApprovalError(''); setApprovalPassword('');
+  };
+  const requestDiscountApproval = async () => {
+    setApprovalWorking(true); setApprovalError('');
+    const requestKey = orderKey;
+    try {
+      const result = await db.approveDiscount({ ...orderInput(pendingDiscount), adminPassword: approvalPassword });
+      if (latestOrderKey.current !== requestKey) return;
+      setApprovalId(result.approvalId); setDiscountType(pendingDiscount); setPendingDiscount(null); setApprovalPassword('');
+    } catch (err) { setApprovalError(err.message); }
+    finally { setApprovalWorking(false); }
+  };
   const [paymentMethod, setPaymentMethod] = useState('CASH');
   const [cashReceived, setCashReceived] = useState('');
   const [tenderError, setTenderError] = useState(null);
@@ -274,7 +303,7 @@ export default function MainPOS({ user }) {
   const female = makeCountHandlers(setFemaleCount);
   const unspecified = makeCountHandlers(setUnspecifiedCount);
 
-  const resetOrder = () => { setCart([]); setMaleCount(0); setFemaleCount(0); setUnspecifiedCount(0); setDiscountType('none'); setPaymentMethod('CASH'); setCashReceived(''); setTenderError(null); };
+  const resetOrder = () => { setOrderKey(crypto.randomUUID()); setApprovalId(null); setCart([]); setMaleCount(0); setFemaleCount(0); setUnspecifiedCount(0); setDiscountType('none'); setPaymentMethod('CASH'); setCashReceived(''); setTenderError(null); };
 
   // Cash tender helpers: empty input means exact payment (back-compat with
   // one-tap checkout). A typed value below the total blocks checkout.
@@ -529,227 +558,21 @@ export default function MainPOS({ user }) {
     }
   }, [vouchers, discountType, useDbDiscounts]);
 
-  // Queues a sale while the database is unreachable. The queue replays it
-  // (transaction + items + traffic + deductions) once back online — see
-  // replayQueuedSale in services/offlineQueue.js. Progress flags skip steps
-  // that already succeeded before a mid-write failure, and the shared
-  // idempotency key collapses duplicates.
-  const checkoutOffline = async ({ subtotal, discountAmount, total, resolved, transactionNumber, idempotencyKey, progress = {}, paymentMethod: method = 'CASH', cash = null, change = null }) => {
-    const traffic = customerCount > 0 ? {
-      male: clampCount(maleCount),
-      female: clampCount(femaleCount),
-      unspecified: clampCount(unspecifiedCount),
-    } : null
-    try {
-      await offlineQueue.enqueue({
-        method: 'sale',
-        table: 'transactions',
-        body: {
-          transaction: {
-            transaction_number: transactionNumber,
-            idempotency_key: idempotencyKey,
-            subtotal,
-            discount: discountAmount,
-            total,
-            payment_method: method,
-            cash_received: cash ?? total,
-            change_amount: change ?? 0,
-            customer_count: customerCount,
-            male_count: clampCount(maleCount),
-            female_count: clampCount(femaleCount),
-            unspecified_count: clampCount(unspecifiedCount),
-            special_instructions: '',
-            discount_type: resolved.voucherId ? 'voucher' : (discountType !== 'none' ? discountType : null),
-            discount_value: resolved.voucherId ? resolved.rate : discountAmount,
-            discount_id: resolved.voucherId,
-            status: 'COMPLETED',
-            cart,
-          },
-          items: cart.map(item => ({
-            product_id: item.productId,
-            quantity: item.qty,
-            unit_price: item.price,
-            subtotal: item.price * item.qty,
-            note: item.note || null,
-          })),
-          cart: cart.map(item => ({ productId: item.productId, qty: item.qty })),
-          traffic,
-          itemsSkipped: !!progress.itemsDone,
-          deductionsSkipped: !!progress.deductionsDone,
-          trafficSkipped: !traffic || !!progress.trafficDone,
-        },
-      })
-    } catch (queueErr) {
-      alert('Checkout failed and the sale could not be queued: ' + (queueErr?.message || queueErr))
-      return
-    }
-
-    setReceipt({
-      transaction: { transaction_number: transactionNumber },
-      items: cart.map(item => ({
-        name: item.name,
-        qty: item.qty,
-        price: item.price,
-        subtotal: item.price * item.qty,
-        note: item.note || '',
-      })),
-      subtotal,
-      discountAmount,
-      discountType,
-      discountLabel: resolved.label,
-      total,
-      paymentMethod: method,
-      cashReceived: cash ?? total,
-      changeAmount: change ?? 0,
-      customerCount,
-      maleCount: clampCount(maleCount),
-      femaleCount: clampCount(femaleCount),
-      unspecifiedCount: clampCount(unspecifiedCount),
-      timestamp: new Date().toISOString(),
-      stockShortfall: [],
-      queued: true,
-    });
-    setShowReceipt(true);
-    setToast({ type: 'success', message: 'Sale queued — will sync when the database is back.' });
-    setShortfall(null);
-    resetOrder()
-  }
-
   const runCheckout = async (allowShortage) => {
-    const subtotal = cart.reduce((sum, item) => sum + (item.price * item.qty), 0);
-    const resolved = resolveDiscount(subtotal, discountType, vouchers);
-    const discountAmount = resolved.amount;
-    const total = subtotal - discountAmount;
-    // Cash/GCash tender: GCash is always exact; Cash validates tendered >= total.
-    const tender = resolveTender(total);
-    if (tender.error) {
-      setTenderError(tender.error);
-      setCheckoutLoading(false);
-      return;
-    }
-    setTenderError(null);
-    const tenderCash = tender.cash;
-    const tenderChange = tender.change;
-    // Generated once per attempt so an offline retry replays idempotently
-    // instead of duplicating the transaction.
-    const transactionNumber = `TXN-${Date.now()}`;
-    const idempotencyKey = `${Date.now()}-${Math.random()}`;
-    // Tracks completed steps so a mid-write database failure queues only
-    // the remainder instead of duplicating finished writes on sync.
-    const progress = { itemsDone: false, deductionsDone: false, trafficDone: false };
-
     try {
-      // Validate BEFORE any write so a blocked sale creates no
-      // transaction/items/traffic rows. Throws INSUFFICIENT_STOCK with
-      // .shortfalls + .required when ingredients run short.
-      let required;
-      try {
-        required = await db.computeRequiredDeductions(cart)
-      } catch (stockErr) {
-        if (stockErr?.code === 'INSUFFICIENT_STOCK' && !allowShortage) throw stockErr;
-        if (stockErr?.code === 'INSUFFICIENT_STOCK' && allowShortage) required = stockErr.required || [];
-        else if (isRetryableError(stockErr)) {
-          // Recipe/inventory reads are unreachable — queue the whole sale
-          // (deductions recompute from the cart at sync time).
-          return await checkoutOffline({ subtotal, discountAmount, total, resolved, transactionNumber, idempotencyKey, paymentMethod, cash: tenderCash, change: tenderChange });
-        }
-        else throw stockErr;
-      }
-
-      const txn = await db.createTransaction({
-        transaction_number: transactionNumber,
-        idempotency_key: idempotencyKey,
-        subtotal,
-        discount: discountAmount,
-        total,
-        payment_method: paymentMethod,
-        cash_received: tenderCash,
-        change_amount: tenderChange,
-        customer_count: customerCount,
-        male: clampCount(maleCount),
-        female: clampCount(femaleCount),
-        unspecified: clampCount(unspecifiedCount),
-        special_instructions: '',
-        discount_type: resolved.voucherId ? 'voucher' : (discountType !== 'none' ? discountType : null),
-        discount_value: resolved.voucherId ? resolved.rate : discountAmount,
-        discount_id: resolved.voucherId,
-        cart,
-      })
-
-      const items = cart.map(item => ({
-        transaction_id: txn.id,
-        product_id: item.productId,
-        quantity: item.qty,
-        unit_price: item.price,
-        subtotal: item.price * item.qty,
-        note: item.note || null,
-      }))
-      await db.createTransactionItems(items)
-      progress.itemsDone = true
-
-      // Deduct ingredients + log one adjustment per ingredient.
-      // Rolls back partial deductions on failure (see db.applyDeductions).
-      // Override path floors short lines at 0 and flags the shortfall.
-      const { shorted } = await db.applyDeductions(required, txn.transaction_number, { allowShortage })
-      progress.deductionsDone = true
-
-      if (customerCount > 0) {
-        await db.logTraffic({
-          male: clampCount(maleCount),
-          female: clampCount(femaleCount),
-          unspecified: clampCount(unspecifiedCount),
-        })
-        progress.trafficDone = true
-      }
-
-      const receiptData = {
-        transaction: txn,
-        items: cart.map(item => ({
-          name: item.name,
-          qty: item.qty,
-          price: item.price,
-          subtotal: item.price * item.qty,
-          note: item.note || '',
-        })),
-        subtotal,
-        discountAmount,
-        discountType,
-        discountLabel: resolved.label,
-        total,
-        paymentMethod,
-        cashReceived: tenderCash,
-        changeAmount: tenderChange,
-        customerCount,
-        maleCount: clampCount(maleCount),
-        femaleCount: clampCount(femaleCount),
-        unspecifiedCount: clampCount(unspecifiedCount),
-        timestamp: new Date().toISOString(),
-        stockShortfall: (shorted || []).map((s) => s.name),
-      };
-
-      setReceipt(receiptData);
-      setShowReceipt(true);
-      if ((shorted || []).length > 0) {
-        setToast({ type: 'error', message: `Sale completed with short stock: ${(shorted || []).map((s) => s.name).join(', ')} (floored at 0).` });
-      }
-      setShortfall(null);
-      resetOrder()
+      const { transaction: txn, quote, shorted = [] } = await db.checkoutOrder({ ...orderInput(), approvalId, paymentMethod, cashReceived, allowShortage });
+      setReceipt({ transaction: txn, items: quote.cart.map(item => ({ ...item, subtotal: item.price * item.qty })),
+        subtotal: quote.subtotal, discountAmount: quote.discount, discountType, discountLabel: quote.discountLabel,
+        total: quote.total, paymentMethod: txn.payment_method, cashReceived: Number(txn.cash_received),
+        changeAmount: Number(txn.change_amount), customerCount: txn.customer_count,
+        maleCount: txn.male_count, femaleCount: txn.female_count, unspecifiedCount: txn.unspecified_count,
+        timestamp: txn.created_at, stockShortfall: shorted.map(s => s.name) });
+      setShowReceipt(true); setShortfall(null); resetOrder();
     } catch (err) {
-      if (err?.code === 'INSUFFICIENT_STOCK') {
-        // Choice point: show what is short and let staff proceed or cancel.
-        // No rows have been written at this point.
-        setShortfall({ items: err.shortfalls || [], required: err.required || [] });
-      } else if (isRetryableError(err)) {
-        // Database died mid-write: queue the remainder (finished steps are
-        // skipped on sync via progress, duplicates collapse on idempotency).
-        return await checkoutOffline({ subtotal, discountAmount, total, resolved, transactionNumber, idempotencyKey, progress, paymentMethod, cash: tenderCash, change: tenderChange });
-      } else {
-        alert('Checkout failed: ' + err.message)
-      }
-    } finally {
-      setCheckoutLoading(false)
-    }
-  }
+      if (err.code === 'INSUFFICIENT_STOCK') setShortfall({ items: err.shortfalls || [] });
+      else setTenderError(err.message || 'Checkout failed. Keep this order and retry when connected.');
+    } finally { setCheckoutLoading(false); }
+  };
 
   const handleCheckout = () => {
     if ((cart.length === 0 && customerCount === 0) || checkoutLoading) return;
@@ -1046,7 +869,7 @@ export default function MainPOS({ user }) {
           <div className="order-summary">
             <div className="discount-selector">
               <label><Tag size={14} /> Discount</label>
-              <select value={discountType} onChange={(e) => setDiscountType(e.target.value)} data-testid="discount-select">
+              <select value={discountType} onChange={(e) => chooseDiscount(e.target.value)} data-testid="discount-select">
                 <option value="none">None</option>
                 {useDbDiscounts ? (
                   <>
@@ -1128,19 +951,27 @@ export default function MainPOS({ user }) {
                 </div>
                 {(() => {
                   const t = resolveTender(total);
-                  if (t.error) return <p className="text-danger text-sm tender-error" data-testid="tender-error">{tenderError || t.error}</p>;
+                  if (t.error) return <p className="text-danger text-sm tender-error" data-testid="tender-error">{t.error}</p>;
                   return <div className="summary-row"><span>Change</span><span data-testid="change-amount">₱{t.change.toFixed(2)}</span></div>;
                 })()}
               </div>
             ) : (
               <div className="summary-row"><span>GCash amount</span><span>₱{total.toFixed(2)} (exact)</span></div>
             )}
+            {tenderError && <p className="text-danger text-sm" role="alert" data-testid="checkout-error">{tenderError}</p>}
             <button className="btn btn-primary w-full mt-2" disabled={(cart.length === 0 && customerCount === 0) || checkoutLoading} onClick={handleCheckout}>
               {checkoutLoading ? 'Processing...' : 'Checkout & Log Traffic'}
             </button>
           </div>
         </div>
       </div>
+      {pendingDiscount && <div className="modal-overlay"><form className="modal-content card" role="dialog" aria-label="Authorize discount" onSubmit={e => { e.preventDefault(); if (!approvalWorking) void requestDiscountApproval(); }}>
+        <h3>Admin approval required</h3><p>Enter an administrator password to authorize this order’s discount.</p>
+        <label>Admin password<input type="password" autoComplete="off" value={approvalPassword} onChange={e => setApprovalPassword(e.target.value)} disabled={approvalWorking} /></label>
+        {approvalError && <p role="alert">{approvalError}</p>}
+        <div className="modal-actions"><button type="button" className="btn btn-secondary" disabled={approvalWorking} onClick={() => { setPendingDiscount(null); setApprovalPassword(''); }}>Cancel</button>
+        <button type="submit" className="btn btn-primary" disabled={approvalWorking || !approvalPassword}>{approvalWorking ? 'Authorizing…' : 'Authorize discount'}</button></div>
+      </form></div>}
       {showReceipt && receipt && (
         <div className="modal-overlay" onClick={() => setShowReceipt(false)}>
           <div className="modal-content card receipt-modal" onClick={(e) => e.stopPropagation()}>

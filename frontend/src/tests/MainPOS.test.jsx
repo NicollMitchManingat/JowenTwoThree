@@ -24,6 +24,8 @@ vi.mock('../services/db', () => ({
     ]),
     computeRequiredDeductions: vi.fn().mockResolvedValue([]),
     applyDeductions: vi.fn().mockResolvedValue({ shorted: [] }),
+    approveDiscount: vi.fn().mockResolvedValue({ approvalId: "approval-1" }),
+    checkoutOrder: vi.fn(),
     createTransaction: vi.fn().mockResolvedValue({ id: 'txn-1', transaction_number: 'TXN-1' }),
     createTransactionItems: vi.fn().mockResolvedValue([]),
     logTraffic: vi.fn(),
@@ -51,6 +53,10 @@ describe('MainPOS', () => {
     // clearAllMocks keeps implementations: reset per-test overrides here.
     isRetryableError.mockReturnValue(false)
     db.getActiveDiscounts.mockResolvedValue([])
+    db.checkoutOrder.mockImplementation(async input => {
+      const subtotal=input.cart.reduce((n,i)=>n+i.qty*i.price,0), resolved=resolveDiscount(subtotal,input.discountType,VOUCHERS), total=subtotal-resolved.amount
+      return {quote:{cart:input.cart,subtotal,discount:resolved.amount,total,discountLabel:resolved.label},transaction:{id:'txn-1',transaction_number:'TXN-1',payment_method:input.paymentMethod,cash_received:total,change_amount:0,customer_count:Object.values(input.counts).reduce((a,b)=>a+b,0),male_count:input.counts.male,female_count:input.counts.female,unspecified_count:input.counts.unspecified},shorted:[]}
+    })
   })
 
   it('should render main POS layout', async () => {
@@ -102,11 +108,11 @@ describe('MainPOS', () => {
     await user.click(screen.getByText('Checkout & Log Traffic'))
 
     await waitFor(() => {
-      expect(db.createTransaction).toHaveBeenCalledWith(
-        expect.objectContaining({ customer_count: 3, male: 1, female: 2, unspecified: 0 })
+      expect(db.checkoutOrder).toHaveBeenCalledWith(
+        expect.objectContaining({ counts: { male: 1, female: 2, unspecified: 0 } })
       )
     })
-    expect(db.logTraffic).toHaveBeenCalledWith({ male: 1, female: 2, unspecified: 0 })
+    expect(db.logTraffic).not.toHaveBeenCalled()
     expect(screen.getByTestId('receipt-customer-breakdown')).toHaveTextContent('3')
     expect(screen.getByTestId('receipt-customer-breakdown')).toHaveTextContent('M1/F2')
   })
@@ -127,12 +133,12 @@ describe('MainPOS', () => {
     // Blocked: confirm modal instead of a write.
     expect(screen.getByTestId('large-party-modal')).toHaveTextContent('25 customers')
     expect(screen.getByTestId('large-party-modal')).toHaveTextContent('M25/F0')
-    expect(db.createTransaction).not.toHaveBeenCalled()
+    expect(db.checkoutOrder).not.toHaveBeenCalled()
 
     // Going back keeps the order intact for correction.
     await user.click(screen.getByTestId('large-party-back-btn'))
     expect(screen.queryByTestId('large-party-modal')).not.toBeInTheDocument()
-    expect(db.createTransaction).not.toHaveBeenCalled()
+    expect(db.checkoutOrder).not.toHaveBeenCalled()
     expect(screen.getByTestId('traffic-total')).toHaveTextContent('Total: 25')
 
     // Confirming writes through with the split.
@@ -140,11 +146,11 @@ describe('MainPOS', () => {
     await user.click(screen.getByTestId('large-party-confirm-btn'))
 
     await waitFor(() => {
-      expect(db.createTransaction).toHaveBeenCalledWith(
-        expect.objectContaining({ customer_count: 25, male: 25, female: 0, unspecified: 0 })
+      expect(db.checkoutOrder).toHaveBeenCalledWith(
+        expect.objectContaining({ counts: { male: 25, female: 0, unspecified: 0 } })
       )
     })
-    expect(db.logTraffic).toHaveBeenCalledWith({ male: 25, female: 0, unspecified: 0 })
+    expect(db.logTraffic).not.toHaveBeenCalled()
   })
 
   it('should show the saved menu with a stale banner when the database is down', async () => {
@@ -238,49 +244,20 @@ describe('MainPOS', () => {
     expect(screen.queryByTestId('menu-stale-banner')).not.toBeInTheDocument()
   })
 
-  it('should queue the sale when stock reads are unreachable', async () => {
-    const user = userEvent.setup()
-    isRetryableError.mockReturnValue(true)
-    db.computeRequiredDeductions.mockRejectedValueOnce(new Error('Request timed out after 8s. Supabase may be waking up — please retry.'))
-    render(<MainPOS user={mockUser} />)
-
-    await waitFor(() => {
-      expect(screen.getByText('Espresso')).toBeInTheDocument()
-    })
-    await user.click(screen.getByText('Espresso'))
-    await user.click(screen.getByText('Checkout & Log Traffic'))
-
-    await waitFor(() => {
-      expect(offlineQueue.enqueue).toHaveBeenCalledWith(
-        expect.objectContaining({ method: 'sale' })
-      )
-    })
-    expect(db.createTransaction).not.toHaveBeenCalled()
-    expect(screen.getByTestId('receipt')).toBeInTheDocument()
-    expect(screen.getByText(/sale queued/i)).toBeInTheDocument()
+  it('keeps an uncertain checkout for retry without issuing a paid receipt or raw offline writes', async () => {
+    const user=userEvent.setup();db.checkoutOrder.mockRejectedValueOnce(new Error('Network request failed'))
+    render(<MainPOS user={mockUser}/>);await screen.findByText('Espresso');await user.click(screen.getByText('Espresso'));await user.click(screen.getByText('Checkout & Log Traffic'))
+    await screen.findByText('Network request failed');expect(screen.queryByTestId('receipt')).not.toBeInTheDocument();expect(offlineQueue.enqueue).not.toHaveBeenCalled()
+    const key=db.checkoutOrder.mock.calls[0][0].orderKey
+    await user.click(screen.getByText('Checkout & Log Traffic'));await screen.findByTestId('receipt');expect(db.checkoutOrder.mock.calls[1][0].orderKey).toBe(key)
   })
 
-  it('should queue the remainder when a write fails mid-checkout', async () => {
-    const user = userEvent.setup()
-    isRetryableError.mockReturnValue(true)
-    db.createTransactionItems.mockRejectedValueOnce(new Error('Request timed out after 8s. Supabase may be waking up — please retry.'))
-    render(<MainPOS user={mockUser} />)
-
-    await waitFor(() => {
-      expect(screen.getByText('Espresso')).toBeInTheDocument()
-    })
-    await user.click(screen.getByText('Espresso'))
-    await user.click(screen.getByText('Checkout & Log Traffic'))
-
-    await waitFor(() => {
-      expect(offlineQueue.enqueue).toHaveBeenCalledWith(
-        expect.objectContaining({
-          method: 'sale',
-          body: expect.objectContaining({ itemsSkipped: false, deductionsSkipped: false }),
-        })
-      )
-    })
-    expect(screen.getByTestId('receipt')).toBeInTheDocument()
+  it('requires admin approval before applying a cashier discount and invalidates it on cart changes',async()=>{
+    const user=userEvent.setup();db.getActiveDiscounts.mockResolvedValue(VOUCHERS);render(<MainPOS user={mockUser}/>);await screen.findByText('Espresso');await user.click(screen.getByText('Espresso'))
+    await user.selectOptions(screen.getByTestId('discount-select'),'voucher:v-pwd');expect(screen.getByTestId('discount-select')).toHaveValue('none')
+    await user.type(screen.getByLabelText('Admin password'),'fixture-password');await user.click(screen.getByRole('button',{name:'Authorize discount'}))
+    await waitFor(()=>expect(screen.getByTestId('discount-select')).toHaveValue('voucher:v-pwd'));expect(db.approveDiscount).toHaveBeenCalledWith(expect.objectContaining({adminPassword:'fixture-password',discountType:'voucher:v-pwd'}))
+    await user.click(screen.getAllByText('Espresso')[0]);expect(screen.getByTestId('discount-select')).toHaveValue('none')
   })
 
   it('should default quick-add traffic to unspecified when no gender tapped', async () => {
@@ -362,9 +339,7 @@ describe('MainPOS', () => {
       expect(screen.getByTestId('receipt')).toBeInTheDocument()
     })
     expect(screen.getByText('1 x ₱150.00 — Extra hot')).toBeInTheDocument()
-    expect(db.createTransactionItems).toHaveBeenCalledWith(
-      expect.arrayContaining([expect.objectContaining({ note: 'Extra hot' })])
-    )
+    expect(db.checkoutOrder).toHaveBeenCalledWith(expect.objectContaining({cart: expect.arrayContaining([expect.objectContaining({note: 'Extra hot'})])}))
   })
 
   it('should display current order section', async () => {
@@ -439,7 +414,7 @@ describe('MainPOS', () => {
   it('should checkout with a percent voucher and store its rate', async () => {
     const user = userEvent.setup()
     db.getActiveDiscounts.mockResolvedValue(VOUCHERS)
-    render(<MainPOS user={mockUser} />)
+    render(<MainPOS user={{username:'admin',role:'admin'}} />)
 
     await waitFor(() => {
       expect(screen.getByText('Espresso')).toBeInTheDocument()
@@ -453,14 +428,9 @@ describe('MainPOS', () => {
     await user.click(screen.getByText('Checkout & Log Traffic'))
 
     await waitFor(() => {
-      expect(db.createTransaction).toHaveBeenCalledWith(
+      expect(db.checkoutOrder).toHaveBeenCalledWith(
         expect.objectContaining({
-          subtotal: 300,
-          discount: 45,
-          total: 255,
-          discount_type: 'voucher',
-          discount_id: 'v-weekend',
-          discount_value: 15,
+          discountType: 'voucher:v-weekend',
         })
       )
     })
@@ -473,7 +443,7 @@ describe('MainPOS', () => {
   it('should checkout with a flat voucher capped at the subtotal', async () => {
     const user = userEvent.setup()
     db.getActiveDiscounts.mockResolvedValue(VOUCHERS)
-    render(<MainPOS user={mockUser} />)
+    render(<MainPOS user={{username:'admin',role:'admin'}} />)
 
     await waitFor(() => {
       expect(screen.getByText('Espresso')).toBeInTheDocument()
@@ -484,13 +454,9 @@ describe('MainPOS', () => {
     await user.click(screen.getByText('Checkout & Log Traffic'))
 
     await waitFor(() => {
-      expect(db.createTransaction).toHaveBeenCalledWith(
+      expect(db.checkoutOrder).toHaveBeenCalledWith(
         expect.objectContaining({
-          subtotal: 150,
-          discount: 50,
-          total: 100,
-          discount_type: 'voucher',
-          discount_id: 'v-flat50',
+          discountType: 'voucher:v-flat50',
         })
       )
     })

@@ -293,7 +293,7 @@ export default function OrderHistoryPage({ user }) {
           dateLabel,
           search,
           generatedAt: new Date(),
-          generatedBy: user?.name || user?.email || user?.role || '',
+          generatedBy: user?.fullName || user?.username || user?.name || user?.role || '',
         },
       })
       setToast({ type: 'success', message: `Excel report downloaded (${filename}).` })

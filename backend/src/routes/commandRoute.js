@@ -1,0 +1,48 @@
+const router = require('express').Router()
+const a = require('../services/accessService')
+const checkout = require('../services/checkoutService')
+const auth = require('../services/authService')
+const { modules, throttle } = require('../middleware/authentication')
+const run = fn => (req, res, next) => Promise.resolve(fn(req, res)).catch(next)
+router.post('/discount-approval', modules('pos'), throttle, run(async (req, res) => res.json(await checkout.approveDiscount(req.auth, req.body))))
+router.post('/checkout', modules('pos'), run(async (req, res) => res.json(await checkout.checkout(req.auth, req.body))))
+router.post('/inventory', modules('inventory'), run(async (req, res) => {
+  if (!['admin', 'stockist'].includes(req.user.role)) throw a.httpError('Stockman access is required', 403)
+  const body = req.body || {}, fields = body.values || {}
+  if (!['create', 'update', 'archive'].includes(body.action) || typeof body.operationKey !== 'string' || !body.operationKey || body.operationKey.length > 128) throw a.httpError('Invalid inventory command')
+  if (Array.isArray(fields) || typeof fields !== 'object' || Object.keys(fields).some(k => !['name', 'category', 'unit', 'stock_quantity'].includes(k))) throw a.httpError('Invalid inventory fields')
+  if (body.action === 'create' && (!fields.name || fields.stock_quantity == null)) throw a.httpError('Item name and quantity are required')
+  if (fields.stock_quantity !== undefined && (!Number.isFinite(Number(fields.stock_quantity)) || Number(fields.stock_quantity) < 0)) throw a.httpError('Quantity must be a nonnegative number')
+  if (fields.stock_quantity !== undefined && body.action === 'update' && !Number.isFinite(Number(body.baseStockQty))) throw a.httpError('The current quantity is required')
+  const result = await a.database().rpc('jowen_inventory_command', { p_session_hash: req.auth.tokenHash, p_data: req.body })
+  if (result.error) throw checkout.rpcError(result.error)
+  res.json({ data: result.data })
+}))
+router.post('/refund', modules('transactions'), throttle, run(async (req, res) => {
+  if (req.user.role === 'stockist') throw a.httpError('Refund access is required', 403)
+  const manager = req.user.role === 'admin' ? req.user : await auth.verifyManager({ password: req.body.managerPassword })
+  const { transaction_id, items, refund_amount, reason, notes, operationKey } = req.body
+  const result = await a.database().rpc('jowen_refund', { p_session_hash: req.auth.tokenHash,
+    p_data: { action: 'refund', transaction_id, items, refund_amount, reason, notes, operationKey, approvedById: manager.id } })
+  if (result.error) throw checkout.rpcError(result.error)
+  res.json({ data: result.data })
+}))
+router.post('/shop-session', modules('pos'), throttle, run(async (req, res) => {
+  const manager = req.user.role === 'admin' ? req.user : await auth.verifyManager({ password: req.body.managerPassword })
+  const result = await a.database().rpc('jowen_session_command', { p_session_hash: req.auth.tokenHash, p_data: { ...req.body, approvedById: manager.id } })
+  if (result.error) throw checkout.rpcError(result.error)
+  res.json({ data: result.data })
+}))
+router.post('/traffic', modules('pos'), run(async (req, res) => {
+  const counts = req.body || {}, parts = ['male', 'female', 'unspecified'].map(k => Number(counts[k] || 0))
+  if (parts.some(n => !Number.isInteger(n) || n < 0 || n > 10000)) throw a.httpError('Invalid customer counts')
+  const data = a.check(await a.database().from('customer_traffic').insert({ male_count: parts[0], female_count: parts[1], unspecified_count: parts[2], number_of_customer: parts.reduce((s, n) => s + n, 0) }).select().single())
+  res.json({ data })
+}))
+router.get('/session-summary/:id', modules('settings', 'analytics'), run(async (req, res) => {
+  const session = a.check(await a.database().from('sessions').select('id,started_at,ended_at').eq('id', req.params.id).single())
+  const txns = a.check(await a.database().from('transactions').select('id,total,discount,status,male_count,female_count,unspecified_count').gte('created_at', session.started_at).lte('created_at', session.ended_at || new Date().toISOString()))
+  const refunds = txns.length ? a.check(await a.database().from('refunds').select('transaction_id,refund_amount').in('transaction_id', txns.map(t => t.id))) : []
+  res.json({ txns, refunds })
+}))
+module.exports = router

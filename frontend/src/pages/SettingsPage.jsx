@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { UserCog, RefreshCcw, Tag, Users, CookingPot, Clock, Receipt, Lock, X } from 'lucide-react';
 import { db } from '../services/db';
-import { authAPI } from '../services/authAPI';
+import { hasAccess } from '../services/permissions';
 import { formatElapsed, loadSessionSummary } from '../services/sessionAnalytics';
 import DiscountManager from '../components/settings/DiscountManager';
 import AccountManager from '../components/settings/AccountManager';
@@ -11,7 +11,7 @@ const STALE_SESSION_MS = 24 * 3600 * 1000;
 
 export default function SettingsPage({ currentUser, onLogout }) {
   const isAdmin = currentUser.role === 'admin';
-  const canUseSessions = isAdmin || currentUser.role === 'cashier';
+  const canUseSessions = hasAccess(currentUser, 'pos') && (isAdmin || currentUser.role === 'cashier');
   const [activeSession, setActiveSession] = useState(null);
   const [sessionLoading, setSessionLoading] = useState(true);
   const [sessionWorking, setSessionWorking] = useState(false);
@@ -54,11 +54,11 @@ export default function SettingsPage({ currentUser, onLogout }) {
     return () => clearInterval(t);
   }, [activeSession]);
 
-  const handleStart = async (approvedBy) => {
+  const handleStart = async (managerPassword) => {
     setSessionWorking(true);
     setSessionError('');
     try {
-      const opened = await db.startSession({ by: currentUser.username, approvedBy });
+      const opened = await db.startSession({ managerPassword });
       setActiveSession(opened && opened.started_at ? opened : {
         id: opened?.id ?? null,
         started_at: new Date().toISOString(),
@@ -67,25 +67,19 @@ export default function SettingsPage({ currentUser, onLogout }) {
       setHandover(null);
     } catch (err) {
       setSessionError(err?.message || 'Failed to start session.');
+      throw err;
     } finally {
       setSessionWorking(false);
     }
   };
 
-  const handleEnd = async (approvedBy) => {
+  const handleEnd = async (managerPassword) => {
     if (!activeSession) return;
     setSessionWorking(true);
     setSessionError('');
     try {
       const endedAt = new Date().toISOString();
-      let closed = activeSession;
-      try {
-        if (activeSession.id) {
-          closed = await db.endSession(activeSession.id, { by: currentUser.username, approvedBy }) || activeSession;
-        }
-      } catch (err) {
-        console.error('Failed to close session remotely:', err);
-      }
+      const closed = await db.endSession(activeSession.id, { managerPassword });
       const session = { ...closed, ended_at: closed.ended_at || endedAt };
       setHandoverLoading(true);
       const summary = await loadSessionSummary(session);
@@ -93,6 +87,7 @@ export default function SettingsPage({ currentUser, onLogout }) {
       setActiveSession(null);
     } catch (err) {
       setSessionError(err?.message || 'Failed to end session.');
+      throw err;
     } finally {
       setHandoverLoading(false);
       setSessionWorking(false);
@@ -102,12 +97,12 @@ export default function SettingsPage({ currentUser, onLogout }) {
   // Admins act directly; cashiers go through the manager-password gate.
   // The cashier session never changes — approval is only recorded.
   const requestStart = () => {
-    if (isAdmin) void handleStart(currentUser.username);
+    if (isAdmin) void handleStart().catch(() => {});
     else openGate('start');
   };
 
   const requestEnd = () => {
-    if (isAdmin) void handleEnd(currentUser.username);
+    if (isAdmin) void handleEnd().catch(() => {});
     else openGate('end');
   };
 
@@ -126,20 +121,14 @@ export default function SettingsPage({ currentUser, onLogout }) {
 
   const handleGateConfirm = async () => {
     setGateError('');
-    let approvedBy;
-    try {
-      const check = await authAPI.verifyManager(gatePassword);
-      approvedBy = check.username;
-    } catch (err) {
-      setGateError(err?.message || 'Manager approval failed');
-      return;
-    }
     setGateWorking(true);
     try {
-      if (gateAction === 'start') await handleStart(approvedBy);
-      else await handleEnd(approvedBy);
+      if (gateAction === 'start') await handleStart(gatePassword);
+      else await handleEnd(gatePassword);
       setGateAction(null);
       setGatePassword('');
+    } catch (err) {
+      setGateError(err?.message || 'Manager approval failed');
     } finally {
       setGateWorking(false);
     }
@@ -165,7 +154,7 @@ export default function SettingsPage({ currentUser, onLogout }) {
               Role:
               <span className={`badge ${currentUser.role === 'admin' ? 'badge-success' : 'badge-neutral'}`}
                 style={{ textTransform: 'capitalize' }}>
-                {currentUser.role === 'stockist' ? 'Stock Management' : currentUser.role}
+                {currentUser.role === 'stockist' ? 'Stockman' : currentUser.role}
               </span>
             </p>
             <button className="btn btn-secondary btn-full"
@@ -361,7 +350,7 @@ export default function SettingsPage({ currentUser, onLogout }) {
             </div>
             <div className="card-body">
               <p className="text-sm text-muted desc-mb">
-                Cashiers run the POS, Stock Management users manage inventory, and only admins view analytics or approve refunds.
+                Cashiers run the POS, Stockman users manage inventory, and only admins view analytics or approve refunds.
               </p>
               <AccountManager currentUser={currentUser} />
             </div>

@@ -96,7 +96,7 @@ export default function AiInsights({ insights, loading = false, error = null, on
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ insight: payload }),
-        signal: controller.signal,
+        credentials: 'include', signal: controller.signal,
       })
       clearTimeout(timeout)
       if (!res.ok) throw new Error('Explain request failed.')

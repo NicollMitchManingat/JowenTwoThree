@@ -1,5 +1,5 @@
-import { supabase } from '../lib/supabase'
-import { offlineQueue, processQueue } from './offlineQueue'
+import { apiDatabase as supabase, apiRequest } from './apiClient'
+import { offlineQueue } from './offlineQueue'
 
 const QUERY_TIMEOUT_MS = 8000
 
@@ -52,44 +52,12 @@ export function isQueuedRecord(rec) {
   return !!rec && rec._queued === true
 }
 
-async function offlineSafe(fn) {
-  try {
-    const result = await fn();
-    processQueue();
-    return result;
-  } catch (err) {
-    if (isRetryableError(err)) {
-      if (!navigator.onLine) {
-        throw new Error('You are offline. Your data will sync when connection is restored.');
-      }
-      throw new Error('Database unreachable. Your data will sync when the connection is back.');
-    }
-    throw err;
-  }
-}
-
+async function offlineSafe(fn) { return fn() }
 async function offlineWrite(table, body) {
-  const tempId = crypto.randomUUID?.() || `${Date.now()}-${Math.random()}`
-  try {
-    const { data, error } = await supabase.from(table).insert(body).select();
-    if (error) throw error;
-    processQueue();
-    return data[0];
-  } catch (err) {
-    if (isRetryableError(err)) {
-      // Queue for later sync (covers both truly-offline and DB-down-but-
-      // online). The _queued marker tells callers the id is temporary.
-      await offlineQueue.enqueue({ method: 'insert', table, body: { ...body, id: undefined } });
-      return { ...body, id: tempId, _queued: true };
-    }
-    throw err;
-  }
+  const { data } = await supabase.from(table).insert(body).select()
+  return data[0]
 }
 
-// ── Gender-split traffic helpers ───────────────────────────
-// Accepts a legacy total (number) or { male, female, unspecified [, customer_count] }.
-// Always returns non-negative ints with total === male + female + unspecified.
-// Legacy totals with no split land in `unspecified` so old rows still balance.
 function toNonNegativeInt(n) {
   const v = Number(n)
   return Number.isFinite(v) && v > 0 ? Math.floor(v) : 0
@@ -399,69 +367,6 @@ export const db = {
     return result
   },
 
-  // Deduct precomputed requirements + log an adjustment per ingredient.
-  // Rolls back already-deducted lines if one fails mid-loop.
-  // With { allowShortage: true } (override path), each line floors at 0
-  // and the shortfall is recorded in the adjustment notes. Never negative.
-  async applyDeductions(required, transactionNumber, opts = {}) {
-    const list = required || []
-    if (list.length === 0) return { shorted: [] }
-    const allowShortage = !!opts.allowShortage
-    const shorted = []
-    const done = []
-    try {
-      for (const req of list) {
-        const stock = await this.getInventory()
-        const row = (stock || []).find((s) => s.id === req.inventory_id)
-        if (!row) {
-          if (!allowShortage) throw new Error(`Ingredient "${req.name}" is not in inventory — sale blocked.`)
-          shorted.push({ ...req, short: Number(req.required) })
-          continue
-        }
-        const prevQty = Number(row.stock_quantity)
-        if (!Number.isFinite(prevQty)) throw new Error(`Insufficient stock: ${row.name || req.name} — sale blocked.`)
-        let deduct = Number(req.required)
-        let newQty = prevQty - deduct
-        let note = transactionNumber ? `Auto-deduct for ${transactionNumber}` : 'Auto-deduct for sale'
-        if (newQty < 0) {
-          if (!allowShortage) throw new Error(`Insufficient stock: ${row.name || req.name} — sale blocked.`)
-          const short = -newQty
-          shorted.push({ ...req, name: row.name || req.name, short })
-          deduct = prevQty
-          newQty = 0
-          note += ` (short ${short}, floored at 0)`
-        }
-        await this.updateInventoryItem(req.inventory_id, { stock_quantity: newQty })
-        await this.createAdjustment({
-          inventory_id: req.inventory_id,
-          previous_quantity: prevQty,
-          new_quantity: newQty,
-          change_amount: -deduct,
-          reason: 'sale',
-          notes: note,
-        })
-        done.push({ inventory_id: req.inventory_id, qty: deduct })
-      }
-    } catch (err) {
-      // Compensate already-deducted lines so stock isn't left partial.
-      for (const d of done.reverse()) {
-        try {
-          const stock = await this.getInventory()
-          const row = (stock || []).find((s) => s.id === d.inventory_id)
-          if (row) {
-            const restored = Number(row.stock_quantity) + d.qty
-            await this.updateInventoryItem(d.inventory_id, { stock_quantity: restored })
-          }
-        } catch {
-          // Best-effort rollback; surface the original error below.
-        }
-      }
-      throw err
-    }
-    return { shorted }
-  },
-
-  // ── Transactions ───────────────────────────────────────
   async getTransactions() {
     return queryWithTimeout((signal) => supabase
       .from('transactions')
@@ -595,47 +500,9 @@ export const db = {
     return dailySales
   },
 
-  async createTransaction(transaction) {
-    const split = normalizeGenderCounts(transaction, transaction.customer_count)
-    const fullBody = {
-      transaction_number: transaction.transaction_number,
-      idempotency_key: transaction.idempotency_key,
-      subtotal: transaction.subtotal,
-      discount: transaction.discount,
-      total: transaction.total,
-      payment_method: transaction.payment_method,
-      cash_received: transaction.cash_received,
-      change_amount: transaction.change_amount,
-      customer_count: split.total,
-      male_count: split.male,
-      female_count: split.female,
-      unspecified_count: split.unspecified,
-      special_instructions: transaction.special_instructions,
-      discount_type: transaction.discount_type,
-      discount_value: transaction.discount_value,
-      discount_id: transaction.discount_id || null,
-      status: 'COMPLETED',
-      cart: transaction.cart,
-    }
-    try {
-      return await offlineWrite('transactions', fullBody)
-    } catch (err) {
-      if (isMissingColumnError(err)) {
-        // Pre-migration DB without gender/refund/discount columns — fall back to legacy shape.
-        const { male_count, female_count, unspecified_count, discount_id, status, ...legacyBody } = fullBody
-        return offlineWrite('transactions', legacyBody)
-      }
-      throw err
-    }
-  },
+  async approveDiscount(input) { return apiRequest('/api/commands/discount-approval', { method: 'POST', body: input }) },
+  async checkoutOrder(input) { return apiRequest('/api/commands/checkout', { method: 'POST', body: input }) },
 
-  async createTransactionItems(items) {
-    return offlineWrite('transaction_items', items)
-  },
-
-  // ── Discount vouchers ────────────────────────────────
-  // Admin-managed % / flat discounts selectable in the POS dropdown.
-  // System rows (PWD/Senior) are locked: name/type/value immutable.
   async getDiscounts() {
     return queryWithTimeout((signal) => supabase
       .from('discounts')
@@ -661,15 +528,13 @@ export const db = {
     return { name: label, type, value: v }
   },
 
-  async createDiscount({ name, type, value, created_by }) {
+  async createDiscount({ name, type, value }) {
     const clean = this.validateDiscount({ name, type, value })
     return offlineWrite('discounts', {
       name: clean.name,
       type: clean.type,
       value: clean.value,
       is_active: true,
-      is_system: false,
-      created_by: created_by || null,
     })
   },
 
@@ -702,7 +567,6 @@ export const db = {
     }
     if (typeof updates.is_active !== 'undefined') clean.is_active = !!updates.is_active
     if (Object.keys(clean).length === 0) throw new Error('Nothing to update')
-    clean.updated_at = new Date().toISOString()
     return offlineSafe(async () => {
       const { data, error } = await supabase
         .from('discounts')
@@ -773,43 +637,10 @@ export const db = {
     return { amount, reason: reason.trim() }
   },
 
-  async createRefund({ transaction_id, items, refund_amount, reason, notes, approved_by, created_by }) {
-    if (!transaction_id) throw new Error('Transaction id is required')
-    const clean = this.validateRefund({ items, refund_amount, reason, approved_by })
-    return offlineWrite('refunds', {
-      transaction_id,
-      items,
-      refund_amount: clean.amount,
-      reason: clean.reason,
-      notes: notes?.trim() || null,
-      approved_by,
-      created_by: created_by || null,
-    })
+  async createRefund(input) {
+    return (await apiRequest('/api/commands/refund', { method: 'POST', body: input })).data
   },
 
-  async updateTransactionStatus(id, status) {
-    if (!id) throw new Error('Transaction id is required')
-    if (!['COMPLETED', 'REFUNDED', 'PARTIALLY_REFUNDED'].includes(status)) {
-      throw new Error('Invalid transaction status')
-    }
-    try {
-      return await offlineSafe(async () => {
-        const { data, error } = await supabase
-          .from('transactions')
-          .update({ status })
-          .eq('id', id)
-          .select()
-          .single()
-        if (error) throw error
-        return data
-      })
-    } catch (err) {
-      if (isMissingColumnError(err)) return null
-      throw err
-    }
-  },
-
-  // ── Shop sessions (one global service period at a time) ──
   async getActiveSession() {
     try {
       const rows = await queryWithTimeout((signal) => supabase
@@ -827,55 +658,11 @@ export const db = {
     }
   },
 
-  async startSession({ by, approvedBy } = {}) {
-    // One global session: defensively close any straggler left open.
-    try {
-      await offlineSafe(async () => {
-        const { error } = await supabase
-          .from('sessions')
-          .update({ ended_at: new Date().toISOString(), ended_by: by || null })
-          .is('ended_at', null)
-        if (error) throw error
-      })
-    } catch (err) {
-      if (!isMissingColumnError(err)) throw err
-    }
-    const body = {
-      started_at: new Date().toISOString(),
-      ended_at: null,
-      started_by: by || null,
-      approved_by: approvedBy || null,
-    };
-    try {
-      return await offlineWrite('sessions', body)
-    } catch (err) {
-      if (!isMissingColumnError(err)) throw err;
-      // Stale schema without approved_by: open anyway, approval unrecorded.
-      console.warn('sessions.approved_by column missing — opening session without recorded approver.');
-      const { approved_by: _dropped, ...legacyBody } = body;
-      return offlineWrite('sessions', legacyBody);
-    }
+  async startSession({ managerPassword } = {}) {
+    return (await apiRequest('/api/commands/shop-session', { method: 'POST', body: { action: 'start', managerPassword } })).data
   },
-
-  async endSession(id, { by, approvedBy } = {}) {
-    if (!id) throw new Error('Session id is required')
-    const close = (extra) => offlineSafe(async () => {
-      const { data, error } = await supabase
-        .from('sessions')
-        .update({ ended_at: new Date().toISOString(), ended_by: by || null, ...extra })
-        .eq('id', id)
-        .select()
-        .single()
-      if (error) throw error
-      return data
-    });
-    try {
-      return await close({ approved_by: approvedBy || null })
-    } catch (err) {
-      if (!isMissingColumnError(err)) throw err;
-      console.warn('sessions.approved_by column missing — closing session without recorded approver.');
-      return close({})
-    }
+  async endSession(id, { managerPassword } = {}) {
+    return (await apiRequest('/api/commands/shop-session', { method: 'POST', body: { action: 'end', id, managerPassword } })).data
   },
 
   async getSessions(limit = 100) {
@@ -960,98 +747,19 @@ export const db = {
       .abortSignal(signal))
   },
 
-  async createInventoryItem(item) {
-    const fullBody = {
-      name: item.name,
-      category: item.category,
-      stock_quantity: item.stock_quantity,
-      unit: item.unit || 'units',
-    }
-    try {
-      return await offlineWrite('inventory', fullBody)
-    } catch (err) {
-      if (isMissingColumnError(err)) {
-        // Pre-migration DB without inventory.unit — retry without it.
-        const { unit, ...legacyBody } = fullBody
-        return offlineWrite('inventory', legacyBody)
-      }
-      throw err
-    }
+  async inventoryCommand(body) {
+    const command = { operationKey: crypto.randomUUID(), ...body }
+    try { return (await apiRequest('/api/commands/inventory', { method: 'POST', body: command })).data }
+    catch (err) { err.command = command; throw err }
   },
-
-  async updateInventoryItem(id, updates) {
-    const attempt = (body) => offlineSafe(async () => {
-      const { data, error } = await supabase
-        .from('inventory')
-        .update(body)
-        .eq('id', id)
-        .select()
-        .single()
-      if (error) throw error
-      return data
-    })
-    try {
-      return await attempt(updates)
-    } catch (err) {
-      if (isMissingColumnError(err) && updates && typeof updates === 'object' && 'unit' in updates) {
-        // Pre-migration DB without inventory.unit — retry without it.
-        const { unit, ...legacyUpdates } = updates
-        return attempt(legacyUpdates)
-      }
-      throw err
-    }
+  async createInventoryItem(values) {
+    try { return await this.inventoryCommand({ action: 'create', values }) }
+    catch (err) { if (isRetryableError(err)) return offlineQueue.enqueueCommand(err.command); throw err }
   },
-
-  async deleteInventoryItem(id) {
-    return offlineSafe(async () => {
-      const { error } = await supabase
-        .from('inventory')
-        .delete()
-        .eq('id', id)
-      if (error) throw error
-    })
-  },
-
-  // ── Offline-queued inventory mutations (UI-initiated only) ──────
-  // updateInventoryItem/deleteInventoryItem above intentionally keep
-  // throwing on infrastructure errors: the stock-deduction engine
-  // (applyDeductions) depends on that to roll back partial deductions.
-  // These queue* siblings are for staff taps in InventoryPage while the
-  // database is unreachable; replay lives in offlineQueue.js.
-  // baseStockQty is the on-screen quantity at queue time — the replay
-  // applies stock_quantity as a DELTA against live stock so synced sales
-  // deductions made in the meantime are not clobbered. reason/notes feed
-  // the adjustment row written at replay (defaults to 'offline-edit').
-  async queueInventoryUpdate(id, updates, { baseStockQty, reason, notes, skipAdjustment } = {}) {
-    if (!id) throw new Error('Inventory id is required')
-    if (!updates || typeof updates !== 'object') throw new Error('Nothing to update')
-    await offlineQueue.enqueue({
-      method: 'inventory-update',
-      table: 'inventory',
-      matchField: 'id',
-      matchValue: id,
-      body: { ...updates },
-      base: { stock_quantity: baseStockQty },
-      reason: reason || 'offline-edit',
-      notes: notes || null,
-      // True when the matching adjustment row was already queued
-      // separately (e.g. wastage logs its adjustment first) — the replay
-      // must not write it a second time.
-      skipAdjustment: !!skipAdjustment,
-    })
-    return { id, ...updates, _queued: true }
-  },
-
-  async queueInventoryDelete(id) {
-    if (!id) throw new Error('Inventory id is required')
-    await offlineQueue.enqueue({
-      method: 'delete',
-      table: 'inventory',
-      matchField: 'id',
-      matchValue: id,
-    })
-    return { id, _queued: true }
-  },
+  async updateInventoryItem(id, values, options = {}) { return this.inventoryCommand({ action: 'update', id, values, ...options }) },
+  async deleteInventoryItem(id) { return this.inventoryCommand({ action: 'archive', id }) },
+  async queueInventoryUpdate(id, values, options = {}) { return offlineQueue.enqueueCommand({ action: 'update', id, values, ...options }) },
+  async queueInventoryDelete(id, options = {}) { return offlineQueue.enqueueCommand({ action: 'archive', id, ...options }) },
 
   async getLowStockItems(threshold = 5) {
     return queryWithTimeout((signal) => supabase
@@ -1078,21 +786,8 @@ export const db = {
   // Accepts a legacy total (number) or { male, female, unspecified }.
   // Legacy totals land in `unspecified` so M + F + U always equals the total.
   async logTraffic(count) {
-    const split = normalizeGenderCounts(count)
-    const fullBody = {
-      number_of_customer: split.total,
-      male_count: split.male,
-      female_count: split.female,
-      unspecified_count: split.unspecified,
-    }
-    try {
-      return await offlineWrite('customer_traffic', fullBody)
-    } catch (err) {
-      if (isMissingColumnError(err)) {
-        return offlineWrite('customer_traffic', { number_of_customer: split.total })
-      }
-      throw err
-    }
+    const { male, female, unspecified } = normalizeGenderCounts(count)
+    return (await apiRequest('/api/commands/traffic', { method: 'POST', body: { male, female, unspecified } })).data
   },
 
   async getTrafficToday() {
@@ -1220,18 +915,6 @@ export const db = {
       .abortSignal(signal))
   },
 
-  async createAdjustment(adj) {
-    return offlineWrite('inventory_adjustments', {
-      inventory_id: adj.inventory_id,
-      previous_quantity: adj.previous_quantity,
-      new_quantity: adj.new_quantity,
-      change_amount: adj.change_amount,
-      reason: adj.reason,
-      notes: adj.notes || null,
-    })
-  },
-
-  // ── Analytics ──────────────────────────────────────────
   async getTodayStats() {
     const today = new Date()
     today.setHours(0, 0, 0, 0)

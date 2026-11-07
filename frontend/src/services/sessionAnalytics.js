@@ -1,4 +1,4 @@
-import { db } from './db';
+import { apiRequest } from './apiClient';
 
 export const HISTORY_PAGE_SIZE = 10;
 
@@ -67,9 +67,7 @@ export function summarizeSessionWindow(session, summary) {
 
 // One range query for a session window (never fans out to N queries).
 export async function loadSessionSummary(session) {
-  const txns = await db.getTransactionsForAnalytics(session.started_at, session.ended_at);
-  const ids = (txns || []).map((o) => o.id).filter(Boolean);
-  const refunds = await db.getRefundsForTransactions(ids);
+  const { txns, refunds } = await apiRequest(`/api/commands/session-summary/${session.id}`);
   const grouped = {};
   (refunds || []).forEach((r) => {
     if (!grouped[r.transaction_id]) grouped[r.transaction_id] = [];

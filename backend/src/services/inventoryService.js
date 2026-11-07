@@ -9,11 +9,11 @@ function computeStatus(inStock) {
 
 function mapInventoryRow(row) {
   const id = row.id
-  const name = row.item_name
+  const name = row.name ?? row.item_name
   // Supabase tests/model uses nested relationship: inventory_categories: { name }
   const category =
     row.category_name ?? row.inventory_categories?.name ?? row.category ?? undefined
-  const inStock = Number(row.current_stock ?? row.in_stock ?? 0)
+  const inStock = Number(row.stock_quantity ?? row.current_stock ?? row.in_stock ?? 0)
 
 
   return {
@@ -39,7 +39,7 @@ async function listInventory({ q, category } = {}) {
     return inventory
   }
 
-  let result = rows.map(mapInventoryRow)
+  let result = rows.filter(row => row.is_active !== false).map(mapInventoryRow)
 
   if (normalizedCategory) {
     result = result.filter((item) => item.category === normalizedCategory)

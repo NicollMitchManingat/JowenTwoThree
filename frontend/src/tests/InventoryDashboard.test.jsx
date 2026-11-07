@@ -3,6 +3,8 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 import App from '../App'
+import {authAPI} from '../services/authAPI'
+vi.mock('../services/authAPI',()=>({authAPI:{me:vi.fn(),login:vi.fn()}}))
 
 vi.mock('../services/db', () => ({
   db: {
@@ -27,13 +29,15 @@ vi.mock('../services/db', () => ({
 describe('Inventory Dashboard', () => {
   beforeEach(() => {
     localStorage.clear()
+    authAPI.me.mockRejectedValue(new Error('Sign in'))
+    authAPI.login.mockImplementation(async ({username})=>({id:username,username,role:username,permissions:username==='cashier'?['pos','transactions','settings']:[]}))
   })
 
   it('renders sidebar with navigation links after login', async () => {
     const user = userEvent.setup()
     render(<App />)
 
-    await user.type(screen.getByTestId('username-input'), 'admin')
+    await user.type(await screen.findByTestId('username-input'), 'admin')
     await user.type(screen.getByTestId('password-input'), 'admin123')
     await user.click(screen.getByTestId('login-button'))
 
@@ -50,7 +54,7 @@ describe('Inventory Dashboard', () => {
     const user = userEvent.setup()
     render(<App />)
 
-    await user.type(screen.getByTestId('username-input'), 'cashier')
+    await user.type(await screen.findByTestId('username-input'), 'cashier')
     await user.type(screen.getByTestId('password-input'), 'cashier123')
     await user.click(screen.getByTestId('login-button'))
 
@@ -64,7 +68,7 @@ describe('Inventory Dashboard', () => {
     const user = userEvent.setup()
     render(<App />)
 
-    await user.type(screen.getByTestId('username-input'), 'admin')
+    await user.type(await screen.findByTestId('username-input'), 'admin')
     await user.type(screen.getByTestId('password-input'), 'admin123')
     await user.click(screen.getByTestId('login-button'))
 
@@ -78,7 +82,7 @@ describe('Inventory Dashboard', () => {
     await waitFor(() => {
       expect(screen.getByText('Name')).toBeInTheDocument()
       expect(screen.getByText('Category')).toBeInTheDocument()
-      expect(screen.getByText('Stock')).toBeInTheDocument()
+      expect(screen.getByText('Quantity')).toBeInTheDocument()
       expect(screen.getByText('Status')).toBeInTheDocument()
     })
   })
@@ -87,7 +91,7 @@ describe('Inventory Dashboard', () => {
     const user = userEvent.setup()
     render(<App />)
 
-    await user.type(screen.getByTestId('username-input'), 'admin')
+    await user.type(await screen.findByTestId('username-input'), 'admin')
     await user.type(screen.getByTestId('password-input'), 'admin123')
     await user.click(screen.getByTestId('login-button'))
 

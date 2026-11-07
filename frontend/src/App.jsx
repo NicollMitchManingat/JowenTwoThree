@@ -13,52 +13,44 @@ import SettingsPage from './pages/SettingsPage';
 import OrderHistoryPage from './pages/OrderHistoryPage';
 import { AnalyticsProvider } from './pages/AnalyticsContext';
 import DashboardContent from './pages/DashboardContent';
-import { USERS } from './services/managerApproval';
+import { authAPI } from './services/authAPI';
+import { hasAccess, pageModule, firstPage } from './services/permissions';
 
 function App() {
-  const [currentUser, setCurrentUser] = useState(() => {
-    try {
-      const saved = localStorage.getItem('jowen_user');
-      const user = saved ? JSON.parse(saved) : null;
-      // Legacy sessions stored role 'staff' — map to cashier so old logins keep working.
-      if (user && user.role === 'staff') user.role = 'cashier';
-      return user;
-    } catch {
-      return null;
-    }
-  });
-  const defaultPageFor = (role) => (role === 'stockist' ? 'inventory' : 'pos');
-  const [currentPage, setCurrentPage] = useState(() => {
-    try {
-      const saved = localStorage.getItem('jowen_user');
-      const user = saved ? JSON.parse(saved) : null;
-      const role = user?.role === 'staff' ? 'cashier' : user?.role;
-      return defaultPageFor(role);
-    } catch {
-      return 'pos';
-    }
-  });
+  const [currentUser, setCurrentUser] = useState(null);
+  const [checkingSession, setCheckingSession] = useState(true);
+  const [currentPage, setCurrentPage] = useState(null);
   const [isDesktopCollapsed, setIsDesktopCollapsed] = useState(false);
   const [isMobileOpen, setIsMobileOpen] = useState(false);
-  // Credentials live in managerApproval.js so manager-approval checks
-  // always verify against the same admin password used at login.
-  const [users] = useState(USERS);
-
-  const handleLogin = (credentials) => {
-    if (credentials && credentials.username) {
-      const user = users.find(u => u.username === credentials.username);
-      const loggedInUser = user || { username: credentials.username, role: 'cashier' };
-      if (loggedInUser.role === 'staff') loggedInUser.role = 'cashier';
-      localStorage.setItem('jowen_user', JSON.stringify(loggedInUser));
-      setCurrentUser(loggedInUser);
-      setCurrentPage(defaultPageFor(loggedInUser.role));
-    }
-  };
-
-  const handleLogout = () => {
+  const [queueNeedsReview, setQueueNeedsReview] = useState(false);
+  const handleLogin = (user) => {
     localStorage.removeItem('jowen_user');
-    setCurrentUser(null);
+    setCurrentUser(user);
+    setCurrentPage(firstPage(user));
   };
+  useEffect(() => {
+    let active = true;
+    const refresh = () => authAPI.me().then(user => {
+      if (active) { setCurrentUser(user); setCurrentPage(page => hasAccess(user, pageModule[page]) ? page : firstPage(user)); }
+    }).catch(err => { if (active && err.status === 401) setCurrentUser(null); }).finally(() => { if (active) setCheckingSession(false); });
+    const expired = () => { setCurrentUser(null); localStorage.removeItem('jowen_user'); };
+    refresh();
+    const timer = setInterval(refresh, 60000);
+    window.addEventListener('focus', refresh);
+    window.addEventListener('jowen-session-expired', expired);
+    const queueReview = () => setQueueNeedsReview(true);
+    window.addEventListener('jowen-queue-review', queueReview);
+    return () => { active = false; clearInterval(timer); window.removeEventListener('focus', refresh); window.removeEventListener('jowen-session-expired', expired); window.removeEventListener('jowen-queue-review', queueReview); };
+  }, []);
+  const handleLogout = async () => {
+    try {
+      await authAPI.logout();
+      localStorage.removeItem('jowen_user');
+      setCurrentUser(null);
+    } catch (err) { window.alert(err.message || 'Sign out failed. Reconnect and try again.'); }
+  };
+
+  if (checkingSession) return <p className="page-content">Checking your session…</p>;
 
   if (!currentUser) {
     return <LoginPage onLogin={handleLogin} />;
@@ -75,7 +67,7 @@ function App() {
     { id: 'settings', label: currentUser.role === 'admin' ? 'Management' : 'Settings', icon: Settings, allowedRoles: ['admin', 'cashier', 'stockist'] },
   ];
 
-  const visibleMenuItems = menuItems.filter(item => item.allowedRoles.includes(currentUser.role));
+  const visibleMenuItems = menuItems.filter(item => hasAccess(currentUser, pageModule[item.id]));
 
   const handleNavClick = (id) => {
     setCurrentPage(id);
@@ -93,7 +85,8 @@ function App() {
   const renderContent = () => {
     // Guard: roles can only render pages in their nav (e.g. stockist has no POS).
     const allowed = visibleMenuItems.some(item => item.id === currentPage);
-    const page = allowed ? currentPage : defaultPageFor(currentUser.role);
+    const page = allowed ? currentPage : firstPage(currentUser);
+    if (!page) return <div className="page-content"><p>No modules have been assigned to your account. Ask an administrator to update your Access Level.</p><button className="btn btn-secondary" onClick={handleLogout}>Sign out</button></div>;
     switch (page) {
       case 'pos':
         return <MainPOS user={currentUser} />;
@@ -102,7 +95,7 @@ function App() {
       case 'orders':
         return <OrderHistoryPage user={currentUser} />;
       case 'reports':
-        return currentUser.role === 'admin' ? <AnalyticsProvider><DashboardContent activeTab="Sales" user={currentUser} onNavigate={handleNavClick} /></AnalyticsProvider> : <MainPOS user={currentUser} />;
+        return <AnalyticsProvider><DashboardContent activeTab="Sales" user={currentUser} onNavigate={handleNavClick} /></AnalyticsProvider>;
       case 'settings':
         return <SettingsPage currentUser={currentUser} onLogout={handleLogout} />;
       default:
@@ -142,7 +135,7 @@ function App() {
           <div className="avatar">{currentUser.username?.charAt(0)}</div>
           <div className="sidebar-footer-meta">
             <span className="sidebar-footer-name">{currentUser.username}</span>
-            <span className="sidebar-footer-role">{currentUser.role === 'stockist' ? 'Stock Management' : currentUser.role}</span>
+            <span className="sidebar-footer-role">{currentUser.role === 'stockist' ? 'Stockman' : currentUser.role}</span>
           </div>
           <button className="sidebar-logout-btn" onClick={handleLogout} title="Logout" aria-label="Log out of POS">
             <LogOut size={17} />
@@ -151,6 +144,7 @@ function App() {
       </aside>
 
       <main className="main-content">
+        {queueNeedsReview && <p className="text-danger page-content" role="status">Some offline changes are preserved. An administrator must review them before they can sync.</p>}
         <header className="top-header">
           <div className="flex items-center gap-4">
             <button className="menu-toggle desktop-hidden" onClick={handleMenuToggle}><Menu size={20} /></button>

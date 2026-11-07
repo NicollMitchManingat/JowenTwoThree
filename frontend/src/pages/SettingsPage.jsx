@@ -165,7 +165,7 @@ export default function SettingsPage({ currentUser, onLogout }) {
               Role:
               <span className={`badge ${currentUser.role === 'admin' ? 'badge-success' : 'badge-neutral'}`}
                 style={{ textTransform: 'capitalize' }}>
-                {currentUser.role}
+                {currentUser.role === 'stockist' ? 'Stock Management' : currentUser.role}
               </span>
             </p>
             <button className="btn btn-secondary btn-full"
@@ -361,7 +361,7 @@ export default function SettingsPage({ currentUser, onLogout }) {
             </div>
             <div className="card-body">
               <p className="text-sm text-muted desc-mb">
-                Cashiers run the POS, stockists manage inventory, and only admins view analytics or approve refunds.
+                Cashiers run the POS, Stock Management users manage inventory, and only admins view analytics or approve refunds.
               </p>
               <AccountManager currentUser={currentUser} />
             </div>

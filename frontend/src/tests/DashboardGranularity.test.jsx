@@ -90,6 +90,8 @@ describe('DashboardContent granularity', () => {
       expect(screen.getByTestId('granularity-group')).toBeInTheDocument()
     })
     expect(screen.getByTestId('granularity-daily')).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('heading', { name: 'Transactions', level: 3 })).toBeInTheDocument()
+    expect(screen.getByText('Avg Transaction')).toBeInTheDocument()
 
     await user.click(screen.getByTestId('granularity-hourly'))
     expect(screen.getByTestId('granularity-hourly')).toHaveAttribute('aria-pressed', 'true')
@@ -195,7 +197,7 @@ describe('DashboardContent granularity', () => {
     })
     const outBadge = screen.getByText('Out of stock')
     expect(outBadge).toHaveClass('badge-danger')
-    const lowBadge = screen.getByText('2.00 left')
+    const lowBadge = screen.getByText('2 left')
     expect(lowBadge).toHaveClass('badge-warning')
     // Critical rows sort first.
     expect(

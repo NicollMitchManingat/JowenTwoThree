@@ -373,7 +373,7 @@ function anomalyFlags({ range, trailing, hourlyRevenue }, cfg = insightsConfig) 
   if (dead.length > 0) {
     out.push({
       key: "anomaly-hours",
-      metric: "Dead Hours",
+      metric: "Lean Hours",
       value: dead.length === 1 ? fmtHour(dead[0]) : `${dead.length} quiet hours`,
       insight: `No revenue ${dead.slice(0, 3).map(fmtHour).join(", ")}${dead.length > 3 ? "…" : ""} — consider shorter shifts`,
       impact: "Medium",

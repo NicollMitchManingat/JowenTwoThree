@@ -7,7 +7,7 @@
 
 export const DETAIL_COLUMNS = [
   { header: 'Date', key: 'date', width: 12 },
-  { header: 'Order ID', key: 'orderId', width: 14 },
+  { header: 'Transaction ID', key: 'orderId', width: 16 },
   { header: 'Item Name', key: 'itemName', width: 26 },
   { header: 'Category', key: 'category', width: 14 },
   { header: 'Qty Sold', key: 'qty', width: 9 },
@@ -266,7 +266,7 @@ export function buildConsolidatedWorkbook(
   const noteRow = totalsRowNumber + 2;
   ws.mergeCells(`A${noteRow}:${lastCol}${noteRow}`);
   const note = ws.getCell(`A${noteRow}`);
-  note.value = 'Refunded orders contribute 0 to Net  •  Amounts in PHP (₱)  •  Stock levels are current as of export';
+  note.value = 'Refunded transactions contribute 0 to Net  •  Amounts in PHP (₱)  •  Stock levels are current as of export';
   note.font = { size: 8, italic: true, color: { argb: 'FF94A3B8' } };
   note.alignment = { horizontal: 'center' };
   setupPrint(ws, HEADER_ROW);

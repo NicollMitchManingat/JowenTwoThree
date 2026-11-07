@@ -70,6 +70,7 @@ describe('AccountManager', () => {
     })
     expect(screen.getByTestId('account-row-a1')).toHaveTextContent('You')
     expect(screen.getByTestId('account-row-s1')).toHaveTextContent('Inactive')
+    expect(screen.getByTestId('account-row-s1')).toHaveTextContent('Stock Management')
     // No deactivate toggle for your own row
     expect(screen.queryByTestId('account-toggle-a1')).not.toBeInTheDocument()
     expect(screen.getByTestId('account-toggle-s1')).toHaveTextContent('Activate')
@@ -84,6 +85,7 @@ describe('AccountManager', () => {
       expect(screen.getByTestId('account-add-btn')).toBeInTheDocument()
     })
     await user.click(screen.getByTestId('account-add-btn'))
+    expect(screen.getByRole('option', { name: 'Stock Management' })).toHaveValue('stockist')
     await user.type(screen.getByTestId('account-username-input'), 'cashier2')
     await user.type(screen.getByTestId('account-name-input'), 'Cashier Two')
     await user.type(screen.getByTestId('account-email-input'), 'cashier2@jowen.com')

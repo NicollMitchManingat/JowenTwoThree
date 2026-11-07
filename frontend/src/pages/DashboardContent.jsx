@@ -566,7 +566,7 @@ export default function DashboardContent({ activeTab, user, onNavigate }) {
       {/* Single grid so every breakpoint fills evenly: 4+2 desktop, 3+3 tablet, 2+2+2 phone. */}
       <div className="metrics-grid">
         <SummaryCard title="Total Revenue" value={totals.revenue} isCurrency={true} icon={<ShoppingBag />} color="#16a34a" />
-        <SummaryCard title="Orders" value={totals.orders} icon={<BarChart3 />} color="#2563eb" />
+        <SummaryCard title="Transactions" value={totals.orders} icon={<BarChart3 />} color="#2563eb" />
         <SummaryCard
           title="Customers"
           value={totals.customers.total}
@@ -574,7 +574,7 @@ export default function DashboardContent({ activeTab, user, onNavigate }) {
           color="#9333ea"
           sub={`♂ ${totals.customers.male.toLocaleString()} · ♀ ${totals.customers.female.toLocaleString()}${totals.customers.unspecified > 0 ? ` · ? ${totals.customers.unspecified.toLocaleString()}` : ''}`}
         />
-        <SummaryCard title="Avg Order" value={totals.orders > 0 ? totals.revenue / totals.orders : 0} isCurrency={true} icon={<TrendingUp />} color="#f59e0b" />
+        <SummaryCard title="Avg Transaction" value={totals.orders > 0 ? totals.revenue / totals.orders : 0} isCurrency={true} icon={<TrendingUp />} color="#f59e0b" />
         <SummaryCard title="Discounts Given" value={net.discounts} isCurrency={true} icon={<Percent />} color="#9333ea" />
         <SummaryCard title="Refunded" value={net.refunds} isCurrency={true} icon={<Undo2 />} color="#dc2626" />
       </div>
@@ -657,7 +657,7 @@ export default function DashboardContent({ activeTab, user, onNavigate }) {
               Expected cash: ₱{historyDetail.summary.net.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </p>
             <div className="flex items-center gap-4 flex-wrap text-sm text-muted">
-              <span data-testid="handover-orders">{historyDetail.summary.orders} orders</span>
+              <span data-testid="handover-orders">{historyDetail.summary.orders} transactions</span>
               <span>₱{historyDetail.summary.gross.toLocaleString()} gross</span>
               <span>₱{historyDetail.summary.discounts.toLocaleString()} discounts</span>
               <span data-testid="handover-refunds">
@@ -667,7 +667,7 @@ export default function DashboardContent({ activeTab, user, onNavigate }) {
                 {historyDetail.summary.customers.total} customers
                 (M{historyDetail.summary.customers.male}/F{historyDetail.summary.customers.female}/U{historyDetail.summary.customers.unspecified})
               </span>
-              <span>₱{historyDetail.summary.avgOrder.toFixed(2)}/order</span>
+              <span>₱{historyDetail.summary.avgOrder.toFixed(2)}/transaction</span>
               <span>{historyDetail.summary.salesPerHour.toFixed(1)} sales/hr</span>
             </div>
             <button className="btn btn-secondary" onClick={() => setHistoryDetail(null)}>Dismiss</button>

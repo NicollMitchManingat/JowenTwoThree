@@ -142,7 +142,7 @@ function App() {
           <div className="avatar">{currentUser.username?.charAt(0)}</div>
           <div className="sidebar-footer-meta">
             <span className="sidebar-footer-name">{currentUser.username}</span>
-            <span className="sidebar-footer-role">{currentUser.role}</span>
+            <span className="sidebar-footer-role">{currentUser.role === 'stockist' ? 'Stock Management' : currentUser.role}</span>
           </div>
           <button className="sidebar-logout-btn" onClick={handleLogout} title="Logout" aria-label="Log out of POS">
             <LogOut size={17} />

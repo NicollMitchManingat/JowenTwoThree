@@ -14,7 +14,7 @@ const doughnutOptions = {
     legend: { position: "bottom", labels: { boxWidth: 12, font: { size: 11 } } },
     tooltip: {
       callbacks: {
-        label: (ctx) => ` ${ctx.label}: ${formatPeso(ctx.parsed)} (${ctx.dataset.orders?.[ctx.dataIndex] ?? 0} orders)`,
+        label: (ctx) => ` ${ctx.label}: ${formatPeso(ctx.parsed)} (${ctx.dataset.orders?.[ctx.dataIndex] ?? 0} transactions)`,
       },
     },
   },

@@ -3,7 +3,7 @@ import { UserCog, Plus, Pencil, X, Lock } from 'lucide-react'
 import { authAPI } from '../../services/authAPI'
 import { ROLES } from '../../services/managerApproval'
 
-const ROLE_LABELS = { admin: 'Admin', cashier: 'Cashier', stockist: 'Stockist' }
+const ROLE_LABELS = { admin: 'Admin', cashier: 'Cashier', stockist: 'Stock Management' }
 
 // Admin account management (add / edit / deactivate / reset password).
 // Passwords are bcrypt-hashed server-side; the browser never sees a hash.
@@ -96,7 +96,7 @@ export default function AccountManager({ currentUser }) {
   if (!creds) {
     return (
       <div data-testid="account-manager">
-        <p className="text-sm text-muted account-unlock-text">Manage cashier and stockist accounts. Enter your admin password to unlock — it is only kept in memory for this panel.</p>
+        <p className="text-sm text-muted account-unlock-text">Manage Cashier and Stock Management accounts. Enter your admin password to unlock — it is only kept in memory for this panel.</p>
         {error && <p className="text-danger" data-testid="account-error">{error}</p>}
         <form onSubmit={handleUnlock} className="account-unlock-form">
           <label className="flex items-center gap-2">

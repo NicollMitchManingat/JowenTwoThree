@@ -19,7 +19,7 @@ const barOptions = {
     legend: { display: false },
     tooltip: {
       callbacks: {
-        label: (ctx) => ` ${formatPeso(ctx.parsed.y)} across ${ctx.dataset.redemptions?.[ctx.dataIndex] ?? 0} orders`,
+        label: (ctx) => ` ${formatPeso(ctx.parsed.y)} across ${ctx.dataset.redemptions?.[ctx.dataIndex] ?? 0} transactions`,
       },
     },
   },

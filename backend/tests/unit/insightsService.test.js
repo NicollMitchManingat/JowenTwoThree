@@ -278,6 +278,7 @@ describe("anomalyFlags", () => {
     // Refund rate 20% vs trailing 2.5% (8x) → spike; 9 AM dead; discounts 20% vs 5% (+15pts).
     expect(keys).toEqual(expect.arrayContaining(["anomaly-refunds", "anomaly-hours", "anomaly-discounts"]))
     const byKey = new Map(out.map((i) => [i.key, i]))
+    expect(byKey.get("anomaly-hours").metric).toBe("Lean Hours")
     expect(byKey.get("anomaly-refunds").insight).toMatch(/Look into your refunds/)
     expect(byKey.get("anomaly-discounts").insight).toMatch(/Review your discounts/)
   })

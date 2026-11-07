@@ -115,6 +115,7 @@ describe('SettingsPage sessions', () => {
     })
     expect(screen.queryByTestId('session-start-btn')).not.toBeInTheDocument()
     expect(screen.queryByTestId('session-timer')).not.toBeInTheDocument()
+    expect(screen.getByText('Stock Management')).toBeInTheDocument()
   })
 
   it('should gate cashier start behind the manager password', async () => {

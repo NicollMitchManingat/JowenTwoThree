@@ -176,6 +176,8 @@ export default function InventoryPage({ userRole }) {
   };
 
   const handleOpenEdit = (item) => {
+    if (!canManage || item._pendingSync) return;
+    setSelectedId(item.id);
     setFormData({ name: item.name, category: item.category || 'Other', stock_quantity: item.stock_quantity, unit: item.unit || 'kg' });
     setIsEditing(true);
     setEditId(item.id);
@@ -366,7 +368,7 @@ export default function InventoryPage({ userRole }) {
               </div>
               <div className="form-row-grid">
                 <div className="form-group m-0">
-                  <label>Stock Quantity</label>
+                  <label>Quantity</label>
                   <input type="number" className="form-input" placeholder="0"
                     value={formData.stock_quantity} onChange={(e) => setFormData({ ...formData, stock_quantity: e.target.value })} />
                 </div>
@@ -505,7 +507,7 @@ export default function InventoryPage({ userRole }) {
         </p>
       )}
       {canManage && !selectedItem && inventoryData.length > 0 && (
-        <p className="selected-hint" data-testid="selection-hint">Select a row to edit, log wastage, or delete.</p>
+        <p className="selected-hint" data-testid="selection-hint">Double-click a row or use its edit icon to edit. Select a row to log wastage or delete.</p>
       )}
 
       <div className="inventory-filter-row" role="radiogroup" aria-label="Filter by stock status">
@@ -527,7 +529,8 @@ export default function InventoryPage({ userRole }) {
           <thead>
             <tr>
               {canManage && <th scope="col" aria-label="Select" style={{ width: '2.5rem' }} />}
-              <th>Name</th><th>Category</th><th>Stock</th><th>Status</th>
+              <th>Name</th><th>Category</th><th>Quantity</th><th>Status</th>
+              {canManage && <th scope="col" aria-label="Edit" />}
             </tr>
           </thead>
           <tbody>
@@ -540,6 +543,7 @@ export default function InventoryPage({ userRole }) {
                 className={`${canManage ? 'row-selectable' : ''} ${isSelected ? 'row-selected' : ''}`}
                 aria-selected={canManage ? isSelected : undefined}
                 onClick={canManage ? () => toggleSelect(item.id) : undefined}
+                onDoubleClick={canManage ? () => handleOpenEdit(item) : undefined}
                 onKeyDown={canManage ? (e) => {
                   if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleSelect(item.id); }
                   else if (e.key === 'Escape') { setSelectedId(null); }
@@ -572,10 +576,24 @@ export default function InventoryPage({ userRole }) {
                     </span>
                   )}
                 </td>
+                {canManage && (
+                  <td onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
+                    <button
+                      type="button"
+                      className="btn-icon-small"
+                      aria-label={`Edit ${item.name}`}
+                      title={item._pendingSync ? 'Will sync when the database is back' : `Edit ${item.name}`}
+                      disabled={!!item._pendingSync}
+                      onClick={() => handleOpenEdit(item)}
+                    >
+                      <Edit size={16} />
+                    </button>
+                  </td>
+                )}
               </tr>
               );
             }) : (
-              <tr><td colSpan={canManage ? '5' : '4'} className="text-center py-4 text-muted">
+              <tr><td colSpan={canManage ? '6' : '4'} className="text-center py-4 text-muted">
                 {inventoryData.length === 0
                   ? 'No items found.'
                   : <>{filteredData.length === 0 && (searchTerm || statusFilter !== 'all') && (

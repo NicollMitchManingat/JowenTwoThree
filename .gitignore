@@ -15,3 +15,6 @@ test-results/
 
 # Local-only database scripts (untracked by design, kept on disk only)
 *.sql
+
+FEATURES.md
+settings.json

@@ -67,6 +67,7 @@ describe('exportConsolidatedExcel', () => {
     expect(details.getCell('A2').value).toContain('Live data');
     expect(details.getCell('A3').value).toContain('Net Revenue');
     expect(details.getRow(HEADER_ROW).getCell(1).value).toBe('Date');
+    expect(details.getRow(HEADER_ROW).getCell(2).value).toBe('Transaction ID');
     expect(details.getRow(HEADER_ROW).getCell(1).font.bold).toBe(true);
     expect(details.autoFilter).toBeTruthy();
     expect(details.views[0]).toMatchObject({ state: 'frozen', ySplit: HEADER_ROW });

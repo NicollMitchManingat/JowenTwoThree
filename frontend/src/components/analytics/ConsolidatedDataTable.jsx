@@ -29,7 +29,7 @@ const STATUS_OPTIONS = [
 
 const COLUMNS = [
   { key: "date", label: "Date" },
-  { key: "orderId", label: "Order ID" },
+  { key: "orderId", label: "Transaction ID" },
   { key: "itemName", label: "Item Name" },
   { key: "category", label: "Category" },
   { key: "quantitySold", label: "Qty Sold" },
@@ -322,7 +322,7 @@ export default function ConsolidatedDataTable() {
           <Search size={18} className="text-muted" />
           <input
             type="text"
-            placeholder="Search item or order…"
+            placeholder="Search item or transaction…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             aria-label="Search consolidated rows"

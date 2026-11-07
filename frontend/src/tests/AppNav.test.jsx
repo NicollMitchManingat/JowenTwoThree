@@ -48,6 +48,7 @@ describe('App role navigation', () => {
     expect(nav().getByText('Transactions')).toBeInTheDocument()
     expect(nav().queryByText('POS & Traffic')).not.toBeInTheDocument()
     expect(nav().queryByText('Analytics')).not.toBeInTheDocument()
+    expect(screen.getByText('Stock Management')).toBeInTheDocument()
   })
 
   it('should show everything to admins', () => {

@@ -45,8 +45,10 @@ describe('InventoryPage roles', () => {
       expect(screen.getByText('Milk')).toBeInTheDocument()
     })
     expect(screen.getByText('Add Item')).toBeInTheDocument()
-    // No per-row action column anymore — actions live in the toolbar.
+    // The row edit icon complements the selection-based toolbar.
     expect(screen.queryByText('Actions')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Edit Milk' })).toBeEnabled()
+    expect(screen.getByRole('columnheader', { name: 'Quantity' })).toBeInTheDocument()
     // Toolbar buttons exist but stay disabled until a row is selected.
     expect(screen.getByTestId('toolbar-edit-btn')).toBeDisabled()
     expect(screen.getByTestId('toolbar-wastage-btn')).toBeDisabled()
@@ -98,6 +100,57 @@ describe('InventoryPage roles', () => {
     expect(screen.queryByTestId('selected-chip')).not.toBeInTheDocument()
   })
 
+  it.each(['admin', 'stockist'])('should edit the existing item by double-clicking its row as %s', async (role) => {
+    const user = userEvent.setup()
+    render(<InventoryPage userRole={role} />)
+
+    const item = await screen.findByText('Milk')
+    await user.dblClick(item.closest('tr'))
+
+    expect(screen.getByRole('heading', { name: 'Edit Item' })).toBeInTheDocument()
+    expect(screen.getByPlaceholderText('e.g., Almond Milk')).toHaveValue('Milk')
+    expect(screen.getByPlaceholderText('0')).toHaveValue(8)
+    expect(screen.getByTestId('selected-chip')).toHaveTextContent('Milk')
+    expect(db.updateInventoryItem).not.toHaveBeenCalled()
+    expect(db.createInventoryItem).not.toHaveBeenCalled()
+  })
+
+  it('should edit by keyboard using the row icon and preserve fractional quantities when saving', async () => {
+    const user = userEvent.setup()
+    db.getInventory.mockResolvedValueOnce([
+      { id: 'i1', name: 'Milk', category: 'Dairy', stock_quantity: 8.25, unit: 'L' },
+    ])
+    render(<InventoryPage userRole="stockist" />)
+
+    const edit = await screen.findByRole('button', { name: 'Edit Milk' })
+    expect(edit.closest('tr')).toHaveTextContent('8.25')
+    edit.focus()
+    await user.keyboard('{Enter}')
+
+    expect(screen.getByRole('heading', { name: 'Edit Item' })).toBeInTheDocument()
+    const quantity = screen.getByPlaceholderText('0')
+    expect(quantity).toHaveValue(8.25)
+    await user.clear(quantity)
+    await user.type(quantity, '7.125')
+    await user.click(screen.getByText('Save'))
+
+    await waitFor(() => expect(db.updateInventoryItem).toHaveBeenCalledWith('i1', {
+      name: 'Milk', category: 'Dairy', stock_quantity: 7.125, unit: 'L',
+    }))
+    expect(db.updateInventoryItem).toHaveBeenCalledTimes(1)
+    expect(db.createInventoryItem).not.toHaveBeenCalled()
+  })
+
+  it('should open the same edit form when the row icon is clicked', async () => {
+    const user = userEvent.setup()
+    render(<InventoryPage userRole="admin" />)
+    await user.click(await screen.findByRole('button', { name: 'Edit Milk' }))
+
+    expect(screen.getByRole('heading', { name: 'Edit Item' })).toBeInTheDocument()
+    expect(screen.getByPlaceholderText('e.g., Almond Milk')).toHaveValue('Milk')
+    expect(screen.getByTestId('toolbar-edit-btn')).toBeEnabled()
+  })
+
   it('should ask for confirmation before deleting, and cancel without deleting', async () => {
     const user = userEvent.setup()
     render(<InventoryPage userRole="stockist" />)
@@ -132,6 +185,7 @@ describe('InventoryPage roles', () => {
   })
 
   it('should give cashiers a read-only inventory view', async () => {
+    const user = userEvent.setup()
     render(<InventoryPage userRole="cashier" />)
 
     await waitFor(() => {
@@ -143,6 +197,9 @@ describe('InventoryPage roles', () => {
     expect(screen.queryByTestId('toolbar-wastage-btn')).not.toBeInTheDocument()
     expect(screen.queryByTestId('toolbar-delete-btn')).not.toBeInTheDocument()
     expect(screen.queryByTestId('select-item-i1')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Edit Milk' })).not.toBeInTheDocument()
+    await user.dblClick(screen.getByText('Milk').closest('tr'))
+    expect(screen.queryByRole('heading', { name: 'Edit Item' })).not.toBeInTheDocument()
   })
 
   it('should show the bell right of Add Item for managers', async () => {
@@ -281,6 +338,9 @@ describe('InventoryPage roles', () => {
     expect(screen.getByTestId('toolbar-delete-btn')).toBeDisabled()
     expect(screen.getByTestId('toolbar-edit-btn')).toHaveAttribute('title', expect.stringMatching(/sync/i))
     expect(screen.getByTestId('selected-chip')).toHaveTextContent(/pending sync/i)
+    expect(screen.getByRole('button', { name: 'Edit Oats' })).toBeDisabled()
+    await user.dblClick(screen.getByTestId('select-item-temp-9').closest('tr'))
+    expect(screen.queryByRole('heading', { name: 'Edit Item' })).not.toBeInTheDocument()
     expect(alertSpy).toHaveBeenCalledWith(expect.stringMatching(/offline/i))
     alertSpy.mockRestore()
   })

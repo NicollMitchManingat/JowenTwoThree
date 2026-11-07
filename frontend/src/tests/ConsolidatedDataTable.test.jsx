@@ -121,7 +121,7 @@ describe("ConsolidatedDataTable", () => {
     render(<ConsolidatedDataTable />);
     await waitFor(() => {
       expect(screen.getByTestId("sort-date")).toBeInTheDocument();
-      expect(screen.getByTestId("sort-orderId")).toBeInTheDocument();
+      expect(screen.getByTestId("sort-orderId")).toHaveTextContent("Transaction ID");
       expect(screen.getByTestId("sort-itemName")).toBeInTheDocument();
       expect(screen.getByTestId("sort-category")).toBeInTheDocument();
       expect(screen.getByTestId("sort-quantitySold")).toBeInTheDocument();

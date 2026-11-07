@@ -57,7 +57,7 @@ describe('InventoryTable Integration Tests', () => {
 
     await user.click(editBtn);
     expect(screen.getByTestId('item-name-display')).toHaveTextContent('Milk');
-    expect(screen.getByTestId('current-stock-display')).toHaveTextContent('5.00 units');
+    expect(screen.getByTestId('current-stock-display')).toHaveTextContent('5 units');
   });
 
   it('closes modal when cancel button is clicked', async () => {

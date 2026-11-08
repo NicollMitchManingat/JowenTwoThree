@@ -8,6 +8,10 @@ import { formatStock, formatInventoryMoney, inventoryTotal } from '../utils/form
 import { processQueue, offlineQueue } from '../services/offlineQueue';
 
 const PAGE_SIZE = 10;
+const quantityInput = value => Number(value).toLocaleString('en-US', {
+  useGrouping: false, minimumFractionDigits: 2, maximumFractionDigits: 2,
+});
+const isRowControl = target => !!target.closest('input, button, select, textarea, a, [role="button"]');
 const stockVersion = item => ({ baseStockQty: Number(item?.stock_quantity),
   ...(item?.updated_at ? { expectedUpdatedAt: item.updated_at } : {}) });
 
@@ -40,6 +44,8 @@ export default function InventoryPage({ userRole }) {
   const [editId, setEditId] = useState(null);
   const [editVersion, setEditVersion] = useState(null);
   const [originalItem, setOriginalItem] = useState(null);
+  const [quantityEdited, setQuantityEdited] = useState(false);
+  const touch = useRef({ active: null, lastTap: null, ignoreClickId: null, ignoreClickUntil: 0, ignoreDoubleClickUntil: 0 });
   const [saving, setSaving] = useState(false);
   const saveBusy = useRef(false);
   const [formError, setFormError] = useState('');
@@ -180,22 +186,72 @@ export default function InventoryPage({ userRole }) {
 
   const handleOpenAdd = () => {
     setFormData({ name: '', category: 'Ingredients', stock_quantity: '', unit: 'units', unit_price: '' });
-    setFormError(''); setOriginalItem(null);
+    setFormError(''); setOriginalItem(null); setQuantityEdited(false);
     setIsEditing(false);
     setEditId(null);
     setShowModal(true);
   };
 
   const handleOpenEdit = (item) => {
-    if (!canManage || item._pendingSync) return;
+    if (!canManage || item._pendingSync || showModal) return;
     setSelectedId(item.id);
-    setFormData({ name: item.name, category: item.category || 'Other', stock_quantity: item.stock_quantity, unit: item.unit || 'units', unit_price: item.unit_price ?? '' });
-    setFormError(''); setOriginalItem(item);
+    setFormData({ name: item.name, category: item.category || 'Other', stock_quantity: quantityInput(item.stock_quantity), unit: item.unit || 'units', unit_price: item.unit_price ?? '' });
+    setFormError(''); setOriginalItem(item); setQuantityEdited(false);
     setIsEditing(true);
     setEditId(item.id);
     setEditVersion(stockVersion(item));
     setShowModal(true);
   };
+
+  const resetTouch = () => { touch.current.active = null; touch.current.lastTap = null; };
+  useEffect(() => {
+    const cancelMultiTouch = event => {
+      if (event.pointerType === 'touch' && event.isPrimary === false) resetTouch();
+    };
+    window.addEventListener('scroll', resetTouch, true);
+    window.addEventListener('pointerdown', cancelMultiTouch, true);
+    return () => {
+      window.removeEventListener('scroll', resetTouch, true);
+      window.removeEventListener('pointerdown', cancelMultiTouch, true);
+    };
+  }, []);
+
+  const handleTouchDown = (event, item) => {
+    if (event.pointerType !== 'touch') return;
+    const now = Date.now();
+    touch.current.ignoreDoubleClickUntil = now + 700;
+    if (!canManage || item._pendingSync || showModal || event.isPrimary === false || isRowControl(event.target)) {
+      resetTouch(); return;
+    }
+    touch.current.active = { id: item.id, pointer: event.pointerId, x: event.clientX, y: event.clientY, time: now };
+  };
+
+  const handleTouchMove = event => {
+    if (event.pointerType !== 'touch') return;
+    const active = touch.current.active;
+    if (active && active.pointer === event.pointerId && Math.hypot(event.clientX - active.x, event.clientY - active.y) > 10) resetTouch();
+  };
+
+  const handleTouchUp = (event, item) => {
+    if (event.pointerType !== 'touch') return;
+    const active = touch.current.active, previous = touch.current.lastTap, now = Date.now();
+    touch.current.active = null;
+    if (!active || active.pointer !== event.pointerId || active.id !== item.id ||
+      now - active.time < 0 || now - active.time > 300 ||
+      Math.hypot(event.clientX - active.x, event.clientY - active.y) > 10 || isRowControl(event.target)) {
+      touch.current.lastTap = null; return;
+    }
+    if (previous && previous.id === item.id && now - previous.time >= 0 && now - previous.time <= 300 &&
+      Math.hypot(event.clientX - previous.x, event.clientY - previous.y) <= 24) {
+      resetTouch();
+      // Compatibility click/dblclick events must not deselect the row or reopen.
+      touch.current.ignoreClickId = item.id;
+      touch.current.ignoreClickUntil = now + 500;
+      handleOpenEdit(item);
+    } else touch.current.lastTap = { id: item.id, time: now, x: event.clientX, y: event.clientY };
+  };
+
+  const exactFormQuantity = isEditing && !quantityEdited ? originalItem?.stock_quantity : formData.stock_quantity;
 
   // Applies an optimistic change to the list AND the snapshot so queued
   // edits stay visible across reloads until the next live load replaces
@@ -207,11 +263,11 @@ export default function InventoryPage({ userRole }) {
 
   const handleSave = async () => {
     if (saveBusy.current || !canManage) return;
-    const quantity = Number(formData.stock_quantity);
+    const quantity = Number(isEditing && !quantityEdited ? originalItem?.stock_quantity : quantityInput(formData.stock_quantity));
     const priceText = String(formData.unit_price).trim();
     if (!formData.name.trim()) { setFormError('Item name is required.'); return; }
-    if (String(formData.stock_quantity).trim() === '' || !Number.isFinite(quantity) || quantity < 0) { setFormError('Quantity must be zero or a positive number.'); return; }
-    if (!formData.unit.trim() || formData.unit.trim().length > 32) { setFormError('Unit of measurement is required (up to 32 characters).'); return; }
+    if (String(formData.stock_quantity).trim() === '' || !Number.isFinite(quantity) || Number(formData.stock_quantity) < 0) { setFormError('Quantity must be zero or a positive number.'); return; }
+    if (!formData.unit.trim() || formData.unit.trim().length > 32) { setFormError('Unit is required (up to 32 characters).'); return; }
     if (priceText !== '' && (!/^\d+(\.\d{1,2})?$/.test(priceText) || Number(priceText) > 9999999999.99)) { setFormError('Price must be nonnegative, with at most two decimal places (maximum 9,999,999,999.99).'); return; }
     saveBusy.current = true; setSaving(true); setFormError('');
     const updates = {
@@ -357,7 +413,7 @@ export default function InventoryPage({ userRole }) {
     <div className="page-content record-list-page inventory-list-page">
       {showModal && (
         <div className="modal-overlay" onClick={() => !saving && setShowModal(false)}>
-          <div className="modal-content card" role="dialog" aria-label={isEditing ? 'Edit Item' : 'Add Item'} onClick={(e) => e.stopPropagation()}>
+          <div className="modal-content card inventory-item-modal" role="dialog" aria-label={isEditing ? 'Edit Item' : 'Add Item'} onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h3>{isEditing ? 'Edit Item' : 'Add Item'}</h3>
               <button className="btn-icon-small" disabled={saving} aria-label="Close item form" onClick={() => setShowModal(false)}><X size={18} /></button>
@@ -381,11 +437,15 @@ export default function InventoryPage({ userRole }) {
               <div className="form-row-grid">
                 <div className="form-group m-0">
                   <label htmlFor="inventory-quantity">Quantity</label>
-                  <input id="inventory-quantity" type="number" className="form-input" placeholder="0" min="0" step="any"
-                    value={formData.stock_quantity} onChange={(e) => setFormData({ ...formData, stock_quantity: e.target.value })} />
+                  <input id="inventory-quantity" type="number" className="form-input" placeholder="0" min="0" step="0.01"
+                    value={formData.stock_quantity} onChange={(e) => { setQuantityEdited(true); setFormData({ ...formData, stock_quantity: e.target.value }); }}
+                    onBlur={e => {
+                      const value = e.target.value;
+                      if (value.trim() !== '' && Number.isFinite(Number(value)) && Number(value) >= 0) setFormData(previous => ({ ...previous, stock_quantity: quantityInput(value) }));
+                    }} />
                 </div>
                 <div className="form-group m-0">
-                  <label htmlFor="inventory-unit">Unit of Measurement</label>
+                  <label htmlFor="inventory-unit">Unit</label>
                   <input id="inventory-unit" type="text" className="form-input" maxLength={32} placeholder="e.g., kg, L, pcs" value={formData.unit}
                     onChange={e => setFormData({ ...formData, unit: e.target.value })} />
                 </div>
@@ -398,10 +458,10 @@ export default function InventoryPage({ userRole }) {
                 <p className="text-sm text-muted">Leave blank if the price is not recorded.</p>
               </div>
               <div className="flex justify-between items-center">
-                <span>Status</span><span>{getStatus(Number(formData.stock_quantity))}</span>
+                <span>Status</span><span>{getStatus(Number(exactFormQuantity))}</span>
               </div>
               <div className="flex justify-between items-center mt-2">
-                <span>Total Amount</span><output aria-label="Total Amount">{formatInventoryMoney(inventoryTotal(formData.stock_quantity, formData.unit_price))}</output>
+                <span>Total Amount</span><output aria-label="Total Amount">{formatInventoryMoney(inventoryTotal(exactFormQuantity, formData.unit_price))}</output>
               </div>
               </fieldset>
             </div>
@@ -539,7 +599,7 @@ export default function InventoryPage({ userRole }) {
         </p>
       )}
       {canManage && !selectedItem && inventoryData.length > 0 && (
-        <p className="selected-hint" data-testid="selection-hint">Double-click a row to edit, or select a row to use Edit, Log Wastage or Delete above.</p>
+        <p className="selected-hint" data-testid="selection-hint">Double-click or double-tap a row to edit, or select a row to use Edit, Log Wastage or Delete above.</p>
       )}
 
       <div className="inventory-filter-row" role="radiogroup" aria-label="Filter by stock status">
@@ -580,8 +640,18 @@ export default function InventoryPage({ userRole }) {
                 key={item.id}
                 className={`${canManage ? 'row-selectable' : ''} ${isSelected ? 'row-selected' : ''}`}
                 aria-selected={canManage ? isSelected : undefined}
-                onClick={canManage ? () => toggleSelect(item.id) : undefined}
-                onDoubleClick={canManage ? () => handleOpenEdit(item) : undefined}
+                onClick={canManage ? event => {
+                  if (event.detail !== 0 && touch.current.ignoreClickId === item.id && Date.now() < touch.current.ignoreClickUntil) return;
+                  toggleSelect(item.id);
+                } : undefined}
+                onDoubleClick={canManage ? event => {
+                  if (Date.now() < touch.current.ignoreDoubleClickUntil || isRowControl(event.target)) return;
+                  handleOpenEdit(item);
+                } : undefined}
+                onPointerDown={canManage ? event => handleTouchDown(event, item) : undefined}
+                onPointerMove={canManage ? handleTouchMove : undefined}
+                onPointerUp={canManage ? event => handleTouchUp(event, item) : undefined}
+                onPointerCancel={canManage ? resetTouch : undefined}
                 onKeyDown={canManage ? (e) => {
                   if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleSelect(item.id); }
                   else if (e.key === 'Escape') { setSelectedId(null); }

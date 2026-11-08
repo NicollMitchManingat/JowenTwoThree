@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { render, screen, waitFor, within, fireEvent } from '@testing-library/react'
 import InventoryPage from '../pages/InventoryPage'
 
 vi.mock('../services/db', () => ({
@@ -30,7 +30,16 @@ import { offlineQueue, processQueue } from '../services/offlineQueue'
 import { saveStockCache } from '../services/stockCache'
 import userEvent from '@testing-library/user-event'
 
+const touchPointer = (target, type, options = {}) => fireEvent[type](target, {
+  pointerType: 'touch', pointerId: 1, isPrimary: true, clientX: 40, clientY: 40, ...options,
+})
+const touchTap = (target, options) => {
+  touchPointer(target, 'pointerDown', options)
+  touchPointer(target, 'pointerUp', options)
+}
+
 describe('InventoryPage roles', () => {
+  afterEach(() => vi.restoreAllMocks())
   beforeEach(() => {
     vi.clearAllMocks()
     localStorage.clear()
@@ -81,6 +90,8 @@ describe('InventoryPage roles', () => {
     db.getInventory.mockResolvedValueOnce([{ id: 'i1', name: 'Milk', stock_quantity: '1.0050000000000001', unit: 'L', unit_price: null, updated_at: '2026-11-08T10:00:00Z' }])
     render(<InventoryPage userRole="stockist" />)
     await user.dblClick((await screen.findByText('Milk')).closest('tr'))
+    expect(screen.getByLabelText('Quantity').value).toBe('1.01')
+    expect(screen.getByLabelText('Quantity')).toHaveAttribute('step', '0.01')
     await user.type(screen.getByLabelText('Price per L (₱)'), '1.00')
     expect(screen.getByLabelText('Total Amount')).toHaveTextContent('₱1.01')
     await user.click(screen.getByRole('button', { name: 'Save', exact: true }))
@@ -95,8 +106,8 @@ describe('InventoryPage roles', () => {
     await user.click(await screen.findByRole('button', { name: 'Add Item' }))
     await user.type(screen.getByLabelText('Item Name'), 'Cups')
     await user.type(screen.getByLabelText('Quantity'), '0')
-    await user.clear(screen.getByLabelText('Unit of Measurement'))
-    await user.type(screen.getByLabelText('Unit of Measurement'), 'pcs')
+    await user.clear(screen.getByLabelText('Unit'))
+    await user.type(screen.getByLabelText('Unit'), 'pcs')
     await user.type(screen.getByLabelText('Price per pcs (₱)'), '0')
     expect(screen.getByLabelText('Total Amount')).toHaveTextContent('₱0.00')
     await user.click(within(screen.getByRole('dialog', { name: 'Add Item' })).getByRole('button', { name: 'Add Item' }))
@@ -210,7 +221,92 @@ describe('InventoryPage roles', () => {
     expect(db.createInventoryItem).not.toHaveBeenCalled()
   })
 
-  it('should edit by keyboard using row selection and the toolbar, preserving fractional quantities', async () => {
+  it('opens the edit form on a touch double-tap and ignores compatibility mouse events', async () => {
+    render(<InventoryPage userRole="stockist" />)
+    const row = (await screen.findByText('Milk')).closest('tr')
+    touchTap(row)
+    fireEvent.click(row, { detail: 1 })
+    expect(row).toHaveAttribute('aria-selected', 'true')
+    expect(screen.queryByRole('dialog', { name: 'Edit Item' })).not.toBeInTheDocument()
+    touchTap(row)
+    fireEvent.click(row, { detail: 2 })
+    fireEvent.doubleClick(row)
+    const dialog = screen.getByRole('dialog', { name: 'Edit Item' })
+    expect(within(dialog).getByLabelText('Quantity').value).toBe('8.00')
+    expect(within(dialog).getByLabelText('Unit')).toHaveValue('units')
+    expect(within(dialog).queryByLabelText('Unit of Measurement')).not.toBeInTheDocument()
+    expect(screen.getByTestId('selected-chip')).toHaveTextContent('Milk')
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel', exact: true }))
+    fireEvent.doubleClick(row)
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(db.updateInventoryItem).not.toHaveBeenCalled()
+  })
+
+  it.each(['move', 'cancel', 'scroll', 'multi-touch', 'hold', 'delay', 'distance'])(
+    'does not interpret %s as a double-tap', async gesture => {
+      render(<InventoryPage userRole="admin" />)
+      const row = (await screen.findByText('Milk')).closest('tr')
+      let now = 1000
+      vi.spyOn(Date, 'now').mockImplementation(() => now)
+      touchTap(row)
+      if (gesture === 'delay') now += 400
+      const secondPosition = gesture === 'distance' ? { clientX: 100 } : {}
+      touchPointer(row, 'pointerDown', secondPosition)
+      if (gesture === 'move') touchPointer(row, 'pointerMove', { clientY: 80 })
+      if (gesture === 'cancel') touchPointer(row, 'pointerCancel')
+      if (gesture === 'scroll') fireEvent.scroll(window)
+      if (gesture === 'multi-touch') touchPointer(row, 'pointerDown', { pointerId: 2, isPrimary: false })
+      if (gesture === 'hold') now += 500
+      touchPointer(row, 'pointerUp', secondPosition)
+      expect(screen.queryByRole('dialog', { name: 'Edit Item' })).not.toBeInTheDocument()
+    })
+
+  it('requires two taps on the same row and ignores taps on selection controls', async () => {
+    db.getInventory.mockResolvedValueOnce([
+      { id: 'i1', name: 'Milk', stock_quantity: 8 }, { id: 'i2', name: 'Beans', stock_quantity: 12 },
+    ])
+    render(<InventoryPage userRole="admin" />)
+    const milk = (await screen.findByText('Milk')).closest('tr')
+    const beans = screen.getByText('Beans').closest('tr')
+    touchTap(milk)
+    touchTap(beans)
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    const radio = screen.getByTestId('select-item-i2')
+    touchTap(radio)
+    touchTap(radio)
+    fireEvent.doubleClick(radio)
+    touchTap(beans)
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
+  it.each(['cashier', 'pending'])('keeps touch editing locked for %s rows', async state => {
+    db.getInventory.mockResolvedValueOnce([{ id: 'i1', name: 'Milk', stock_quantity: 8, _pendingSync: state === 'pending' }])
+    render(<InventoryPage userRole={state === 'cashier' ? 'cashier' : 'admin'} />)
+    const row = (await screen.findByText('Milk')).closest('tr')
+    touchTap(row)
+    touchTap(row)
+    fireEvent.doubleClick(row)
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
+  it('shows two decimal places without changing a stored balance on name-only edits', async () => {
+    db.getInventory.mockResolvedValueOnce([{ id: 'i1', name: 'Milk', category: 'Dairy', stock_quantity: '7.125', unit: 'L', unit_price: '85.20' }])
+    const user = userEvent.setup()
+    render(<InventoryPage userRole="admin" />)
+    await user.dblClick((await screen.findByText('Milk')).closest('tr'))
+    const quantity = screen.getByLabelText('Quantity')
+    expect(quantity.value).toBe('7.13')
+    await user.click(quantity)
+    await user.tab()
+    await user.clear(screen.getByLabelText('Item Name'))
+    await user.type(screen.getByLabelText('Item Name'), 'Fresh Milk')
+    expect(screen.getByLabelText('Total Amount')).toHaveTextContent('₱607.05')
+    await user.click(screen.getByRole('button', { name: 'Save', exact: true }))
+    await waitFor(() => expect(db.updateInventoryItem).toHaveBeenCalled())
+    expect(db.updateInventoryItem.mock.calls[0][1]).toEqual({ name: 'Fresh Milk', category: 'Dairy', unit: 'L' })
+  })
+
+  it('should edit by keyboard using row selection and the toolbar, rounding changed quantities to two decimals', async () => {
     const user = userEvent.setup()
     db.getInventory.mockResolvedValueOnce([
       { id: 'i1', name: 'Milk', category: 'Dairy', stock_quantity: 8.25, unit: 'L' },
@@ -230,10 +326,12 @@ describe('InventoryPage roles', () => {
     expect(quantity).toHaveValue(8.25)
     await user.clear(quantity)
     await user.type(quantity, '7.125')
+    await user.tab()
+    expect(quantity.value).toBe('7.13')
     await user.click(screen.getByText('Save'))
 
     await waitFor(() => expect(db.updateInventoryItem).toHaveBeenCalledWith('i1', {
-      name: 'Milk', category: 'Dairy', stock_quantity: 7.125, unit: 'L',
+      name: 'Milk', category: 'Dairy', stock_quantity: 7.13, unit: 'L',
     }, { baseStockQty: 8.25 }))
     expect(db.updateInventoryItem).toHaveBeenCalledTimes(1)
     expect(db.createInventoryItem).not.toHaveBeenCalled()

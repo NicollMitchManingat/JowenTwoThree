@@ -2075,6 +2075,37 @@
   border-bottom: 1px solid var(--border-color);
 }
 
+.analytics-group-header {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.85rem;
+}
+
+.analytics-group-tabs {
+  display: flex;
+  gap: 0.5rem;
+  overflow-x: auto;
+  padding: 0.2rem 0.15rem 0.4rem;
+  scrollbar-width: thin;
+}
+
+.analytics-group-tabs .btn {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.analytics-group-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  min-width: 0;
+}
+
+.analytics-group-panel[hidden] {
+  display: none;
+}
+
 .analytics-filter-field {
   display: flex;
   flex-direction: column;
@@ -2275,6 +2306,278 @@
 
 .csv-download-btn:hover {
   background: #15803d;
+}
+
+/* Analytics sizing follows the content area, including the sidebar's width. */
+.analytics-page {
+  --analytics-page-inset: 1.5rem;
+  container: analytics / inline-size;
+  min-width: 0;
+  width: 100%;
+  gap: 1rem;
+}
+
+.analytics-page .analytics-kpi-grid {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.875rem;
+  align-items: stretch;
+}
+
+.analytics-summary-card.kpi-card {
+  container-type: inline-size;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.625rem;
+  min-width: 0;
+  min-height: 9.5rem;
+  padding: 1.125rem;
+  border: 1px solid var(--border-color);
+  border-radius: 14px;
+  background: var(--bg-surface);
+  box-shadow: var(--shadow-sm);
+}
+
+.analytics-summary-card > .kpi-card-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex: none;
+  min-width: 0;
+}
+
+.analytics-summary-card .kpi-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  color: var(--kpi-accent);
+  background: var(--bg-hover);
+  background: color-mix(in srgb, var(--kpi-accent) 12%, var(--bg-surface));
+}
+
+.analytics-summary-card .kpi-icon svg {
+  width: 18px;
+  height: 18px;
+}
+
+.analytics-summary-card .kpi-title {
+  margin: 0;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--text-muted);
+}
+
+.analytics-summary-card .kpi-value {
+  margin: 0;
+  min-width: 0;
+  font-size: 1.75rem;
+  font-size: clamp(1.375rem, 9cqi, 2rem);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.035em;
+  line-height: 1.3;
+  color: var(--text-main);
+  white-space: nowrap;
+  overflow-wrap: normal;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.analytics-summary-card .kpi-value:focus-visible {
+  outline: 2px solid var(--color-accent-strong);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
+.analytics-summary-card .kpi-sub {
+  margin: 0;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+.analytics-page .analytics-kpi-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+  min-width: 0;
+  min-height: 9.5rem;
+  padding: 1.125rem;
+  border-radius: 14px;
+}
+
+.analytics-page .analytics-kpi-skeleton .skeleton-icon {
+  width: 36px;
+  height: 36px;
+}
+
+.analytics-page .analytics-group-header {
+  top: calc(-1 * var(--analytics-page-inset));
+  margin: calc(-1 * var(--analytics-page-inset)) calc(-1 * var(--analytics-page-inset)) 0;
+  gap: 0.625rem;
+  padding-left: var(--analytics-page-inset);
+  padding-right: var(--analytics-page-inset);
+  padding-top: 0.875rem;
+  padding-bottom: 0.625rem;
+  min-width: 0;
+}
+
+.analytics-header-row {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.75rem 1.5rem;
+  min-width: 0;
+}
+
+.analytics-header-filters {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr);
+  align-items: end;
+  gap: 0.625rem 0.75rem;
+  flex: 1 1 32rem;
+  min-width: 0;
+}
+
+.analytics-header-filters .analytics-filter-field {
+  min-width: 0;
+  font-size: 0.7rem;
+}
+
+.analytics-header-filters .analytics-range-select {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  text-overflow: ellipsis;
+}
+
+.analytics-header-filters .analytics-detail-field,
+.analytics-header-filters .date-filter {
+  grid-column: 1 / -1;
+}
+
+.analytics-header-filters .date-filter {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+}
+
+.analytics-header-filters .analytics-date-input {
+  width: 100%;
+  min-width: 0;
+}
+
+.analytics-page .analytics-group-tabs {
+  gap: 0.375rem;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.analytics-page .analytics-group-tabs .btn,
+.analytics-page .granularity-group .btn,
+.analytics-header-filters .form-input {
+  min-height: 44px;
+}
+
+.analytics-page .analytics-group-tabs .btn {
+  padding: 0.5rem 0.875rem;
+  font-size: 0.8125rem;
+}
+
+.analytics-page .analytics-group-panel {
+  gap: 1rem;
+}
+
+.analytics-page .charts-grid {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1rem;
+}
+
+.analytics-page .analytics-group-panel .card,
+.analytics-page .charts-grid > * {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.analytics-page .card-header,
+.analytics-page .table-header {
+  padding: 0.875rem 1rem;
+  flex-wrap: wrap;
+  gap: 0.625rem;
+}
+
+.analytics-page .chart-container {
+  padding-left: 0.75rem;
+  padding-right: 0.75rem;
+}
+
+.analytics-page .table-responsive {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.analytics-page .consolidated-table {
+  min-width: 0;
+  max-width: 100%;
+  margin-top: 0;
+}
+
+.analytics-page .table-wrapper {
+  max-width: 100%;
+  margin-left: 0;
+  margin-right: 0;
+  padding-left: 0;
+  padding-right: 0;
+}
+
+@media (max-width: 768px) {
+  .analytics-page { --analytics-page-inset: 1rem; }
+}
+
+@media (max-width: 480px) {
+  .analytics-page { --analytics-page-inset: 0.75rem; }
+}
+
+@container analytics (min-width: 34rem) {
+  .analytics-page .analytics-kpi-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@container analytics (min-width: 54rem) {
+  .analytics-page .charts-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .analytics-header-filters {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+
+  .analytics-header-filters > .analytics-filter-field {
+    flex: 0 1 12rem;
+  }
+
+  .analytics-header-filters > .analytics-session-field {
+    flex-basis: 18rem;
+  }
+
+  .analytics-header-filters > .analytics-detail-field {
+    flex: 0 0 auto;
+  }
+
+  .analytics-header-filters .date-filter {
+    flex: 0 1 28rem;
+  }
+}
+
+@container analytics (min-width: 60rem) {
+  .analytics-page .analytics-kpi-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
 }
 
 .consolidated-table .summary-row {

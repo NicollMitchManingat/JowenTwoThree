@@ -8,6 +8,7 @@ import { formatStock } from '../utils/formatStock';
 import { netRevenue, paymentMix, voucherStats, refundSummary, customerTotals, bucketHourlySales, aggregateWeekdayPattern } from '../services/salesAnalytics';
 
 import SummaryCard from "../components/analytics/SummaryCard";
+import TabMenu, { ANALYTICS_GROUPS } from "../components/analytics/TabMenu";
 import SalesTrendChart from "../components/analytics/SalesTrendChart";
 import StockMovementChart from "../components/analytics/StockMovementChart";
 import DateRangeFilter from "../components/analytics/DateRangeFilter";
@@ -102,12 +103,23 @@ export function aggregateWeeklySales(salesData) {
 }
 
 export default function DashboardContent({ activeTab, user, onNavigate }) {
+  const initialGroup = ANALYTICS_GROUPS.find(group => group.id === activeTab || group.label === activeTab)?.id || 'overview';
+  const [activeGroup, setActiveGroup] = useState(initialGroup);
+  const [visitedGroups, setVisitedGroups] = useState(() => new Set([initialGroup]));
+  const selectGroup = group => {
+    setActiveGroup(group);
+    setVisitedGroups(previous => previous.has(group) ? previous : new Set([...previous, group]));
+  };
+  const inventoryVisited = visitedGroups.has('inventory');
+  const insightsVisited = visitedGroups.has('insights');
   const { dateFilter, setDateFilter, granularity = 'daily', setGranularity = () => {} } = useContext(AnalyticsContext);
   const [customStartDate, setCustomStartDate] = useState("");
   const [customEndDate, setCustomEndDate] = useState("");
   const [todayStats, setTodayStats] = useState(null);
   const [lowStock, setLowStock] = useState([]);
-  const [adjustments, setAdjustments] = useState([]);
+  const [inventoryLoading, setInventoryLoading] = useState(false);
+  const [inventoryError, setInventoryError] = useState(null);
+  const [inventoryRetryKey, setInventoryRetryKey] = useState(0);
   const [salesData, setSalesData] = useState(null);
   const [salesError, setSalesError] = useState(null);
   const [salesRetryKey, setSalesRetryKey] = useState(0);
@@ -227,24 +239,25 @@ export default function DashboardContent({ activeTab, user, onNavigate }) {
     return getDateRange(dateFilter);
   }, [dateFilter, customStartDate, customEndDate]);
 
-  // Load dashboard data
+  // Shared fallback for summary cards; inventory loads on first visit separately.
   useEffect(() => {
-    async function loadDashboardData() {
-      try {
-        const [stats, inv, adj] = await Promise.all([
-          db.getTodayStats(),
-          db.getInventoryStatus(),
-          db.getAdjustments(),
-        ]);
-        setTodayStats(stats);
-        setLowStock(inv.filter(i => Number(i.stock_quantity) <= 5));
-        setAdjustments(adj);
-      } catch (err) {
-        console.error('Analytics load error:', err);
-      }
-    }
-    loadDashboardData();
+    let cancelled = false;
+    db.getTodayStats().then(stats => { if (!cancelled) setTodayStats(stats); })
+      .catch(err => console.error('Analytics load error:', err));
+    return () => { cancelled = true; };
   }, []);
+
+  useEffect(() => {
+    if (!inventoryVisited) return;
+    let cancelled = false;
+    setInventoryLoading(true); setInventoryError(null);
+    db.getInventoryStatus().then(items => {
+      if (!cancelled) setLowStock((items || []).filter(item => Number(item.stock_quantity) <= 5));
+    }).catch(err => {
+      if (!cancelled) setInventoryError(err.message || 'Failed to load current inventory.');
+    }).finally(() => { if (!cancelled) setInventoryLoading(false); });
+    return () => { cancelled = true; };
+  }, [inventoryVisited, inventoryRetryKey]);
 
   // Load sales data for charts when date range changes
   useEffect(() => {
@@ -424,7 +437,7 @@ export default function DashboardContent({ activeTab, user, onNavigate }) {
   const [insightsRetryKey, setInsightsRetryKey] = useState(0);
 
   useEffect(() => {
-    if (!dateRange) return;
+    if (!dateRange || !insightsVisited) return;
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 8000);
     let cancelled = false;
@@ -451,7 +464,7 @@ export default function DashboardContent({ activeTab, user, onNavigate }) {
       clearTimeout(timeout);
       controller.abort();
     };
-  }, [dateRange, insightsRetryKey]);
+  }, [dateRange, insightsRetryKey, insightsVisited]);
 
   // Default dates for custom range (last 7 days)
   useEffect(() => {
@@ -497,74 +510,14 @@ export default function DashboardContent({ activeTab, user, onNavigate }) {
     setToast(null);
   };
 
-  if (loading && !salesData) {
-    return <div className="page-content"><LoadingSkeleton /></div>;
-  }
-
-  return (
-    <div className="page-content">
-      <div className="flex justify-between items-center mb-6 analytics-sticky-bar">
-        <h2 className="m-0 text-2xl font-bold">Sales Analytics</h2>
-        <div className="flex items-center gap-3 flex-wrap">
-          <div className="analytics-filter-field">Detail
-            <div role="group" aria-label="Chart detail" data-testid="granularity-group" className="flex items-center granularity-group">
-              {[['hourly', 'Per hour'], ['daily', 'Per day'], ['weekly', 'Per week']].map(([val, label]) => (
-                <button
-                  key={val}
-                  type="button"
-                  data-testid={`granularity-${val}`}
-                  aria-pressed={granularity === val}
-                  onClick={() => setGranularity(val)}
-                  className={`btn ${granularity === val ? 'btn-primary' : 'btn-secondary'}`}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-          </div>
-          <label className="analytics-filter-field">Period
-          <select
-            value={dateFilter}
-            onChange={(e) => { setSessionScopeId(null); setDateFilter(e.target.value); setCustomStartDate(""); setCustomEndDate(""); }}
-            className="form-input analytics-range-select"
-            aria-label="Date range"
-          >
-            <option value="Today">Today</option>
-            <option value="Week">This Week</option>
-            <option value="Month">This Month</option>
-            <option value="Year">This Year</option>
-            <option value="Custom">Custom Range</option>
-          </select>
-          </label>
-          <label className="analytics-filter-field">Session
-          <select
-            value={sessionScopeId ?? ''}
-            onChange={(e) => applySessionScope(e.target.value || null)}
-            className="form-input analytics-range-select"
-            aria-label="Scope charts to a past session"
-            data-testid="analytics-session-select"
-          >
-            <option value="">Use period</option>
-            {sessions.map((s) => (
-              <option key={s.id} value={s.id}>
-                {new Date(s.started_at).toLocaleString()} · {formatElapsed(new Date(s.ended_at) - new Date(s.started_at))}{s.started_by ? ` · ${s.started_by}` : ''}
-              </option>
-            ))}
-          </select>
-          </label>
-          {dateFilter === "Custom" && (
-            <DateRangeFilter
-              startDate={customStartDate}
-              endDate={customEndDate}
-              setStartDate={(v) => { setSessionScopeId(null); setCustomStartDate(v); }}
-              setEndDate={(v) => { setSessionScopeId(null); setCustomEndDate(v); }}
-            />
-          )}
-        </div>
-      </div>
-
-      {/* Single grid so every breakpoint fills evenly: 4+2 desktop, 3+3 tablet, 2+2+2 phone. */}
-      <div className="metrics-grid">
+  const renderGroup = group => {
+    if (['overview', 'sales', 'traffic'].includes(group)) {
+      if (loading && !salesData) return <LoadingSkeleton />;
+      if (salesError && !salesData) return <div className="card" role="alert"><p className="text-danger">{salesError}</p><button className="btn btn-secondary" onClick={() => setSalesRetryKey(key => key + 1)}>Retry</button></div>;
+    }
+    switch (group) {
+      case 'overview': return <>
+      <div className="metrics-grid analytics-kpi-grid">
         <SummaryCard title="Total Revenue" value={totals.revenue} isCurrency={true} icon={<ShoppingBag />} color="#16a34a" />
         <SummaryCard title="Transactions" value={totals.orders} icon={<BarChart3 />} color="#2563eb" />
         <SummaryCard
@@ -579,17 +532,166 @@ export default function DashboardContent({ activeTab, user, onNavigate }) {
         <SummaryCard title="Refunded" value={net.refunds} isCurrency={true} icon={<Undo2 />} color="#dc2626" />
       </div>
 
-      {scopedSession && (
-        <p className="m-0 text-sm text-muted flex items-center gap-2" data-testid="session-scope-chip">
-          <Clock size={14} />
-          <span>
-            Viewing session of {new Date(scopedSession.started_at).toLocaleString()}
-            {' '}({formatElapsed(new Date(scopedSession.ended_at) - new Date(scopedSession.started_at))})
-          </span>
-          <button className="btn btn-secondary" style={{ minHeight: '30px', padding: '0.25rem 0.7rem', fontSize: '0.78rem' }} onClick={clearSessionScope}>Clear</button>
-        </p>
-      )}
+      </>;
+      case 'sales': return <>
+      <div className="charts-grid">
+        <div className="card">
+          <div className="card-header">
+            <h3 className="m-0">Revenue Trend{granularity === 'hourly' ? ' (Hourly)' : granularity === 'weekly' ? ' (Weekly)' : ''}</h3>
+          </div>
+          {granularity === 'hourly' && hourlySpanDays > 7 && (
+            <p className="text-sm text-muted" data-testid="hourly-range-hint" style={{ margin: '0.25rem 0 0 0', padding: '0 1rem' }}>
+              Hourly is clearest under 7 days — showing {hourlyBuckets.keys.length} chronological hours across ~{hourlySpanDays} days.
+            </p>
+          )}
+          <div className="chart-container" style={{ height: "250px" }}>
+            <SalesTrendChart
+              data={chartData}
+              variant="line"
+              loading={loading && !salesData}
+              error={salesError}
+              onRetry={() => setSalesRetryKey((k) => k + 1)}
+              avgLabel={granularity === 'hourly' ? 'Avg/hour' : granularity === 'weekly' ? 'Avg/week' : 'Avg/day'}
+              maxTicksLimit={granularity === 'hourly' ? 12 : 8}
+            />
+          </div>
+        </div>
+        <div className="card">
+          <div className="card-header">
+            <h3 className="m-0">Weekday Pattern</h3>
+          </div>
+          <div className="chart-container" style={{ height: "250px" }}>
+            <SalesTrendChart
+              data={weekdayChartData}
+              variant="bar"
+              loading={loading && !salesData}
+              error={salesError}
+              onRetry={() => setSalesRetryKey((k) => k + 1)}
+              summaryPrefix="Best day"
+              avgLabel="Avg/day"
+            />
+          </div>
+        </div>
+      </div>
 
+      <div className="charts-grid">
+        <div className="card">
+          <div className="card-header">
+            <h3 className="m-0">Payment Mix</h3>
+          </div>
+          <div className="chart-container" style={{ height: "250px" }}>
+            <PaymentMixChart mix={mix} />
+          </div>
+        </div>
+        <div className="card">
+          <div className="card-header">
+            <h3 className="m-0">Voucher Effectiveness</h3>
+          </div>
+          <div className="chart-container" style={{ height: "250px" }}>
+            <VoucherEffectivenessChart stats={vouchers} />
+          </div>
+        </div>
+      </div>
+
+      <div className="charts-grid">
+        <div className="card" style={{ gridColumn: '1 / -1' }}>
+          <div className="card-header">
+            <h3 className="m-0">Refunds</h3>
+          </div>
+          <div className="chart-container" style={{ height: "250px" }}>
+            <RefundInsights summary={refundInfo} />
+          </div>
+        </div>
+      </div>
+      </>;
+      case 'inventory': return <>
+      <p className="text-sm text-muted">Stock movement follows the selected period. Low Stock Alerts show current balances.</p>
+      <div className="charts-grid">
+        <div className="card" style={{ display: "flex", flexDirection: "column" }}>
+          <div className="card-header">
+            <h3 className="m-0">Stock Movement</h3>
+          </div>
+          <div className="chart-container" style={{ height: "100%", minHeight: "280px", flex: 1, display: "flex", flexDirection: "column" }}>
+            <StockMovementChart startDate={dateRange?.start} endDate={dateRange?.end} />
+          </div>
+        </div>
+      <div className="card">
+        <div className="card-header">
+          <h3 className="m-0">Low Stock Alerts</h3>
+        </div>
+        <div className="card-body">
+          <div className="stock-list">
+          {inventoryLoading ? <p role="status">Loading current inventory...</p> : inventoryError ? <div role="alert"><p className="text-danger">{inventoryError}</p><button className="btn btn-secondary" onClick={() => setInventoryRetryKey(key => key + 1)}>Retry</button></div> : lowStock.length > 0 ? [...lowStock]
+            .sort((a, b) => Number(a.stock_quantity) - Number(b.stock_quantity))
+            .map(item => {
+              const out = Number(item.stock_quantity) <= 0
+              return (
+                <div key={item.id} className={`stock-item ${out ? 'stock-item-danger' : 'stock-item-warning'}`}>
+                  <div>
+                    <p className="font-medium">{item.name}</p>
+                    <p className="text-sm text-muted">{item.category || 'Uncategorized'}</p>
+                  </div>
+                  {out ? (
+                    <span className="badge badge-danger">Out of stock</span>
+                  ) : (
+                    <span className="badge badge-warning">{formatStock(item.stock_quantity)} left</span>
+                  )}
+                </div>
+              )
+            }) : (
+            <p className="text-center text-muted py-4">All items well stocked!</p>
+          )}
+          </div>
+        </div>
+      </div>
+      </div>
+      </>;
+      case 'traffic': return <>
+        <SummaryCard
+          title="Customers"
+          value={totals.customers.total}
+          icon={<ShoppingBag />}
+          color="#9333ea"
+          sub={`♂ ${totals.customers.male.toLocaleString()} · ♀ ${totals.customers.female.toLocaleString()}${totals.customers.unspecified > 0 ? ` · ? ${totals.customers.unspecified.toLocaleString()}` : ''}`}
+        />
+      <div className="charts-grid">
+        <div className="card">
+          <div className="card-header">
+            <h3 className="m-0">Walk-ins vs Buyers</h3>
+          </div>
+          <div className="chart-container" style={{ height: "250px" }}>
+            <TrafficConversionChart startDate={dateRange?.start} endDate={dateRange?.end} />
+          </div>
+        </div>        <div className="card">
+          <div className="card-header">
+            <h3 className="m-0">Customer Traffic Heatmap</h3>
+          </div>
+          <div className="chart-container" style={{ height: "auto", minHeight: "340px" }}>
+            <CustomerTrafficHeatmap startDate={dateRange?.start} endDate={dateRange?.end} />
+          </div>
+        </div>      </div>
+      </>;
+      case 'insights': return <>
+      <div className="card">
+        <div className="card-header">
+          <h3 className="m-0">AI Insights</h3>
+        </div>
+        <div className="card-body">
+          <AiInsights
+            insights={insights}
+            loading={!insights && !insightsError}
+            error={insightsError}
+            onRetry={() => setInsightsRetryKey((k) => k + 1)}
+            onResolve={(key) => {
+              const target = RESOLVE_TARGETS[key]
+              if (target && onNavigate) onNavigate(target)
+            }}
+          />
+        </div>
+      </div>
+
+      </>;
+      case 'reports': return <>
       <div className="card" style={{ gridColumn: '1 / -1' }}>
         <div className="card-header">
           <h3 className="m-0 flex items-center gap-2">
@@ -675,152 +777,95 @@ export default function DashboardContent({ activeTab, user, onNavigate }) {
         </div>
       )}
 
-      <div className="charts-grid">
-        <div className="card">
-          <div className="card-header">
-            <h3 className="m-0">Revenue Trend{granularity === 'hourly' ? ' (Hourly)' : granularity === 'weekly' ? ' (Weekly)' : ''}</h3>
+      <ConsolidatedDataTable sharedRange={{ from: toLocalDay(dateRange.start), to: toLocalDay(dateRange.end), start: dateRange.start, end: dateRange.end }} />
+      </>;
+      default: return null;
+    }
+  };
+
+  return (
+    <div className="page-content analytics-page">
+      <div className="analytics-sticky-bar analytics-group-header">
+        <div className="analytics-header-row">
+        <h2 className="m-0 text-2xl font-bold">Analytics</h2>
+        <div className="analytics-header-filters">
+          {activeGroup === 'sales' && <div className="analytics-filter-field analytics-detail-field">Detail
+            <div role="group" aria-label="Chart detail" data-testid="granularity-group" className="flex items-center granularity-group">
+              {[['hourly', 'Per hour'], ['daily', 'Per day'], ['weekly', 'Per week']].map(([val, label]) => (
+                <button
+                  key={val}
+                  type="button"
+                  data-testid={`granularity-${val}`}
+                  aria-pressed={granularity === val}
+                  onClick={() => setGranularity(val)}
+                  className={`btn ${granularity === val ? 'btn-primary' : 'btn-secondary'}`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
           </div>
-          {granularity === 'hourly' && hourlySpanDays > 7 && (
-            <p className="text-sm text-muted" data-testid="hourly-range-hint" style={{ margin: '0.25rem 0 0 0', padding: '0 1rem' }}>
-              Hourly is clearest under 7 days — showing {hourlyBuckets.keys.length} chronological hours across ~{hourlySpanDays} days.
-            </p>
-          )}
-          <div className="chart-container" style={{ height: "250px" }}>
-            <SalesTrendChart
-              data={chartData}
-              variant="line"
-              loading={loading && !salesData}
-              error={salesError}
-              onRetry={() => setSalesRetryKey((k) => k + 1)}
-              avgLabel={granularity === 'hourly' ? 'Avg/hour' : granularity === 'weekly' ? 'Avg/week' : 'Avg/day'}
-              maxTicksLimit={granularity === 'hourly' ? 12 : 8}
+          }
+          <label className="analytics-filter-field">Period
+          <select
+            value={dateFilter}
+            onChange={(e) => { setSessionScopeId(null); setDateFilter(e.target.value); setCustomStartDate(""); setCustomEndDate(""); }}
+            className="form-input analytics-range-select"
+            aria-label="Date range"
+          >
+            <option value="Today">Today</option>
+            <option value="Week">This Week</option>
+            <option value="Month">This Month</option>
+            <option value="Year">This Year</option>
+            <option value="Custom">Custom Range</option>
+          </select>
+          </label>
+          <label className="analytics-filter-field analytics-session-field">Session
+          <select
+            value={sessionScopeId ?? ''}
+            onChange={(e) => applySessionScope(e.target.value || null)}
+            className="form-input analytics-range-select"
+            aria-label="Scope charts to a past session"
+            data-testid="analytics-session-select"
+          >
+            <option value="">Use period</option>
+            {sessions.map((s) => (
+              <option key={s.id} value={s.id}>
+                {new Date(s.started_at).toLocaleString()} · {formatElapsed(new Date(s.ended_at) - new Date(s.started_at))}{s.started_by ? ` · ${s.started_by}` : ''}
+              </option>
+            ))}
+          </select>
+          </label>
+          {dateFilter === "Custom" && (
+            <DateRangeFilter
+              startDate={customStartDate}
+              endDate={customEndDate}
+              setStartDate={(v) => { setSessionScopeId(null); setCustomStartDate(v); }}
+              setEndDate={(v) => { setSessionScopeId(null); setCustomEndDate(v); }}
             />
-          </div>
-        </div>
-        <div className="card">
-          <div className="card-header">
-            <h3 className="m-0">Weekday Pattern</h3>
-          </div>
-          <div className="chart-container" style={{ height: "250px" }}>
-            <SalesTrendChart
-              data={weekdayChartData}
-              variant="bar"
-              loading={loading && !salesData}
-              error={salesError}
-              onRetry={() => setSalesRetryKey((k) => k + 1)}
-              summaryPrefix="Best day"
-              avgLabel="Avg/day"
-            />
-          </div>
-        </div>
-      </div>
-
-      <div className="charts-grid">
-        <div className="card">
-          <div className="card-header">
-            <h3 className="m-0">Payment Mix</h3>
-          </div>
-          <div className="chart-container" style={{ height: "250px" }}>
-            <PaymentMixChart mix={mix} />
-          </div>
-        </div>
-        <div className="card">
-          <div className="card-header">
-            <h3 className="m-0">Voucher Effectiveness</h3>
-          </div>
-          <div className="chart-container" style={{ height: "250px" }}>
-            <VoucherEffectivenessChart stats={vouchers} />
-          </div>
-        </div>
-      </div>
-
-      <div className="charts-grid">
-        <div className="card">
-          <div className="card-header">
-            <h3 className="m-0">Refunds</h3>
-          </div>
-          <div className="chart-container" style={{ height: "250px" }}>
-            <RefundInsights summary={refundInfo} />
-          </div>
-        </div>
-        <div className="card">
-          <div className="card-header">
-            <h3 className="m-0">Walk-ins vs Buyers</h3>
-          </div>
-          <div className="chart-container" style={{ height: "250px" }}>
-            <TrafficConversionChart startDate={dateRange?.start} endDate={dateRange?.end} />
-          </div>
-        </div>
-      </div>
-
-      <div className="charts-grid">
-        <div className="card" style={{ display: "flex", flexDirection: "column" }}>
-          <div className="card-header">
-            <h3 className="m-0">Stock Movement</h3>
-          </div>
-          <div className="chart-container" style={{ height: "100%", minHeight: "280px", flex: 1, display: "flex", flexDirection: "column" }}>
-            <StockMovementChart startDate={dateRange?.start} endDate={dateRange?.end} />
-          </div>
-        </div>
-        <div className="card">
-          <div className="card-header">
-            <h3 className="m-0">Customer Traffic Heatmap</h3>
-          </div>
-          <div className="chart-container" style={{ height: "auto", minHeight: "340px" }}>
-            <CustomerTrafficHeatmap startDate={dateRange?.start} endDate={dateRange?.end} />
-          </div>
-        </div>
-      </div>
-
-      <ConsolidatedDataTable />
-
-      <div className="card">
-        <div className="card-header">
-          <h3 className="m-0">AI Insights</h3>
-        </div>
-        <div className="card-body">
-          <AiInsights
-            insights={insights}
-            loading={!insights && !insightsError}
-            error={insightsError}
-            onRetry={() => setInsightsRetryKey((k) => k + 1)}
-            onResolve={(key) => {
-              const target = RESOLVE_TARGETS[key]
-              if (target && onNavigate) onNavigate(target)
-            }}
-          />
-        </div>
-      </div>
-
-      <div className="card">
-        <div className="card-header">
-          <h3 className="m-0">Low Stock Alerts</h3>
-        </div>
-        <div className="card-body">
-          <div className="stock-list">
-          {lowStock.length > 0 ? [...lowStock]
-            .sort((a, b) => Number(a.stock_quantity) - Number(b.stock_quantity))
-            .map(item => {
-              const out = Number(item.stock_quantity) <= 0
-              return (
-                <div key={item.id} className={`stock-item ${out ? 'stock-item-danger' : 'stock-item-warning'}`}>
-                  <div>
-                    <p className="font-medium">{item.name}</p>
-                    <p className="text-sm text-muted">{item.category || 'Uncategorized'}</p>
-                  </div>
-                  {out ? (
-                    <span className="badge badge-danger">Out of stock</span>
-                  ) : (
-                    <span className="badge badge-warning">{formatStock(item.stock_quantity)} left</span>
-                  )}
-                </div>
-              )
-            }) : (
-            <p className="text-center text-muted py-4">All items well stocked!</p>
           )}
-          </div>
         </div>
+        </div>
+        <TabMenu activeTab={activeGroup} setActiveTab={selectGroup} />
       </div>
+
+      {scopedSession && (
+        <p className="m-0 text-sm text-muted flex items-center gap-2" data-testid="session-scope-chip">
+          <Clock size={14} />
+          <span>
+            Viewing session of {new Date(scopedSession.started_at).toLocaleString()}
+            {' '}({formatElapsed(new Date(scopedSession.ended_at) - new Date(scopedSession.started_at))})
+          </span>
+          <button className="btn btn-secondary" style={{ minHeight: '30px', padding: '0.25rem 0.7rem', fontSize: '0.78rem' }} onClick={clearSessionScope}>Clear</button>
+        </p>
+      )}
+
+      {ANALYTICS_GROUPS.map(group => (
+        <section key={group.id} id={`analytics-panel-${group.id}`} role="tabpanel" aria-labelledby={`analytics-tab-${group.id}`}
+          className="analytics-group-panel" hidden={activeGroup !== group.id} tabIndex={0}>
+          {visitedGroups.has(group.id) ? renderGroup(group.id) : null}
+        </section>
+      ))}
       {showAddProductModal && (
         <div className="modal-overlay" onClick={handleCloseAddProductModal}>
           <div className="modal-content card add-product-modal" onClick={(e) => e.stopPropagation()}>

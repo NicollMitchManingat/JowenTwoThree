@@ -10,13 +10,13 @@ export default function SummaryCard({ title, value, isCurrency = false, icon, co
     : validValue.toLocaleString("en-PH");
 
   return (
-    <div className="kpi-card" style={color ? { borderLeft: `4px solid ${color}` } : {}}>
-      {icon && <div className="kpi-icon" style={{ color: color || 'var(--color-primary)' }}>{icon}</div>}
-      <div>
+    <div className="kpi-card analytics-summary-card" style={{ '--kpi-accent': color || 'var(--color-primary)' }}>
+      <div className="kpi-card-heading">
         <h3 className="kpi-title">{title}</h3>
-        <h1 className="kpi-value">{formattedValue}</h1>
-        {sub && <p className="kpi-sub">{sub}</p>}
+        {icon && <span className="kpi-icon" aria-hidden="true">{icon}</span>}
       </div>
+      <p className="kpi-value" tabIndex={0} title={`${title}: ${formattedValue}`}>{formattedValue}</p>
+      {sub && <p className="kpi-sub">{sub}</p>}
     </div>
   );
 }

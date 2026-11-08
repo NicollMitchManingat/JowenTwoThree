@@ -86,6 +86,7 @@ describe('DashboardContent sessions', () => {
     ])
     renderDashboard()
 
+    await user.click(screen.getByRole('tab', { name: 'Reports & Sessions' }))
     await waitFor(() => {
       expect(screen.getByTestId('session-row-s1')).toBeInTheDocument()
     })

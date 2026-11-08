@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
@@ -78,6 +78,65 @@ describe('DashboardContent granularity', () => {
     vi.unstubAllGlobals()
   })
 
+  it('starts on Overview and preserves filters, loaded reports and AI dismissals across groups', async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal('fetch', vi.fn(url => Promise.resolve({ ok: true, json: async () => ({ data: String(url).includes('/api/ai-insights') ? INSIGHTS_ENVELOPE : { summary: {}, categories: [], rows: [], meta: { dataSource: 'live' } } }) })))
+    render(<AnalyticsProvider><DashboardContent user={{ role: 'admin' }} /></AnalyticsProvider>)
+    expect(screen.getByRole('tab', { name: 'Overview' })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getAllByRole('tab')).toHaveLength(6)
+    await screen.findByRole('heading', { name: 'Transactions', level: 3 })
+    expect(screen.getAllByRole('tabpanel')).toHaveLength(1)
+    expect(screen.queryByTestId('granularity-group')).not.toBeInTheDocument()
+    expect(db.getInventoryStatus).not.toHaveBeenCalled()
+    expect(global.fetch).not.toHaveBeenCalled()
+    fireEvent.change(screen.getByLabelText('Date range'), { target: { value: 'Week' } })
+    await user.click(screen.getByRole('tab', { name: 'Sales' }))
+    await user.click(screen.getByTestId('granularity-weekly'))
+    await user.click(screen.getByRole('tab', { name: 'Inventory' }))
+    expect(screen.getByLabelText('Date range')).toHaveValue('Week')
+    expect(screen.getByText(/Low Stock Alerts show current balances/)).toBeVisible()
+    await waitFor(() => expect(db.getInventoryStatus).toHaveBeenCalled())
+    const inventoryCalls = db.getInventoryStatus.mock.calls.length
+    await user.click(screen.getByRole('tab', { name: 'Customer Traffic' }))
+    expect(within(screen.getByRole('tabpanel', { name: 'Customer Traffic' })).getByRole('heading', { name: 'Customers' })).toBeVisible()
+    await user.click(screen.getByRole('tab', { name: 'AI Insights' }))
+    await screen.findByTestId('insight-forecast')
+    await user.click(screen.getByRole('button', { name: 'Dismiss Forecast Revenue insight' }))
+    await user.click(screen.getByRole('tab', { name: 'Reports & Sessions' }))
+    const search = await screen.findByTestId('consolidated-search')
+    await user.type(search, 'Coffee')
+    const reportRequests = () => global.fetch.mock.calls.filter(([url]) => String(url).includes('/api/consolidated-data'))
+    expect(reportRequests()).toHaveLength(1)
+    expect(new URL(String(reportRequests()[0][0]), 'http://localhost').searchParams.get('from')).toBeTruthy()
+    const reportParams = new URL(String(reportRequests()[0][0]), 'http://localhost').searchParams
+    expect(reportParams.get('rangeStart')).toBe(db.getDailySales.mock.lastCall[0])
+    expect(reportParams.get('rangeEnd')).toBe(db.getDailySales.mock.lastCall[1])
+    await user.click(screen.getByRole('tab', { name: 'Sales' }))
+    expect(screen.getByTestId('granularity-weekly')).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByLabelText('Date range')).toHaveValue('Week')
+    await user.click(screen.getByRole('tab', { name: 'Reports & Sessions' }))
+    expect(screen.getByTestId('consolidated-search')).toHaveValue('Coffee')
+    expect(reportRequests()).toHaveLength(1)
+    await user.click(screen.getByRole('tab', { name: 'AI Insights' }))
+    expect(screen.queryByTestId('insight-forecast')).not.toBeInTheDocument()
+    expect(screen.getByTestId('insights-undo')).toBeVisible()
+    expect(global.fetch.mock.calls.filter(([url]) => String(url).includes('/api/ai-insights'))).toHaveLength(1)
+    expect(db.getInventoryStatus).toHaveBeenCalledTimes(inventoryCalls)
+  })
+
+  it('keeps group navigation usable when the sales request fails', async () => {
+    db.getDailySales.mockRejectedValueOnce(new Error('Sales are unavailable'))
+    const user = userEvent.setup()
+    render(<AnalyticsProvider><DashboardContent user={{ role: 'admin' }} /></AnalyticsProvider>)
+    expect(await screen.findByRole('alert')).toHaveTextContent('Sales are unavailable')
+    await user.click(screen.getByRole('tab', { name: 'Inventory' }))
+    expect(screen.getByRole('tabpanel', { name: 'Inventory' })).toBeVisible()
+    expect(await screen.findByText('All items well stocked!')).toBeVisible()
+    await user.click(screen.getByRole('tab', { name: 'Overview' }))
+    await user.click(screen.getByRole('button', { name: 'Retry' }))
+    await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument())
+  })
+
   it('should default to daily and switch to hourly on toggle', async () => {
     const user = userEvent.setup()
     render(
@@ -90,8 +149,10 @@ describe('DashboardContent granularity', () => {
       expect(screen.getByTestId('granularity-group')).toBeInTheDocument()
     })
     expect(screen.getByTestId('granularity-daily')).toHaveAttribute('aria-pressed', 'true')
+    await user.click(screen.getByRole('tab', { name: 'Overview' }))
     expect(screen.getByRole('heading', { name: 'Transactions', level: 3 })).toBeInTheDocument()
     expect(screen.getByText('Avg Transaction')).toBeInTheDocument()
+    await user.click(screen.getByRole('tab', { name: 'Sales' }))
 
     await user.click(screen.getByTestId('granularity-hourly'))
     expect(screen.getByTestId('granularity-hourly')).toHaveAttribute('aria-pressed', 'true')
@@ -144,7 +205,7 @@ describe('DashboardContent granularity', () => {
     expect(screen.getByTestId('granularity-weekly')).toHaveTextContent('Per week')
     expect(screen.getByTestId('granularity-group')).toHaveAttribute('aria-label', 'Chart detail')
     // Captions + sticky header row.
-    const header = screen.getByText('Sales Analytics').closest('.analytics-sticky-bar')
+    const header = screen.getByRole('heading', { name: 'Analytics', level: 2 }).closest('.analytics-sticky-bar')
     expect(header).toBeInTheDocument()
     expect(header).toHaveTextContent('Detail')
     expect(header).toHaveTextContent('Period')
@@ -192,6 +253,8 @@ describe('DashboardContent granularity', () => {
       </AnalyticsProvider>
     )
 
+    fireEvent.click(screen.getByRole('tab', { name: 'Inventory' }))
+
     await waitFor(() => {
       expect(screen.getByText('Beans')).toBeInTheDocument()
     })
@@ -218,6 +281,8 @@ describe('DashboardContent granularity', () => {
       </AnalyticsProvider>
     )
 
+    fireEvent.click(screen.getByRole('tab', { name: 'AI Insights' }))
+
     await waitFor(() => {
       expect(screen.getByTestId('insight-forecast')).toBeInTheDocument()
     })
@@ -236,6 +301,8 @@ describe('DashboardContent granularity', () => {
         <DashboardContent activeTab="Sales" user={{ role: 'admin' }} />
       </AnalyticsProvider>
     )
+
+    await user.click(screen.getByRole('tab', { name: 'AI Insights' }))
 
     await waitFor(() => {
       expect(screen.getByTestId('insights-error')).toBeInTheDocument()

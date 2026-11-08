@@ -36,6 +36,24 @@ describe("SummaryCard", () => {
     expect(screen.getByText("₱250,000.50")).toBeInTheDocument();
   });
 
+  it("keeps a large currency amount complete and labelled for keyboard scrolling", () => {
+    render(<SummaryCard title="Total Revenue" value={1234567890.12} isCurrency />);
+
+    const amount = screen.getByTitle("Total Revenue: ₱1,234,567,890.12");
+    expect(amount).toHaveTextContent("₱1,234,567,890.12");
+    expect(amount).toHaveAttribute("tabindex", "0");
+    expect(screen.getByRole("heading", { name: "Total Revenue", level: 3 })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { level: 1 })).not.toBeInTheDocument();
+  });
+
+  it("keeps the icon decorative and the configured accent on the card", () => {
+    const { container } = render(<SummaryCard title="Refunded" value={0} color="#dc2626" icon={<svg data-testid="refund-icon" />} />);
+
+    expect(screen.getByTestId("refund-icon").parentElement).toHaveAttribute("aria-hidden", "true");
+    expect(container.querySelector(".analytics-summary-card").style.getPropertyValue("--kpi-accent")).toBe("#dc2626");
+    expect(screen.getByTitle("Refunded: 0")).toHaveTextContent("0");
+  });
+
   it("should render an optional subtitle and omit it when absent", () => {
     const { rerender } = render(
       <SummaryCard title="Customers" value={8} sub="♂ 3 · ♀ 4 · ? 1" />

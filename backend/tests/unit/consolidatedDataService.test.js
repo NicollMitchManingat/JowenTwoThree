@@ -18,6 +18,7 @@ function makeSupabase({ transactions = [], items = [], refunds = [], errorOn = n
       select() { return q },
       gte(col, val) { q._filters.push(["gte", col, val]); return q },
       lt(col, val) { q._filters.push(["lt", col, val]); return q },
+      lte(col, val) { q._filters.push(["lte", col, val]); return q },
       in(col, vals) { q._filters.push(["in", col, vals]); return q },
       order() { return q },
       limit() { return q },
@@ -31,6 +32,7 @@ function makeSupabase({ transactions = [], items = [], refunds = [], errorOn = n
           if (op === "in") rows = rows.filter((r) => val.includes(r[col]))
           if (op === "gte") rows = rows.filter((r) => String(r[col]) >= String(val))
           if (op === "lt") rows = rows.filter((r) => String(r[col]) < String(val))
+          if (op === "lte") rows = rows.filter((r) => String(r[col]) <= String(val))
         })
         resolve({ data: rows, error: null })
       },
@@ -84,6 +86,23 @@ const liveItems = [
 ]
 
 describe("Consolidated Data Service (real-data rewrite)", () => {
+  it('uses exact Analytics timestamps across Manila midnight and includes the final millisecond', async () => {
+    const stamps = ['2026-11-07T15:59:59.999Z', '2026-11-07T16:00:00.000Z', '2026-11-08T15:59:59.999Z', '2026-11-08T16:00:00.000Z']
+    const transactions = stamps.map((created_at, i) => ({ ...liveTransactions[0], id: `boundary-${i}`, transaction_number: `BOUNDARY-${i}`, created_at }))
+    const items = transactions.map(t => ({ ...liveItems[0], transaction_id: t.id }))
+    const data = await getConsolidatedData({ from: '2026-11-08', to: '2026-11-08', rangeStart: stamps[1], rangeEnd: stamps[2] }, { supabase: makeSupabase({ transactions, items }), fetchInventory: inventoryStub })
+    expect(data.meta.dataSource).toBe('live')
+    expect(data.summary.totalTransactions).toBe(2)
+    expect(data.rows.filter(row => row.orderId !== 'N/A').map(row => row.orderId).sort()).toEqual(['BOUNDARY-1', 'BOUNDARY-2'])
+  })
+  it.each([
+    { rangeStart: '2026-11-08T00:00:00Z' },
+    { rangeStart: 'invalid', rangeEnd: '2026-11-08T23:59:59Z' },
+    { rangeStart: '2026-11-08T00:00:00', rangeEnd: '2026-11-08T23:59:59' },
+    { rangeStart: '2026-11-09T00:00:00Z', rangeEnd: '2026-11-08T23:59:59Z' },
+  ])('rejects incomplete or invalid explicit ranges %j', async range => {
+    await expect(getConsolidatedData(range, { supabase: null, fetchInventory: inventoryStub })).rejects.toMatchObject({ statusCode: 400 })
+  })
   describe("live transaction_items path", () => {
     it("builds rows joined to products with stock cross-reference", async () => {
       const supabase = makeSupabase({ transactions: liveTransactions, items: liveItems })

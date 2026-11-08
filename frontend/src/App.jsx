@@ -96,7 +96,7 @@ function App() {
       case 'orders':
         return <OrderHistoryPage user={currentUser} onResume={id => { setResumeOrderId(id); setCurrentPage('pos'); }} />;
       case 'reports':
-        return <AnalyticsProvider><DashboardContent activeTab="Sales" user={currentUser} onNavigate={handleNavClick} /></AnalyticsProvider>;
+        return <AnalyticsProvider><DashboardContent user={currentUser} onNavigate={handleNavClick} /></AnalyticsProvider>;
       case 'settings':
         return <SettingsPage currentUser={currentUser} onLogout={handleLogout} />;
       default:

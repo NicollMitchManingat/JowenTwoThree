@@ -99,7 +99,7 @@ const cellValue = (row, key) => {
   return row[key]
 }
 
-export default function ConsolidatedDataTable() {
+export default function ConsolidatedDataTable({ sharedRange } = {}) {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState(null)
@@ -117,9 +117,9 @@ export default function ConsolidatedDataTable() {
   const [exportError, setExportError] = useState(null)
   const [retryCount, setRetryCount] = useState(0)
 
-  // Own date filter (independent of the dashboard range): presets resolve to
-  // concrete bounds; the backend narrows the query, the rest filters locally.
+  // Embedded reports follow Analytics; standalone reports retain their presets.
   const queryBounds = useMemo(() => {
+    if (sharedRange !== undefined) return { from: sharedRange?.from || null, to: sharedRange?.to || null, start: sharedRange?.start || null, end: sharedRange?.end || null }
     const today = new Date()
     if (dateFrom || dateTo) return { from: dateFrom || null, to: dateTo || null }
     if (datePreset === "today") {
@@ -133,7 +133,7 @@ export default function ConsolidatedDataTable() {
       return { from: toISODate(start), to: toISODate(today) }
     }
     return { from: null, to: null }
-  }, [datePreset, dateFrom, dateTo])
+  }, [datePreset, dateFrom, dateTo, sharedRange?.from, sharedRange?.to, sharedRange?.start, sharedRange?.end, sharedRange === undefined])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -145,6 +145,8 @@ export default function ConsolidatedDataTable() {
     const params = new URLSearchParams()
     if (queryBounds.from) params.set("from", queryBounds.from)
     if (queryBounds.to) params.set("to", queryBounds.to)
+    if (queryBounds.start) params.set('rangeStart', queryBounds.start)
+    if (queryBounds.end) params.set('rangeEnd', queryBounds.end)
     const qs = params.toString() ? `?${params.toString()}` : ""
 
     fetch(`${API_BASE}/api/consolidated-data${qs}`, { credentials: 'include', signal: controller.signal })
@@ -229,7 +231,9 @@ export default function ConsolidatedDataTable() {
   const pageStart = safePage * PAGE_SIZE
   const pagedRows = filtered.slice(pageStart, pageStart + PAGE_SIZE)
 
-  const dateLabel = dateFrom || dateTo
+  const dateLabel = sharedRange !== undefined
+    ? `Selected period (${queryBounds.from || '…'} to ${queryBounds.to || '…'})`
+    : dateFrom || dateTo
     ? `Custom (${dateFrom || "…"} to ${dateTo || "…"})`
     : (DATE_PRESETS.find((o) => o.key === datePreset) || {}).label || datePreset
 
@@ -363,7 +367,7 @@ export default function ConsolidatedDataTable() {
             ))}
           </select>
         </label>
-        <label className="txn-filter-field">Date
+        {sharedRange === undefined && <label className="txn-filter-field">Date
           <select
             className="form-input"
             value={dateFrom || dateTo || customOpen ? "custom" : datePreset}
@@ -385,8 +389,8 @@ export default function ConsolidatedDataTable() {
             ))}
             <option value="custom">Custom range…</option>
           </select>
-        </label>
-        {(dateFrom || dateTo || customOpen) && (
+        </label>}
+        {sharedRange === undefined && (dateFrom || dateTo || customOpen) && (
           <span className="txn-date-custom">
             <label>From <input type="date" className="form-input" value={dateFrom} max={dateTo || undefined} onChange={(e) => { setDateFrom(e.target.value); setDatePreset("all") }} data-testid="consolidated-date-from" aria-label="From date" /></label>
             <label>To <input type="date" className="form-input" value={dateTo} min={dateFrom || undefined} onChange={(e) => { setDateTo(e.target.value); setDatePreset("all") }} data-testid="consolidated-date-to" aria-label="To date" /></label>
@@ -394,6 +398,7 @@ export default function ConsolidatedDataTable() {
         )}
       </div>
 
+      {sharedRange !== undefined && <p className="text-sm text-muted" data-testid="consolidated-shared-range">{dateLabel}. Change the period or session above to update this report.</p>}
       {(data?.categories || []).length > 0 && (
         <div className="table-wrapper" style={{ marginBottom: "1rem" }}>
           <table data-testid="category-table">

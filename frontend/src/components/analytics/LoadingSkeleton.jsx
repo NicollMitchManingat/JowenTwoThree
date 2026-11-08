@@ -42,16 +42,14 @@ function DashboardSkeleton() {
         <div className="skeleton-block" style={{ width: '140px', height: '36px' }} />
       </div>
 
-      <div className="metrics-grid">
-        {[1, 2, 3, 4].map(i => (
-          <div key={i} className="skeleton-card">
-            <div className="flex items-center gap-3">
+      <div className="metrics-grid analytics-kpi-grid">
+        {[1, 2, 3, 4, 5, 6].map(i => (
+          <div key={i} className="skeleton-card analytics-kpi-skeleton" aria-hidden="true">
+            <div className="flex justify-between items-center gap-3">
+              <Block width="55%" height="14px" />
               <div className="skeleton-icon" />
-              <div style={{ flex: 1 }}>
-                <div className="skeleton-block" style={{ width: '60%', height: '12px', marginBottom: '8px' }} />
-                <div className="skeleton-block" style={{ width: '40%', height: '22px' }} />
-              </div>
             </div>
+            <Block width="70%" height="30px" />
           </div>
         ))}
       </div>

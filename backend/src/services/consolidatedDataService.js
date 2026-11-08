@@ -205,7 +205,7 @@ function trafficByHourFrom(transactions, fallbackRecords) {
 
 // ---- Live Supabase path ----
 
-async function fetchLiveTransactions(supabase, fromDate, toExclusive) {
+async function fetchLiveTransactions(supabase, fromDate, toExclusive, toInclusive) {
   let query = supabase
     .from("transactions")
     .select("id, transaction_number, created_at, customer_count, status, total, cart")
@@ -213,6 +213,7 @@ async function fetchLiveTransactions(supabase, fromDate, toExclusive) {
     .limit(DEFAULT_PAGE_LIMIT)
   if (fromDate) query = query.gte("created_at", fromDate.toISOString())
   if (toExclusive) query = query.lt("created_at", toExclusive.toISOString())
+  if (toInclusive) query = query.lte("created_at", toInclusive.toISOString())
   const { data, error } = await query
   if (error) throw new Error(error.message || "Failed to fetch transactions")
   return Array.isArray(data) ? data : []
@@ -410,13 +411,30 @@ function mockPayload({ from, to, category } = {}) {
   }
 }
 
-async function getConsolidatedData({ from, to, category } = {}, deps = {}) {
-  const fromDate = from ? startOfDayISO(from) : null
-  const toExclusive = to ? endOfDayExclusiveISO(to) : null
+async function getConsolidatedData({ from, to, category, rangeStart, rangeEnd } = {}, deps = {}) {
+  let fromDate = from ? startOfDayISO(from) : null
+  let toExclusive = to ? endOfDayExclusiveISO(to) : null
+  let toInclusive = null
   if ((from && !fromDate) || (to && !toExclusive)) {
     const err = new Error("Invalid date filter. Use YYYY-MM-DD.")
     err.statusCode = 400
     throw err
+  }
+
+  // Embedded Analytics sends its exact browser-resolved range. Legacy callers
+  // retain calendar-date filtering without depending on a server timezone change.
+  if (rangeStart !== undefined || rangeEnd !== undefined) {
+    const timestamp = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})$/
+    const start = new Date(rangeStart), end = new Date(rangeEnd)
+    if (!timestamp.test(rangeStart || '') || !timestamp.test(rangeEnd || '') || !Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime()) || end < start) {
+      const err = new Error('Provide valid rangeStart and rangeEnd timestamps with a timezone, in chronological order.')
+      err.statusCode = 400
+      throw err
+    }
+    fromDate = start
+    // Use the same inclusive bound as charts, even for PostgreSQL microseconds.
+    toExclusive = null
+    toInclusive = end
   }
 
   const supabase = deps.supabase !== undefined ? deps.supabase : defaultSupabase()
@@ -441,7 +459,7 @@ async function getConsolidatedData({ from, to, category } = {}, deps = {}) {
   // stays available offline / without credentials.
   if (supabase) {
     try {
-      const transactions = await fetchLiveTransactions(supabase, fromDate, toExclusive)
+      const transactions = await fetchLiveTransactions(supabase, fromDate, toExclusive, toInclusive)
       const txnIds = transactions.map((t) => t.id).filter(Boolean)
       const [items, refundsByTxn] = await Promise.all([
         fetchLiveItems(supabase, txnIds).catch(() => []),
@@ -516,6 +534,7 @@ async function getConsolidatedData({ from, to, category } = {}, deps = {}) {
           to: to || null,
           category: category || null,
           dataSource,
+          ...(rangeStart !== undefined ? { rangeStart, rangeEnd } : {}),
         },
       }
     } catch {

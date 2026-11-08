@@ -18,6 +18,16 @@ describe("LoadingSkeleton", () => {
     expect(root).toHaveAttribute("aria-label", "Loading analytics dashboard...");
   });
 
+  it("uses six KPI placeholders without changing transaction placeholders", () => {
+    const { container, rerender } = render(<LoadingSkeleton />);
+    expect(container.querySelectorAll(".analytics-kpi-grid .analytics-kpi-skeleton")).toHaveLength(6);
+    expect(container.querySelectorAll('.analytics-kpi-skeleton[aria-hidden="true"]')).toHaveLength(6);
+
+    rerender(<LoadingSkeleton variant="transactions" />);
+    expect(screen.getByTestId("loading-skeleton-metrics").children).toHaveLength(3);
+    expect(container.querySelector(".analytics-kpi-grid")).not.toBeInTheDocument();
+  });
+
   it("should mirror the POS layout with product grid and order column", () => {
     const { container } = render(<LoadingSkeleton variant="pos" />);
 

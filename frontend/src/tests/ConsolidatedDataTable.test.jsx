@@ -79,6 +79,7 @@ function mockFetchSuccess(data = mockData) {
 describe("ConsolidatedDataTable", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    vi.clearAllMocks();
   });
 
   it("should show loading state initially", async () => {
@@ -93,6 +94,24 @@ describe("ConsolidatedDataTable", () => {
     await waitFor(() => {
       expect(screen.getByTestId("consolidated-table")).toBeInTheDocument();
     });
+  });
+
+  it('inherits the shared date range, retains local filters and exports that period', async () => {
+    mockFetchSuccess();
+    const user = userEvent.setup();
+    const { rerender } = render(<ConsolidatedDataTable sharedRange={{ from: '2026-10-01', to: '2026-10-15', start: '2026-09-30T16:00:00.000Z', end: '2026-10-15T15:59:59.999Z' }} />);
+    await screen.findByTestId('consolidated-table');
+    expect(global.fetch).toHaveBeenCalledWith(expect.stringContaining('from=2026-10-01&to=2026-10-15'), expect.anything());
+    const requested = new URL(String(global.fetch.mock.calls[0][0]), 'http://localhost');
+    expect(requested.searchParams.get('rangeStart')).toBe('2026-09-30T16:00:00.000Z');
+    expect(requested.searchParams.get('rangeEnd')).toBe('2026-10-15T15:59:59.999Z');
+    expect(screen.queryByTestId('consolidated-date-select')).not.toBeInTheDocument();
+    await user.type(screen.getByTestId('consolidated-search'), 'Chicken');
+    rerender(<ConsolidatedDataTable sharedRange={{ from: '2026-10-02', to: '2026-10-16' }} />);
+    await waitFor(() => expect(screen.getByTestId('consolidated-search')).toHaveValue('Chicken'));
+    expect(screen.getByTestId('consolidated-shared-range')).toHaveTextContent('2026-10-02 to 2026-10-16');
+    await user.click(screen.getByTestId('consolidated-export-btn'));
+    await waitFor(() => expect(downloadConsolidatedExcel).toHaveBeenCalledWith(expect.objectContaining({ meta: expect.objectContaining({ dateLabel: 'Selected period (2026-10-02 to 2026-10-16)', search: 'Chicken' }) })));
   });
 
   it("should display all summary metrics", async () => {

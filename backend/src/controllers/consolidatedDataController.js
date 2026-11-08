@@ -12,6 +12,8 @@ async function getConsolidated(req, res) {
       from: pickParam(req.query.from),
       to: pickParam(req.query.to),
       category: pickParam(req.query.category),
+      rangeStart: pickParam(req.query.rangeStart),
+      rangeEnd: pickParam(req.query.rangeEnd),
     })
 
     res.status(200).json({ data })

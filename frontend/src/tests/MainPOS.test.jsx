@@ -30,6 +30,7 @@ vi.mock('../services/db', () => ({
     getSavedOrders: vi.fn().mockResolvedValue([]),
     getSavedOrderCount: vi.fn().mockResolvedValue(0),
     getSavedOrder: vi.fn(),
+    removeSavedOrder: vi.fn().mockResolvedValue({}),
     createTransaction: vi.fn().mockResolvedValue({ id: 'txn-1', transaction_number: 'TXN-1' }),
     createTransactionItems: vi.fn().mockResolvedValue([]),
     logTraffic: vi.fn(),
@@ -71,6 +72,21 @@ describe('MainPOS', () => {
       expect(screen.getByPlaceholderText('Search menu...')).toBeInTheDocument()
     })
     expect(screen.getByText('Espresso')).toBeInTheDocument()
+  })
+
+  it('removes a saved unpaid order from POS and refreshes the badge', async () => {
+    const user = userEvent.setup()
+    db.getSavedOrders.mockResolvedValueOnce([{ id: 'saved', revision: 2, transaction_number: 'TXN-SAVED', order_type: 'DELIVERY', total: 150 }])
+    db.getSavedOrderCount.mockResolvedValue(1)
+    render(<MainPOS user={mockUser} />)
+    await user.click(await screen.findByRole('button', { name: 'Saved orders' }))
+    await user.click(await screen.findByRole('button', { name: 'Remove TXN-SAVED' }))
+    db.getSavedOrderCount.mockResolvedValue(0)
+    await user.click(screen.getByRole('button', { name: 'Remove unpaid transaction' }))
+    await waitFor(() => expect(db.removeSavedOrder).toHaveBeenCalledWith('saved', 2))
+    expect(screen.queryByText('TXN-SAVED')).not.toBeInTheDocument()
+    await waitFor(() => expect(screen.getByTestId('saved-orders-count')).toHaveTextContent('0'))
+    expect(db.checkoutOrder).not.toHaveBeenCalled()
   })
 
   it('saves a delivery order as unpaid without charging or deducting stock', async () => {

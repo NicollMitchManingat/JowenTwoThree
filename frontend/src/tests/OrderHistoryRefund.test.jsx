@@ -1,11 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor, fireEvent } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import OrderHistoryPage from '../pages/OrderHistoryPage'
 
 vi.mock('../services/db', () => ({
   db: {
     getTransactions: vi.fn(),
+    removeSavedOrder: vi.fn().mockResolvedValue({}),
     getRefundsForTransactions: vi.fn().mockResolvedValue([]),
   },
 }))
@@ -41,6 +42,7 @@ describe('OrderHistoryPage refunds', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     db.getTransactions.mockResolvedValue(ORDERS)
+    db.removeSavedOrder.mockReset().mockResolvedValue({})
     db.getRefundsForTransactions.mockResolvedValue([
       { transaction_id: 't3', refund_amount: 180, items: [], reason: 'Wrong item served' },
     ])
@@ -58,6 +60,61 @@ describe('OrderHistoryPage refunds', () => {
     await waitFor(() => {
       expect(db.getTransactions.mock.calls.length).toBeGreaterThan(calls)
     })
+  })
+
+  it('confirms removal of an unpaid transaction and leaves paid rows intact', async () => {
+    const user = userEvent.setup()
+    db.getTransactions.mockResolvedValueOnce([...ORDERS, { ...ORDERS[0], id: 'unpaid', transaction_number: 'TXN-UNPAID', payment_status: 'UNPAID', revision: 3 }])
+    render(<OrderHistoryPage user={{ role: 'cashier', permissions: ['transactions'] }} />)
+    await user.click(await screen.findByTestId('select-order-t1'))
+    expect(screen.getByRole('button', { name: 'Remove unpaid transaction' })).toBeDisabled()
+    await user.click(screen.getByTestId('select-order-unpaid'))
+    await user.click(screen.getByRole('button', { name: 'Remove unpaid transaction' }))
+    let dialog = screen.getByRole('dialog', { name: 'Remove unpaid transaction?' })
+    expect(dialog).toHaveTextContent('TXN-UNPAID')
+    await user.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+    expect(db.removeSavedOrder).not.toHaveBeenCalled()
+    await user.click(screen.getByRole('button', { name: 'Remove unpaid transaction' }))
+    dialog = screen.getByRole('dialog', { name: 'Remove unpaid transaction?' })
+    await user.click(within(dialog).getByRole('button', { name: 'Remove unpaid transaction' }))
+    await waitFor(() => expect(db.removeSavedOrder).toHaveBeenCalledWith('unpaid', 3))
+    expect(screen.queryByTestId('order-row-unpaid')).not.toBeInTheDocument()
+    expect(screen.getByTestId('order-row-t1')).toHaveTextContent('Paid')
+    expect(screen.getByRole('button', { name: 'Remove unpaid transaction' })).toBeDisabled()
+  })
+
+  it('preserves the row and displays a server refusal when an order was paid meanwhile', async () => {
+    const user = userEvent.setup()
+    db.getTransactions.mockResolvedValueOnce([{ ...ORDERS[0], id: 'unpaid', payment_status: 'UNPAID', revision: 1 }])
+    db.removeSavedOrder.mockRejectedValueOnce(new Error('This order has already been paid.'))
+    render(<OrderHistoryPage user={{ role: 'admin' }} />)
+    await user.click(await screen.findByTestId('select-order-unpaid'))
+    await user.click(screen.getByRole('button', { name: 'Remove unpaid transaction' }))
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Remove unpaid transaction' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('already been paid')
+    expect(screen.getByTestId('order-row-unpaid')).toBeInTheDocument()
+  })
+
+  it('blocks repeat removal clicks while the request is pending', async () => {
+    let complete
+    const user = userEvent.setup()
+    db.removeSavedOrder.mockImplementationOnce(() => new Promise(resolve => { complete = resolve }))
+    db.getTransactions.mockResolvedValueOnce([{ ...ORDERS[0], id: 'unpaid', payment_status: 'UNPAID', revision: 1 }])
+    render(<OrderHistoryPage user={{ role: 'admin' }} />)
+    await user.click(await screen.findByTestId('select-order-unpaid'))
+    await user.click(screen.getByRole('button', { name: 'Remove unpaid transaction' }))
+    const dialog = screen.getByRole('dialog')
+    await user.dblClick(within(dialog).getByRole('button', { name: 'Remove unpaid transaction' }))
+    expect(db.removeSavedOrder).toHaveBeenCalledTimes(1)
+    expect(within(dialog).getByRole('button', { name: 'Cancel' })).toBeDisabled()
+    complete({})
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+  })
+
+  it('hides unpaid removal from Stockman accounts', async () => {
+    render(<OrderHistoryPage user={{ role: 'stockist', permissions: ['transactions'] }} />)
+    await screen.findByTestId('order-row-t1')
+    expect(screen.queryByRole('button', { name: 'Remove unpaid transaction' })).not.toBeInTheDocument()
   })
 
   it('shows unpaid orders separately, prevents refunds, and resumes the selected order through POS', async () => {

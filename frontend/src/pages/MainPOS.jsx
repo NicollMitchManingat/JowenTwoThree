@@ -3,6 +3,7 @@ import { ShoppingCart, Plus, Minus, Users, Tag, X, Search, RefreshCcw, Printer, 
 import { db } from '../services/db';
 import { productAPI } from '../services/productAPI';
 import RadialFabMenu from '../components/pos/RadialFabMenu';
+import RemoveUnpaidOrderModal from '../components/pos/RemoveUnpaidOrderModal';
 import LowStockBell from '../components/inventory/LowStockBell';
 import LoadingSkeleton from '../components/analytics/LoadingSkeleton';
 import { saveMenuCache, loadMenuCache } from '../services/menuCache';
@@ -60,6 +61,7 @@ export default function MainPOS({ user, resumeOrderId, onResumeHandled }) {
   const [savingOrder, setSavingOrder] = useState(false);
   const [showSavedOrders, setShowSavedOrders] = useState(false);
   const [savedOrders, setSavedOrders] = useState([]);
+  const [removeOrder, setRemoveOrder] = useState(null);
   const [savedOrderCount, setSavedOrderCount] = useState(null);
   const [savedOrderCountError, setSavedOrderCountError] = useState(false);
   const savedCountRequest = useRef(0);
@@ -719,10 +721,18 @@ export default function MainPOS({ user, resumeOrderId, onResumeHandled }) {
           {savedOrdersError && <p className="text-danger" role="alert">{savedOrdersError}</p>}
           {loadingSavedOrders ? <p>Loading saved orders…</p> : <table className="data-table"><thead><tr><th>Transaction #</th><th>Order type</th><th>Total</th><th>Payment status</th><th>Action</th></tr></thead>
             <tbody>{savedOrders.map(order => <tr key={order.id}><td>{order.transaction_number}</td><td>{orderTypeLabel(order.order_type)}</td><td>₱{Number(order.total).toFixed(2)}</td><td>Unpaid</td>
-              <td><button className="btn btn-primary" disabled={loadingSavedOrder} onClick={() => loadSavedOrder(order.id)}>Resume</button></td></tr>)}
+              <td><div className="flex items-center gap-2"><button className="btn btn-primary" disabled={loadingSavedOrder} onClick={() => loadSavedOrder(order.id)}>Resume</button>
+                {['admin', 'cashier'].includes(user?.role) && <button className="btn btn-danger" disabled={loadingSavedOrder} aria-label={`Remove ${order.transaction_number}`} onClick={() => setRemoveOrder(order)}>Remove</button>}
+              </div></td></tr>)}
               {!savedOrders.length && <tr><td colSpan="5">No saved orders.</td></tr>}</tbody></table>}
         </div>
       </div></div>}
+      {removeOrder && <RemoveUnpaidOrderModal order={removeOrder} onClose={() => setRemoveOrder(null)} onRemoved={id => {
+        setSavedOrders(rows => rows.filter(row => row.id !== id)); setRemoveOrder(null);
+        if (savedOrder?.id === id) resetOrder();
+        void refreshSavedOrderCount();
+        setToast({ type: 'success', message: 'Unpaid transaction removed.' });
+      }} />}
       {selectedProduct && (
         <div className="modal-overlay" onClick={closeNoteModal}>
           <div className="modal-content card" onClick={(e) => e.stopPropagation()}>

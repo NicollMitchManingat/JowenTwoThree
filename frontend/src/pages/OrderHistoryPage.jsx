@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef } from 'react';
-import { Search, FileSpreadsheet, Receipt, Clock, CheckCircle, XCircle, Undo2, ChevronUp, Users } from 'lucide-react';
+import { Search, FileSpreadsheet, Receipt, Clock, CheckCircle, XCircle, Undo2, ChevronUp, Users, Trash2 } from 'lucide-react';
 import { db } from '../services/db';
 import { customerTotals } from '../services/salesAnalytics';
 import { downloadTransactionsExcel } from '../utils/exportTransactionsExcel';
 import RefundModal from '../components/pos/RefundModal';
+import RemoveUnpaidOrderModal from '../components/pos/RemoveUnpaidOrderModal';
 import LoadingSkeleton from '../components/analytics/LoadingSkeleton';
 import { hasAccess } from '../services/permissions';
 import { orderTypeLabel, paymentStatusFor } from '../services/transactionAPI';
@@ -75,6 +76,7 @@ export default function OrderHistoryPage({ user, onResume }) {
   const [sortField, setSortField] = useState('created_at');
   const [sortDir, setSortDir] = useState('desc');
   const [refundOrder, setRefundOrder] = useState(null);
+  const [removeOrder, setRemoveOrder] = useState(null);
   const [toast, setToast] = useState(null);
   const [exportingExcel, setExportingExcel] = useState(false);
   const [showJump, setShowJump] = useState(false);
@@ -215,6 +217,7 @@ export default function OrderHistoryPage({ user, onResume }) {
   const canRefund = user?.role !== 'stockist';
   const selectedUnpaid = selectedOrder && paymentStatusFor(selectedOrder) === 'UNPAID';
   const canResume = hasAccess(user, 'pos') && typeof onResume === 'function';
+  const canRemove = ['admin', 'cashier'].includes(user?.role) && (hasAccess(user, 'pos') || hasAccess(user, 'transactions'));
   const canSelect = canRefund || canResume;
   const canActOnSelected = canRefund && selectedOrder && !selectedFullyRefunded && !selectedUnpaid;
 
@@ -400,6 +403,7 @@ export default function OrderHistoryPage({ user, onResume }) {
           </span>
         )}
         <div className="action-buttons" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+          {canRemove && <button className="btn btn-danger" disabled={!selectedUnpaid} onClick={() => setRemoveOrder(selectedOrder)} title={selectedUnpaid ? 'Remove this unpaid transaction' : 'Select an unpaid transaction to remove'}><Trash2 size={16} /> Remove unpaid transaction</button>}
           {canResume && <button className="btn btn-primary" disabled={!selectedUnpaid} onClick={() => onResume(selectedOrder.id)}>Resume unpaid order</button>}
           {canRefund && (
             <button className="btn btn-secondary" onClick={() => selectedOrder && setRefundOrder(selectedOrder)} disabled={!canActOnSelected} title={user?.role === 'admin' ? (refundTitle() || 'Refund (admin)') : (refundTitle() || 'Refund (requires manager approval)')} data-testid="toolbar-refund-btn">
@@ -416,6 +420,10 @@ export default function OrderHistoryPage({ user, onResume }) {
           <button className="btn btn-secondary" style={{ marginLeft: '0.5rem' }} onClick={() => setToast(null)}>Dismiss</button>
         </div>
       )}
+      {removeOrder && <RemoveUnpaidOrderModal order={removeOrder} onClose={() => setRemoveOrder(null)} onRemoved={id => {
+        setOrders(rows => rows.filter(row => row.id !== id)); setSelectedId(null); setRemoveOrder(null);
+        setToast({ type: 'success', message: 'Unpaid transaction removed.' });
+      }} />}
 
       <div className="card table-card table-responsive">
         <table className="data-table">

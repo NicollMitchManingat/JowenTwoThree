@@ -10,6 +10,7 @@ router.post('/save-order', modules('pos'), run(async (req, res) => res.json(awai
 router.get('/saved-orders', modules('pos', 'transactions'), run(async (req, res) => res.json({ orders: await checkout.listSavedOrders(req.user) })))
 router.get('/saved-orders/count', modules('pos', 'transactions'), run(async (req, res) => res.json({ count: await checkout.countSavedOrders(req.user) })))
 router.get('/saved-orders/:id', modules('pos'), run(async (req, res) => res.json({ order: await checkout.getSavedOrder(req.user, req.params.id) })))
+router.post('/saved-orders/:id/remove', modules('pos', 'transactions'), run(async (req, res) => res.json({ removed: await checkout.removeSavedOrder(req.auth, req.params.id, req.body?.revision) })))
 router.post('/inventory', modules('inventory'), run(async (req, res) => {
   if (!['admin', 'stockist'].includes(req.user.role)) throw a.httpError('Stockman access is required', 403)
   const body = req.body || {}, fields = body.values || {}

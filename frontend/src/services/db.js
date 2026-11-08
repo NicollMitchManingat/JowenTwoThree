@@ -374,6 +374,7 @@ export const db = {
   async getSavedOrders() { return queryWithTimeout(async signal => ({ data: (await apiRequest('/api/commands/saved-orders', { signal })).orders })) },
   async getSavedOrderCount() { return queryWithTimeout(async signal => ({ data: (await apiRequest('/api/commands/saved-orders/count', { signal })).count })) },
   async getSavedOrder(id) { return queryWithTimeout(async signal => ({ data: (await apiRequest(`/api/commands/saved-orders/${encodeURIComponent(id)}`, { signal })).order })) },
+  async removeSavedOrder(id, revision) { return (await apiRequest(`/api/commands/saved-orders/${encodeURIComponent(id)}/remove`, { method: 'POST', body: { revision } })).removed },
 
   async getTransactionsByDateRange(startDate, endDate) {
     return queryWithTimeout((signal) => supabase

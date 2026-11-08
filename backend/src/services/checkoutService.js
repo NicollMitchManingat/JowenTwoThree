@@ -76,8 +76,10 @@ async function approveDiscount(context, input) {
 }
 function rpcError(error) {
   const message = error.message || 'Operation failed'
-  const status = /AUTH_REQUIRED/.test(message) ? 401 : /FORBIDDEN|APPROVAL/.test(message) ? 403 : /STOCK|CONFLICT|CHANGED/.test(message) ? 409 : 400
+  const status = /AUTH_REQUIRED/.test(message) ? 401 : /FORBIDDEN|APPROVAL/.test(message) ? 403 : /SAVED_ORDER_NOT_FOUND/.test(message) ? 404 : /STOCK|CONFLICT|CHANGED|REMOVED|ALREADY_PAID/.test(message) ? 409 : 400
   const messages = [
+    [/SAVED_ORDER_REMOVED/, 'This unpaid transaction has been removed. Start a new order.'],
+    [/SAVED_ORDER_NOT_FOUND/, 'Saved order not found. Refresh the list.'],
     [/AUTH_REQUIRED/, 'Your session has expired. Please sign in again.'],
     [/FORBIDDEN/, 'You do not have permission for this action.'],
     [/APPROVAL/, 'Admin approval is missing or expired. Request approval again.'],
@@ -122,13 +124,13 @@ function savedOrderRecord(row) {
 async function listSavedOrders(user) {
   a.requireModules(user, 'pos', 'transactions')
   const rows = a.check(await a.database().from('saved_orders').select('*')
-    .eq('payment_status', 'UNPAID').order('created_at', { ascending: false }).range(0, 999))
+    .eq('payment_status', 'UNPAID').is('removed_at', null).order('created_at', { ascending: false }).range(0, 999))
   return (rows || []).map(savedOrderRecord)
 }
 async function countSavedOrders(user) {
   a.requireModules(user, 'pos', 'transactions')
   const result = await a.database().from('saved_orders').select('id', { count: 'exact', head: true })
-    .eq('payment_status', 'UNPAID')
+    .eq('payment_status', 'UNPAID').is('removed_at', null)
   a.check(result)
   if (!Number.isInteger(result.count)) throw a.httpError('Saved order count is unavailable', 503)
   return result.count
@@ -138,7 +140,16 @@ async function getSavedOrder(user, id) {
   if (!/^[0-9a-f-]{36}$/i.test(id)) throw a.httpError('Invalid saved order')
   const row = a.check(await a.database().from('saved_orders').select('*').eq('id', id).maybeSingle())
   if (!row) throw a.httpError('Saved order not found', 404)
+  if (row.removed_at) throw a.httpError('This unpaid transaction has been removed. Start a new order.', 409)
   if (row.payment_status !== 'UNPAID') throw a.httpError('This order has already been paid', 409)
   return savedOrderRecord(row)
 }
-module.exports = { quoteOrder, approveDiscount, checkout, saveOrder, listSavedOrders, countSavedOrders, getSavedOrder, rpcError }
+async function removeSavedOrder(context, id, revision) {
+  a.requireModules(context.user, 'pos', 'transactions')
+  if (!['admin', 'cashier'].includes(context.user.role)) throw a.httpError('Payment management access is required', 403)
+  if (!/^[0-9a-f-]{36}$/i.test(id) || !Number.isInteger(revision) || revision < 1 || revision > 2147483647) throw a.httpError('A valid saved order and revision are required')
+  const result = await a.database().rpc('jowen_remove_saved_order', { p_session_hash: context.tokenHash, p_id: id, p_revision: revision })
+  if (result.error) throw rpcError(result.error)
+  return result.data
+}
+module.exports = { quoteOrder, approveDiscount, checkout, saveOrder, listSavedOrders, countSavedOrders, getSavedOrder, removeSavedOrder, rpcError }

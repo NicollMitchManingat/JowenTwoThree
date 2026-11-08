@@ -19,6 +19,11 @@ const commandRouter = require('./routes/commandRoute')
 const app = express()
 
 app.use(cors((req, done) => done(null, { origin: authentication.allowedOrigin(req, req.get('origin')) ? req.get('origin') || false : false, credentials: true })))
+// Session-protected data and errors must never be reused across users or roles.
+app.use('/api', (req, res, next) => {
+  res.set('Cache-Control', 'private, no-store')
+  next()
+})
 app.use(express.json({ limit: '256kb' }))
 app.use(authentication.csrf)
 

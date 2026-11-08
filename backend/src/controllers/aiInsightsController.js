@@ -7,7 +7,7 @@ async function getInsights(req, res) {
       end: req.query.end,
     })
 
-    res.set("Cache-Control", "public, max-age=900")
+    res.set("Cache-Control", "private, no-store")
     res.status(200).json({
       data,
     })

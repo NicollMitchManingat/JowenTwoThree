@@ -3,6 +3,7 @@ const request = require("supertest")
 const app = require("../../src/app")
 
 const insightsService = require("../../src/services/insightsService")
+const access = require("../../src/services/accessService")
 
 const ENVELOPE = {
   generatedAt: "2026-09-28T12:00:00.000Z",
@@ -24,7 +25,11 @@ const ENVELOPE = {
 describe("AI Insights Route", () => {
   beforeEach(() => {
     vi.restoreAllMocks()
+    // Route response checks use a mocked administrator session; no live queries.
+    vi.spyOn(access, "authenticate").mockResolvedValue({ user: { id: 'fixture-admin', role: 'admin', isActive: true }, sessionId: 'fixture-session' })
   })
+
+  afterEach(() => vi.restoreAllMocks())
 
   describe("GET /api/ai-insights", () => {
     it("should return the insights envelope", async () => {
@@ -33,6 +38,7 @@ describe("AI Insights Route", () => {
       const res = await request(app).get("/api/ai-insights?start=2026-08-31&end=2026-09-28")
 
       expect(res.status).toBe(200)
+      expect(res.headers['cache-control']).toBe('private, no-store')
       expect(res.body.data).toEqual(ENVELOPE)
       expect(insightsService.getInsights).toHaveBeenCalledWith(
         expect.objectContaining({ start: "2026-08-31", end: "2026-09-28" })

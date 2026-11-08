@@ -7,11 +7,18 @@ function integer(value, label, max = 10000) {
   return n
 }
 const cents = value => Math.round(Number(value) * 100)
+const ORDER_TYPES = ['DINE_IN', 'TAKE_OUT', 'DELIVERY']
 async function quoteOrder(user, input) {
   a.requireModules(user, 'pos')
+  if (!input || typeof input !== 'object') throw a.httpError('Invalid order')
   if (!Array.isArray(input.cart) || input.cart.length > 100) throw a.httpError('Invalid cart')
   const key = String(input.orderKey || input.idempotency_key || '')
   if (!key || key.length > 128) throw a.httpError('An order key is required')
+  const orderType = input.orderType || 'DINE_IN'
+  if (!ORDER_TYPES.includes(orderType)) throw a.httpError('Choose a valid order type')
+  const savedOrderId = input.savedOrderId || null
+  if (savedOrderId && !/^[0-9a-f-]{36}$/i.test(savedOrderId)) throw a.httpError('Invalid saved order')
+  const revision = integer(input.savedRevision ?? 0, 'order revision', 2147483647)
   const raw = input.cart.map(line => {
     const productId = String(line.productId || line.product_id || line.id || '')
     if (!/^[0-9a-f-]{36}$/i.test(productId)) throw a.httpError('Invalid product')
@@ -49,7 +56,8 @@ async function quoteOrder(user, input) {
   const quote = { orderKey: key, cart, subtotal: subtotalCents / 100, discount: discountCents / 100,
     total: (subtotalCents - discountCents) / 100, counts: gender,
     discountId: voucher?.id || null, discountKind: voucher?.type || null,
-    discountValue: voucher ? Number(voucher.value) : 0, discountLabel: voucher?.name || 'None' }
+    discountValue: voucher ? Number(voucher.value) : 0, discountLabel: voucher?.name || 'None',
+    orderType, savedOrderId, revision }
   const digest = crypto.createHash('sha256').update(JSON.stringify({ userId: user.id, ...quote })).digest('hex')
   return { quote, digest }
 }
@@ -59,7 +67,7 @@ async function approveDiscount(context, input) {
   if (context.user.role === 'admin') return { approvalId: null, quote }
   const manager = await auth.verifyManager({ password: input.adminPassword })
   const row = a.check(await a.database().from('discount_approvals').insert({
-    request_key: crypto.randomUUID(), order_key: quote.orderKey, order_revision: 0,
+    request_key: crypto.randomUUID(), order_key: quote.orderKey, order_revision: quote.revision,
     cart_digest: digest, requested_by_user_id: context.user.id, approved_by_user_id: manager.id,
     discount_id: quote.discountId, approved_amount: quote.discount,
     expires_at: new Date(Date.now() + 5 * 60000).toISOString(),
@@ -79,6 +87,8 @@ function rpcError(error) {
     [/CONFLICT_REFUND_QUANTITY/, 'The refundable quantity changed. Refresh this transaction.'],
     [/CONFLICT_SESSION_ALREADY_CLOSED/, 'This shop session is already closed. Refresh the page.'],
     [/CHANGED/, 'The order changed. Refresh the menu and request approval again.'],
+    [/ALREADY_PAID/, 'This saved order has already been paid. Refresh the transactions list.'],
+    [/CONFLICT_SAVED/, 'This saved order was changed by another user. Reload it before continuing.'],
   ]
   const friendly = messages.find(([pattern]) => pattern.test(message))?.[1] || message
   const err = a.httpError(friendly, status, /INSUFFICIENT_STOCK/.test(message) ? 'INSUFFICIENT_STOCK' : undefined)
@@ -97,4 +107,38 @@ async function checkout(context, input) {
   if (result.error) throw rpcError(result.error)
   return result.data
 }
-module.exports = { quoteOrder, approveDiscount, checkout, rpcError }
+async function saveOrder(context, input) {
+  const { quote, digest } = await quoteOrder(context.user, input)
+  const result = await a.database().rpc('jowen_save_order', { p_session_hash: context.tokenHash,
+    p_data: { quote, digest, approvalId: input.approvalId || null } })
+  if (result.error) throw rpcError(result.error)
+  return { order: savedOrderRecord(result.data) }
+}
+function savedOrderRecord(row) {
+  return { ...row, idempotency_key: row.order_key, status: 'SAVED', payment_method: null,
+    cash_received: null, change_amount: null,
+    customer_count: Number(row.male_count) + Number(row.female_count) + Number(row.unspecified_count) }
+}
+async function listSavedOrders(user) {
+  a.requireModules(user, 'pos', 'transactions')
+  const rows = a.check(await a.database().from('saved_orders').select('*')
+    .eq('payment_status', 'UNPAID').order('created_at', { ascending: false }).range(0, 999))
+  return (rows || []).map(savedOrderRecord)
+}
+async function countSavedOrders(user) {
+  a.requireModules(user, 'pos', 'transactions')
+  const result = await a.database().from('saved_orders').select('id', { count: 'exact', head: true })
+    .eq('payment_status', 'UNPAID')
+  a.check(result)
+  if (!Number.isInteger(result.count)) throw a.httpError('Saved order count is unavailable', 503)
+  return result.count
+}
+async function getSavedOrder(user, id) {
+  a.requireModules(user, 'pos')
+  if (!/^[0-9a-f-]{36}$/i.test(id)) throw a.httpError('Invalid saved order')
+  const row = a.check(await a.database().from('saved_orders').select('*').eq('id', id).maybeSingle())
+  if (!row) throw a.httpError('Saved order not found', 404)
+  if (row.payment_status !== 'UNPAID') throw a.httpError('This order has already been paid', 409)
+  return savedOrderRecord(row)
+}
+module.exports = { quoteOrder, approveDiscount, checkout, saveOrder, listSavedOrders, countSavedOrders, getSavedOrder, rpcError }

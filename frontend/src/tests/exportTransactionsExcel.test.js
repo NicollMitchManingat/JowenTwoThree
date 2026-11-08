@@ -147,4 +147,13 @@ describe('exportTransactionsExcel', () => {
   it('generates dated xlsx filenames', () => {
     expect(transactionsFilename(new Date('2026-10-15T00:00:00.000Z'))).toBe('transactions-2026-10-15.xlsx');
   });
+  it('exports unpaid amounts without counting them as paid revenue', () => {
+    const unpaid = { ...sampleOrders[0], id: 'saved', payment_status: 'UNPAID', status: 'SAVED', payment_method: null, order_type: 'DELIVERY' };
+    const { worksheet, summary, totalsRowNumber } = buildTransactionsWorkbook(ExcelJS, { orders: [unpaid], meta });
+    expect(summary).toEqual({ count: 1, gross: 0, refunded: 0, net: 0 });
+    expect(worksheet.getRow(DATA_START_ROW).getCell(7).value).toBe('Unpaid');
+    expect(worksheet.getRow(DATA_START_ROW).getCell(8).value).toBe('');
+    expect(worksheet.getRow(DATA_START_ROW).getCell(14).value).toBe('Delivery');
+    expect(worksheet.getRow(totalsRowNumber).getCell(4).value.formula).toContain('SUMIF');
+  });
 });

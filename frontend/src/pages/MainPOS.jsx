@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useEffect as useLayoutEffect } from "react";
+import { useState, useEffect, useRef, useCallback, useEffect as useLayoutEffect } from "react";
 import { ShoppingCart, Plus, Minus, Users, Tag, X, Search, RefreshCcw, Printer, AlertCircle, CheckCircle, Edit, Pencil } from 'lucide-react';
 import { db } from '../services/db';
 import { productAPI } from '../services/productAPI';
@@ -10,6 +10,7 @@ import { mockProducts } from '../data/mockProducts';
 import { processQueue } from '../services/offlineQueue';
 import { getProductIcon } from '../components/pos/productIcons';
 import { formatDiscountLabel } from '../components/settings/DiscountManager';
+import { ORDER_TYPES, orderTypeLabel } from '../services/transactionAPI';
 
 // Resolves a discount selection to a peso amount. Selections are
 // 'none', legacy 'pwd' | 'senior' | 'promo' (pre-migration fallback), or
@@ -44,7 +45,7 @@ export function resolveDiscount(subtotal, discountType, vouchers = []) {
 // large group must still be able to check out.
 const PARTY_CONFIRM_THRESHOLD = 20;
 
-export default function MainPOS({ user }) {
+export default function MainPOS({ user, resumeOrderId, onResumeHandled }) {
   const [maleCount, setMaleCount] = useState(0);
   const [femaleCount, setFemaleCount] = useState(0);
   const [unspecifiedCount, setUnspecifiedCount] = useState(0);
@@ -54,6 +55,39 @@ export default function MainPOS({ user }) {
   const [cart, setCart] = useState([]);
   const [discountType, setDiscountType] = useState('none');
   const [orderKey, setOrderKey] = useState(() => crypto.randomUUID());
+  const [orderType, setOrderType] = useState('DINE_IN');
+  const [savedOrder, setSavedOrder] = useState(null);
+  const [savingOrder, setSavingOrder] = useState(false);
+  const [showSavedOrders, setShowSavedOrders] = useState(false);
+  const [savedOrders, setSavedOrders] = useState([]);
+  const [savedOrderCount, setSavedOrderCount] = useState(null);
+  const [savedOrderCountError, setSavedOrderCountError] = useState(false);
+  const savedCountRequest = useRef(0);
+  const refreshSavedOrderCount = useCallback(async () => {
+    const request = ++savedCountRequest.current;
+    try {
+      const count = await db.getSavedOrderCount();
+      if (request !== savedCountRequest.current) return;
+      setSavedOrderCount(count); setSavedOrderCountError(false);
+    } catch {
+      if (request === savedCountRequest.current) setSavedOrderCountError(true);
+    }
+  }, []);
+  useEffect(() => {
+    void refreshSavedOrderCount();
+    const interval = setInterval(refreshSavedOrderCount, 30000);
+    window.addEventListener('focus', refreshSavedOrderCount);
+    window.addEventListener('online', refreshSavedOrderCount);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('focus', refreshSavedOrderCount);
+      window.removeEventListener('online', refreshSavedOrderCount);
+      savedCountRequest.current++;
+    };
+  }, [refreshSavedOrderCount]);
+  const [savedOrdersError, setSavedOrdersError] = useState('');
+  const [loadingSavedOrders, setLoadingSavedOrders] = useState(false);
+  const [loadingSavedOrder, setLoadingSavedOrder] = useState(false);
   const [approvalId, setApprovalId] = useState(null);
   const [pendingDiscount, setPendingDiscount] = useState(null);
   const [approvalPassword, setApprovalPassword] = useState('');
@@ -62,10 +96,12 @@ export default function MainPOS({ user }) {
   const latestOrderKey = useRef(orderKey);
   latestOrderKey.current = orderKey;
   useEffect(() => {
-    setOrderKey(crypto.randomUUID()); setApprovalId(null); setPendingDiscount(null); setApprovalPassword('');
+    if (!savedOrder) setOrderKey(crypto.randomUUID());
+    setApprovalId(null); setPendingDiscount(null); setApprovalPassword('');
     if (user?.role !== 'admin') setDiscountType('none');
-  }, [cart, maleCount, femaleCount, unspecifiedCount, user?.id, user?.role]);
-  const orderInput = (choice = discountType) => ({ orderKey, cart, discountType: choice,
+  }, [cart, maleCount, femaleCount, unspecifiedCount, orderType, user?.id, user?.role]);
+  const orderInput = (choice = discountType) => ({ orderKey, cart, discountType: choice, orderType,
+    savedOrderId: savedOrder?.id || null, savedRevision: savedOrder?.revision || 0,
     counts: { male: clampCount(maleCount), female: clampCount(femaleCount), unspecified: clampCount(unspecifiedCount) } });
   const chooseDiscount = (choice) => {
     setApprovalId(null);
@@ -303,7 +339,7 @@ export default function MainPOS({ user }) {
   const female = makeCountHandlers(setFemaleCount);
   const unspecified = makeCountHandlers(setUnspecifiedCount);
 
-  const resetOrder = () => { setOrderKey(crypto.randomUUID()); setApprovalId(null); setCart([]); setMaleCount(0); setFemaleCount(0); setUnspecifiedCount(0); setDiscountType('none'); setPaymentMethod('CASH'); setCashReceived(''); setTenderError(null); };
+  const resetOrder = () => { setSavedOrder(null); setOrderType('DINE_IN'); setOrderKey(crypto.randomUUID()); setApprovalId(null); setCart([]); setMaleCount(0); setFemaleCount(0); setUnspecifiedCount(0); setDiscountType('none'); setPaymentMethod('CASH'); setCashReceived(''); setTenderError(null); };
 
   // Cash tender helpers: empty input means exact payment (back-compat with
   // one-tap checkout). A typed value below the total blocks checkout.
@@ -549,6 +585,56 @@ export default function MainPOS({ user }) {
   };
 
   const [shortfall, setShortfall] = useState(null);
+  const savedLoadBusy = useRef(false);
+  const orderWriteBusy = useRef(false);
+  const resumeSeen = useRef(null);
+
+  const loadSavedOrders = async () => {
+    setShowSavedOrders(true); setLoadingSavedOrders(true); setSavedOrdersError('');
+    void refreshSavedOrderCount();
+    try { setSavedOrders(await db.getSavedOrders()); }
+    catch (err) { setSavedOrdersError(err.message); }
+    finally { setLoadingSavedOrders(false); }
+  };
+  const loadSavedOrder = async (id) => {
+    if (savedLoadBusy.current) return;
+    if ((cart.length || customerCount) && !window.confirm('Replace the current order? Save it first if you need to keep it.')) return;
+    savedLoadBusy.current = true; setLoadingSavedOrder(true); setSavedOrdersError('');
+    try {
+      const [order, freshProducts, freshVouchers] = await Promise.all([db.getSavedOrder(id), db.getProducts(), db.getActiveDiscounts()]);
+      const byId = new Map(freshProducts.map(p => [p.id, p]));
+      const nextCart = order.cart.map((line, i) => ({ ...line, cartItemId: line.cartItemId || `${line.productId}:${i}`,
+        name: byId.get(line.productId)?.product_name || line.name,
+        price: byId.has(line.productId) ? Number(byId.get(line.productId).selling_price) : Number(line.price) }));
+      setSavedOrder(order); setOrderKey(order.order_key); setOrderType(order.order_type);
+      setCart(nextCart); setMaleCount(order.male_count); setFemaleCount(order.female_count); setUnspecifiedCount(order.unspecified_count);
+      setVouchers(freshVouchers); setApprovalId(null); setPendingDiscount(null); setCashReceived(''); setPaymentMethod('CASH'); setTenderError(null); setShortfall(null);
+      const activeDiscount = freshVouchers.some(v => v.id === order.discount_id && v.is_active);
+      setDiscountType(user?.role === 'admin' && activeDiscount ? `voucher:${order.discount_id}` : 'none');
+      setShowSavedOrders(false);
+      setToast({ type: 'success', message: 'Unpaid order loaded. Current prices apply; cashier discounts require fresh admin approval.' });
+    } catch (err) { setSavedOrdersError(err.message); setTenderError(err.message); }
+    finally { savedLoadBusy.current = false; setLoadingSavedOrder(false); }
+  };
+  useEffect(() => {
+    if (!resumeOrderId) { resumeSeen.current = null; return; }
+    if (resumeSeen.current === resumeOrderId) return;
+    resumeSeen.current = resumeOrderId;
+    void loadSavedOrder(resumeOrderId).finally(() => onResumeHandled?.());
+  }, [resumeOrderId]);
+
+  const saveUnpaidOrder = async () => {
+    if (savingOrder || checkoutLoading || orderWriteBusy.current) return;
+    orderWriteBusy.current = true;
+    setSavingOrder(true); setTenderError(null);
+    try {
+      const order = await db.saveOrder({ ...orderInput(), approvalId });
+      void refreshSavedOrderCount();
+      setToast({ type: 'success', message: `Saved ${order.transaction_number} as Unpaid. No payment or stock deduction was recorded.` });
+      resetOrder();
+    } catch (err) { setTenderError(err.message || 'The order could not be saved. Keep it open and retry.'); }
+    finally { orderWriteBusy.current = false; setSavingOrder(false); }
+  };
 
   // A deactivated/deleted voucher selection reverts to none.
   useEffect(() => {
@@ -559,23 +645,26 @@ export default function MainPOS({ user }) {
   }, [vouchers, discountType, useDbDiscounts]);
 
   const runCheckout = async (allowShortage) => {
+    if (orderWriteBusy.current) return;
+    orderWriteBusy.current = true;
     try {
       const { transaction: txn, quote, shorted = [] } = await db.checkoutOrder({ ...orderInput(), approvalId, paymentMethod, cashReceived, allowShortage });
+      void refreshSavedOrderCount();
       setReceipt({ transaction: txn, items: quote.cart.map(item => ({ ...item, subtotal: item.price * item.qty })),
         subtotal: quote.subtotal, discountAmount: quote.discount, discountType, discountLabel: quote.discountLabel,
         total: quote.total, paymentMethod: txn.payment_method, cashReceived: Number(txn.cash_received),
         changeAmount: Number(txn.change_amount), customerCount: txn.customer_count,
         maleCount: txn.male_count, femaleCount: txn.female_count, unspecifiedCount: txn.unspecified_count,
-        timestamp: txn.created_at, stockShortfall: shorted.map(s => s.name) });
+        timestamp: txn.created_at, orderType: txn.order_type || orderType, stockShortfall: shorted.map(s => s.name) });
       setShowReceipt(true); setShortfall(null); resetOrder();
     } catch (err) {
       if (err.code === 'INSUFFICIENT_STOCK') setShortfall({ items: err.shortfalls || [] });
       else setTenderError(err.message || 'Checkout failed. Keep this order and retry when connected.');
-    } finally { setCheckoutLoading(false); }
+    } finally { orderWriteBusy.current = false; setCheckoutLoading(false); }
   };
 
   const handleCheckout = () => {
-    if ((cart.length === 0 && customerCount === 0) || checkoutLoading) return;
+    if ((cart.length === 0 && customerCount === 0) || checkoutLoading || savingOrder || loadingSavedOrder || orderWriteBusy.current) return;
     // Implausibly large parties stop for an explicit confirm instead of
     // writing a typo to the books. Going back keeps the order intact.
     if (customerCount > PARTY_CONFIRM_THRESHOLD) { setShowPartyConfirm(true); return; }
@@ -619,6 +708,21 @@ export default function MainPOS({ user }) {
 
   return (
     <div className="pos-container relative">
+      {(savedOrder || loadingSavedOrder) && <div className="flex items-center gap-2" style={{ marginBottom: '0.75rem', flexWrap: 'wrap' }}>
+        {savedOrder && <span className="text-sm">Editing unpaid transaction <strong>{savedOrder.transaction_number}</strong>
+          {Number(savedOrder.discount) > 0 && user?.role !== 'admin' && ' — select the previous discount again to request fresh admin approval.'}</span>}
+        {loadingSavedOrder && <span role="status">Loading saved order…</span>}
+      </div>}
+      {showSavedOrders && <div className="modal-overlay"><div className="modal-content card" role="dialog" aria-label="Saved orders" style={{ maxWidth: '760px', width: '100%' }}>
+        <div className="modal-header"><h3>Saved orders</h3><button className="btn-icon-small" aria-label="Close saved orders" onClick={() => setShowSavedOrders(false)}><X size={18} /></button></div>
+        <div className="modal-body table-responsive">
+          {savedOrdersError && <p className="text-danger" role="alert">{savedOrdersError}</p>}
+          {loadingSavedOrders ? <p>Loading saved orders…</p> : <table className="data-table"><thead><tr><th>Transaction #</th><th>Order type</th><th>Total</th><th>Payment status</th><th>Action</th></tr></thead>
+            <tbody>{savedOrders.map(order => <tr key={order.id}><td>{order.transaction_number}</td><td>{orderTypeLabel(order.order_type)}</td><td>₱{Number(order.total).toFixed(2)}</td><td>Unpaid</td>
+              <td><button className="btn btn-primary" disabled={loadingSavedOrder} onClick={() => loadSavedOrder(order.id)}>Resume</button></td></tr>)}
+              {!savedOrders.length && <tr><td colSpan="5">No saved orders.</td></tr>}</tbody></table>}
+        </div>
+      </div></div>}
       {selectedProduct && (
         <div className="modal-overlay" onClick={closeNoteModal}>
           <div className="modal-content card" onClick={(e) => e.stopPropagation()}>
@@ -671,10 +775,10 @@ export default function MainPOS({ user }) {
         </div>
       )}
 
-      <div className="pos-header">
-        <div className="flex justify-between items-center w-full">
+      <div className="pos-header" inert={checkoutLoading || savingOrder || loadingSavedOrder || undefined}>
+        <div className="flex justify-between items-center w-full flex-wrap gap-2">
           <h3 className="m-0">Menu</h3>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 pos-traffic-toolbar">
             <div className="customer-count-widget m-0" data-testid="traffic-widget">
             <div className="flex items-center gap-2">
               <Users size={18} className="text-primary" />
@@ -703,6 +807,15 @@ export default function MainPOS({ user }) {
             </div>
             </div>
             <LowStockBell size="small" />
+            <button type="button" className="btn btn-secondary saved-orders-button" aria-label="Saved orders" aria-describedby="saved-orders-count"
+              disabled={checkoutLoading || savingOrder || loadingSavedOrder} onClick={loadSavedOrders}
+              title={savedOrderCountError ? 'Count could not refresh. Open saved orders to retry.' : 'Retrieve saved orders'}>
+              Saved orders
+              <span id="saved-orders-count" data-testid="saved-orders-count" className={`saved-orders-count${savedOrderCount ? '' : ' saved-orders-count-muted'}`}
+                aria-live="polite" aria-atomic="true" aria-label={savedOrderCount === null ? 'Saved order count unavailable' : `${savedOrderCount} saved orders${savedOrderCountError ? ', refresh unavailable' : ''}`}>
+                {savedOrderCount ?? '\u2014'}
+              </span>
+            </button>
           </div>
         </div>
 
@@ -721,7 +834,7 @@ export default function MainPOS({ user }) {
         </div>
       </div>
 
-      <div className="pos-grid mt-2">
+      <div className="pos-grid mt-2" inert={checkoutLoading || savingOrder || loadingSavedOrder || undefined}>
         <div className="menu-section">
           {user?.role === 'admin' && manageMode !== 'idle' && (
             <div className="card" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem', padding: '0.5rem 0.75rem' }}>
@@ -868,6 +981,12 @@ export default function MainPOS({ user }) {
           </div>
           <div className="order-summary">
             <div className="discount-selector">
+              <label htmlFor="order-type">Order type</label>
+              <select id="order-type" value={orderType} disabled={checkoutLoading || savingOrder || loadingSavedOrder} onChange={e => setOrderType(e.target.value)}>
+                {ORDER_TYPES.map(type => <option key={type.value} value={type.value}>{type.label}</option>)}
+              </select>
+            </div>
+            <div className="discount-selector">
               <label><Tag size={14} /> Discount</label>
               <select value={discountType} onChange={(e) => chooseDiscount(e.target.value)} data-testid="discount-select">
                 <option value="none">None</option>
@@ -959,7 +1078,10 @@ export default function MainPOS({ user }) {
               <div className="summary-row"><span>GCash amount</span><span>₱{total.toFixed(2)} (exact)</span></div>
             )}
             {tenderError && <p className="text-danger text-sm" role="alert" data-testid="checkout-error">{tenderError}</p>}
-            <button className="btn btn-primary w-full mt-2" disabled={(cart.length === 0 && customerCount === 0) || checkoutLoading} onClick={handleCheckout}>
+            <button className="btn btn-secondary w-full mt-2" disabled={(cart.length === 0 && customerCount === 0) || checkoutLoading || savingOrder || loadingSavedOrder} onClick={saveUnpaidOrder}>
+              {savingOrder ? 'Saving…' : 'Save unpaid'}
+            </button>
+            <button className="btn btn-primary w-full mt-2" disabled={(cart.length === 0 && customerCount === 0) || checkoutLoading || savingOrder || loadingSavedOrder} onClick={handleCheckout}>
               {checkoutLoading ? 'Processing...' : 'Checkout & Log Traffic'}
             </button>
           </div>
@@ -1005,6 +1127,8 @@ export default function MainPOS({ user }) {
                   <div className="receipt-total-row discount"><span>Discount ({receipt.discountLabel || (receipt.discountType === 'pwd' ? 'PWD 20%' : receipt.discountType === 'senior' ? 'Senior 20%' : receipt.discountType === 'promo' ? 'Promo 10%' : 'Voucher')})</span><span>- ₱{receipt.discountAmount.toFixed(2)}</span></div>
                 )}
                 <div className="receipt-total-row grand-total"><span>Total</span><span>₱{receipt.total.toFixed(2)}</span></div>
+                <div className="receipt-total-row"><span>Order type</span><span>{orderTypeLabel(receipt.orderType)}</span></div>
+                <div className="receipt-total-row"><span>Payment status</span><span>Paid</span></div>
                 <div className="receipt-total-row payment"><span>Payment</span><span>{receipt.paymentMethod === 'GCASH' ? 'GCash' : 'Cash'}</span></div>
                 {receipt.paymentMethod !== 'GCASH' && (
                   <>

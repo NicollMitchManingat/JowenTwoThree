@@ -17,6 +17,7 @@
     "express": "^4.18.2"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "0.5.15",
     "@eslint/js": "^10.0.1",
     "eslint": "^10.5.0",
     "supertest": "^6.3.3",

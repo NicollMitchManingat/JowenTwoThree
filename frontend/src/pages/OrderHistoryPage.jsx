@@ -5,6 +5,8 @@ import { customerTotals } from '../services/salesAnalytics';
 import { downloadTransactionsExcel } from '../utils/exportTransactionsExcel';
 import RefundModal from '../components/pos/RefundModal';
 import LoadingSkeleton from '../components/analytics/LoadingSkeleton';
+import { hasAccess } from '../services/permissions';
+import { orderTypeLabel, paymentStatusFor } from '../services/transactionAPI';
 
 export const refundTotalFor = (refundsByTxn, transactionId) =>
   (refundsByTxn[transactionId] || []).reduce((s, r) => s + (Number(r.refund_amount) || 0), 0)
@@ -13,9 +15,8 @@ const PAGE_SIZE = 20;
 
 const STATUS_OPTIONS = [
   { key: 'all', label: 'All' },
-  { key: 'COMPLETED', label: 'Completed' },
-  { key: 'PARTIALLY_REFUNDED', label: 'Partially refunded' },
-  { key: 'REFUNDED', label: 'Refunded' },
+  { key: 'PAID', label: 'Paid' },
+  { key: 'UNPAID', label: 'Unpaid' },
 ];
 
 const DATE_PRESETS = [
@@ -57,7 +58,7 @@ const matchesDate = (order, preset, from, to) => {
   return true;
 };
 
-export default function OrderHistoryPage({ user }) {
+export default function OrderHistoryPage({ user, onResume }) {
   const [orders, setOrders] = useState([]);
   const [refundsByTxn, setRefundsByTxn] = useState({});
   const [loading, setLoading] = useState(true);
@@ -65,6 +66,7 @@ export default function OrderHistoryPage({ user }) {
   const [search, setSearch] = useState('');
   const [selectedId, setSelectedId] = useState(null);
   const [statusFilter, setStatusFilter] = useState('all');
+  const [refundFilter, setRefundFilter] = useState('all');
   const [datePreset, setDatePreset] = useState('all');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
@@ -157,8 +159,9 @@ export default function OrderHistoryPage({ user }) {
   const sortValue = (order, field) => {
     switch (field) {
       case 'refunded': return refundTotalFor(refundsByTxn, order.id);
-      case 'status': return normStatus(order);
-      case 'payment_method': return order.payment_method || 'Cash';
+      case 'status': return paymentStatusFor(order);
+      case 'payment_method': return paymentStatusFor(order) === 'UNPAID' ? '' : order.payment_method || 'Cash';
+      case 'order_type': return orderTypeLabel(order.order_type);
       case 'customer_count': return Number(order.customer_count) || 0;
       case 'subtotal':
       case 'discount':
@@ -176,14 +179,15 @@ export default function OrderHistoryPage({ user }) {
     (o.transaction_number || '').toLowerCase().includes(search.toLowerCase())
   );
 
-  const statusCounts = { all: searchFiltered.length, COMPLETED: 0, PARTIALLY_REFUNDED: 0, REFUNDED: 0 };
+  const statusCounts = { all: searchFiltered.length, PAID: 0, UNPAID: 0 };
   searchFiltered.forEach(o => {
-    const k = normStatus(o);
+    const k = paymentStatusFor(o);
     if (statusCounts[k] !== undefined) statusCounts[k] += 1;
   });
 
   const filtered = searchFiltered
-    .filter(o => statusFilter === 'all' || normStatus(o) === statusFilter)
+    .filter(o => statusFilter === 'all' || paymentStatusFor(o) === statusFilter)
+    .filter(o => refundFilter === 'all' || normStatus(o) === refundFilter)
     .filter(o => matchesDate(o, datePreset, dateFrom, dateTo))
     .sort((a, b) => {
       const aVal = sortValue(a, sortField);
@@ -209,10 +213,14 @@ export default function OrderHistoryPage({ user }) {
   const selectedOrder = orders.find(o => String(o.id) === String(selectedId)) ?? null;
   const selectedFullyRefunded = selectedOrder && (selectedOrder.status || 'COMPLETED') === 'REFUNDED';
   const canRefund = user?.role !== 'stockist';
-  const canActOnSelected = canRefund && selectedOrder && !selectedFullyRefunded;
+  const selectedUnpaid = selectedOrder && paymentStatusFor(selectedOrder) === 'UNPAID';
+  const canResume = hasAccess(user, 'pos') && typeof onResume === 'function';
+  const canSelect = canRefund || canResume;
+  const canActOnSelected = canRefund && selectedOrder && !selectedFullyRefunded && !selectedUnpaid;
 
   const refundTitle = () => {
     if (!selectedOrder) return 'Select a transaction to refund';
+    if (selectedUnpaid) return 'Unpaid transactions cannot be refunded';
     if (selectedFullyRefunded) return 'Already fully refunded';
     return undefined;
   };
@@ -224,11 +232,12 @@ export default function OrderHistoryPage({ user }) {
   };
 
   // A new search or filter always restarts at page one.
-  useEffect(() => { setPage(0); }, [search, statusFilter, datePreset, dateFrom, dateTo]);
+  useEffect(() => { setPage(0); }, [search, statusFilter, refundFilter, datePreset, dateFrom, dateTo]);
 
   const clearFilters = () => {
     setSearch('');
     setStatusFilter('all');
+    setRefundFilter('all');
     setDatePreset('all');
     setDateFrom('');
     setDateTo('');
@@ -247,8 +256,8 @@ export default function OrderHistoryPage({ user }) {
     else setDateTo(value);
     setDatePreset('all');
   };
-  const totalCustomers = customerTotals(filtered).total;
-  const completedCount = filtered.filter(o => (o.status || 'COMPLETED') === 'COMPLETED').length;
+  const totalCustomers = customerTotals(filtered.filter(o => paymentStatusFor(o) === 'PAID')).total;
+  const completedCount = filtered.filter(o => paymentStatusFor(o) === 'PAID').length;
 
   const statusIcon = (status) => {
     switch (status) {
@@ -261,9 +270,8 @@ export default function OrderHistoryPage({ user }) {
   };
 
   const statusBadge = (order) => {
-    const status = order.status || 'COMPLETED'
-    const label = status === 'PARTIALLY_REFUNDED' ? 'Partially refunded' : status === 'REFUNDED' ? 'Refunded' : 'Completed'
-    return <span className="flex items-center gap-2">{statusIcon(status)} {label}</span>
+    const unpaid = paymentStatusFor(order) === 'UNPAID';
+    return <span className="flex items-center gap-2">{unpaid ? <Clock size={14} style={{ color: '#f59e0b' }} /> : statusIcon('COMPLETED')} {unpaid ? 'Unpaid' : 'Paid'}</span>
   }
 
   const handleRefunded = async () => {
@@ -322,7 +330,7 @@ export default function OrderHistoryPage({ user }) {
         </div>
         <div className="card metric-card">
           <div className="metric-icon" style={{ backgroundColor: '#f0edf7' }}><Receipt size={24} style={{ color: 'var(--color-primary)' }} /></div>
-          <div><div className="text-sm text-muted">Completed</div><div className="text-lg font-semibold">{completedCount}</div></div>
+          <div><div className="text-sm text-muted">Paid</div><div className="text-lg font-semibold">{completedCount}</div></div>
         </div>
         <div className="card metric-card">
           <div className="metric-icon" style={{ backgroundColor: '#fef5e7' }}><Users size={24} style={{ color: '#f59e0b' }} /></div>
@@ -330,14 +338,14 @@ export default function OrderHistoryPage({ user }) {
         </div>
       </div>
 
-      {canRefund && selectedOrder && (
+      {canSelect && selectedOrder && (
         <p className="selected-chip" data-testid="selected-chip">
-          Selected: <strong>{selectedOrder.transaction_number}</strong> (₱{Number(selectedOrder.total || 0).toFixed(2)} · {selectedOrder.status === 'PARTIALLY_REFUNDED' ? 'Partially refunded' : selectedOrder.status === 'REFUNDED' ? 'Refunded' : 'Completed'})
+          Selected: <strong>{selectedOrder.transaction_number}</strong> (₱{Number(selectedOrder.total || 0).toFixed(2)} · {selectedUnpaid ? 'Unpaid' : 'Paid'})
           {selectedFullyRefunded && ' — already refunded'}
         </p>
       )}
-      {canRefund && !selectedOrder && orders.length > 0 && (
-        <p className="selected-hint" data-testid="selection-hint">Select a row to refund a transaction.</p>
+      {canSelect && !selectedOrder && orders.length > 0 && (
+        <p className="selected-hint" data-testid="selection-hint">Select a row to resume an unpaid order or refund a paid transaction.</p>
       )}
 
       <div className="action-bar action-bar--filters action-bar--sticky">
@@ -345,19 +353,24 @@ export default function OrderHistoryPage({ user }) {
           <Search size={18} className="text-muted" />
           <input type="text" placeholder="Search by transaction number..." value={search} onChange={(e) => setSearch(e.target.value)} />
         </div>
-        <label className="txn-filter-field">Status
+        <label className="txn-filter-field">Payment status
           <select
             className="form-input"
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
             data-testid="txn-status-select"
-            aria-label="Filter by status"
+            aria-label="Filter by payment status"
           >
             {STATUS_OPTIONS.map(opt => (
               <option key={opt.key} value={opt.key}>
                 {opt.label} ({statusCounts[opt.key] ?? 0})
               </option>
             ))}
+          </select>
+        </label>
+        <label className="txn-filter-field">Refund
+          <select className="form-input" value={refundFilter} onChange={e => setRefundFilter(e.target.value)} aria-label="Filter by refund" data-testid="txn-refund-select">
+            <option value="all">All refunds</option><option value="PARTIALLY_REFUNDED">Partially refunded</option><option value="REFUNDED">Refunded</option>
           </select>
         </label>
         <label className="txn-filter-field">Date
@@ -387,6 +400,7 @@ export default function OrderHistoryPage({ user }) {
           </span>
         )}
         <div className="action-buttons" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+          {canResume && <button className="btn btn-primary" disabled={!selectedUnpaid} onClick={() => onResume(selectedOrder.id)}>Resume unpaid order</button>}
           {canRefund && (
             <button className="btn btn-secondary" onClick={() => selectedOrder && setRefundOrder(selectedOrder)} disabled={!canActOnSelected} title={user?.role === 'admin' ? (refundTitle() || 'Refund (admin)') : (refundTitle() || 'Refund (requires manager approval)')} data-testid="toolbar-refund-btn">
               <Undo2 size={16} /> Refund
@@ -407,13 +421,14 @@ export default function OrderHistoryPage({ user }) {
         <table className="data-table">
           <thead>
             <tr>
-              {canRefund && <th scope="col" aria-label="Select" style={{ width: '2.5rem' }} />}
+              {canSelect && <th scope="col" aria-label="Select" style={{ width: '2.5rem' }} />}
               <th onClick={() => handleSort('transaction_number')} style={{ cursor: 'pointer' }}>Transaction #{sortArrow('transaction_number')}</th>
               <th onClick={() => handleSort('subtotal')} style={{ cursor: 'pointer' }}>Subtotal{sortArrow('subtotal')}</th>
               <th onClick={() => handleSort('discount')} style={{ cursor: 'pointer' }}>Discount{sortArrow('discount')}</th>
               <th onClick={() => handleSort('total')} style={{ cursor: 'pointer' }}>Total{sortArrow('total')}</th>
               <th onClick={() => handleSort('refunded')} style={{ cursor: 'pointer' }}>Refunded{sortArrow('refunded')}</th>
-              <th onClick={() => handleSort('status')} style={{ cursor: 'pointer' }}>Status{sortArrow('status')}</th>
+              <th onClick={() => handleSort('status')} style={{ cursor: 'pointer' }}>Payment status{sortArrow('status')}</th>
+              <th onClick={() => handleSort('order_type')} style={{ cursor: 'pointer' }}>Order type{sortArrow('order_type')}</th>
               <th onClick={() => handleSort('payment_method')} style={{ cursor: 'pointer' }}>Payment{sortArrow('payment_method')}</th>
               <th onClick={() => handleSort('customer_count')} style={{ cursor: 'pointer' }}>Customers{sortArrow('customer_count')}</th>
               <th onClick={() => handleSort('created_at')} style={{ cursor: 'pointer' }}>Date{sortArrow('created_at')}</th>
@@ -427,16 +442,16 @@ export default function OrderHistoryPage({ user }) {
               <tr
                 key={order.id}
                 data-testid={`order-row-${order.id}`}
-                className={`${canRefund ? 'row-selectable' : ''} ${isSelected ? 'row-selected' : ''}`}
-                aria-selected={canRefund ? isSelected : undefined}
-                onClick={canRefund ? () => toggleSelect(order.id) : undefined}
-                onKeyDown={canRefund ? (e) => {
+                className={`${canSelect ? 'row-selectable' : ''} ${isSelected ? 'row-selected' : ''}`}
+                aria-selected={canSelect ? isSelected : undefined}
+                onClick={canSelect ? () => toggleSelect(order.id) : undefined}
+                onKeyDown={canSelect ? (e) => {
                   if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleSelect(order.id); }
                   else if (e.key === 'Escape') { setSelectedId(null); }
                 } : undefined}
-                tabIndex={canRefund ? 0 : undefined}
+                tabIndex={canSelect ? 0 : undefined}
               >
-                {canRefund && (
+                {canSelect && (
                   <td onClick={(e) => e.stopPropagation()}>
                     <input
                       type="radio"
@@ -453,15 +468,16 @@ export default function OrderHistoryPage({ user }) {
                 <td>₱{Number(order.subtotal).toFixed(2)}</td>
                 <td>{Number(order.discount) > 0 ? `-₱${Number(order.discount).toFixed(2)}` : '-'}</td>
                 <td className="font-semibold">₱{Number(order.total).toFixed(2)}</td>
-                <td>{refunded > 0 ? `-₱${refunded.toFixed(2)}` : '-'}</td>
+                <td>{refunded > 0 ? `-₱${refunded.toFixed(2)}` : '-'}{['REFUNDED','PARTIALLY_REFUNDED'].includes(order.status) && <span className="text-sm block">{order.status === 'REFUNDED' ? 'Refunded' : 'Partially refunded'}</span>}</td>
                 <td>{statusBadge(order)}</td>
-                <td>{order.payment_method || 'Cash'}</td>
+                <td>{orderTypeLabel(order.order_type)}</td>
+                <td>{paymentStatusFor(order) === 'UNPAID' ? '—' : order.payment_method || 'Cash'}</td>
                 <td>{order.customer_count || 0}{((order.male_count ?? 0) + (order.female_count ?? 0) + (order.unspecified_count ?? 0) > 0) ? ` (M${order.male_count ?? 0}/F${order.female_count ?? 0}${(order.unspecified_count ?? 0) > 0 ? `/U${order.unspecified_count}` : ''})` : ''}</td>
                 <td className="text-muted">{new Date(order.created_at).toLocaleString()}</td>
               </tr>
               )
             }) : (
-              <tr><td colSpan={canRefund ? '10' : '9'} className="text-center py-4 text-muted">
+              <tr><td colSpan={canSelect ? '11' : '10'} className="text-center py-4 text-muted">
                 {orders.length === 0
                   ? 'No transactions found.'
                   : <>No transactions match these filters.{' '}

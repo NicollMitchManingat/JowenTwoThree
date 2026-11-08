@@ -6,6 +6,10 @@ const { modules, throttle } = require('../middleware/authentication')
 const run = fn => (req, res, next) => Promise.resolve(fn(req, res)).catch(next)
 router.post('/discount-approval', modules('pos'), throttle, run(async (req, res) => res.json(await checkout.approveDiscount(req.auth, req.body))))
 router.post('/checkout', modules('pos'), run(async (req, res) => res.json(await checkout.checkout(req.auth, req.body))))
+router.post('/save-order', modules('pos'), run(async (req, res) => res.json(await checkout.saveOrder(req.auth, req.body))))
+router.get('/saved-orders', modules('pos', 'transactions'), run(async (req, res) => res.json({ orders: await checkout.listSavedOrders(req.user) })))
+router.get('/saved-orders/count', modules('pos', 'transactions'), run(async (req, res) => res.json({ count: await checkout.countSavedOrders(req.user) })))
+router.get('/saved-orders/:id', modules('pos'), run(async (req, res) => res.json({ order: await checkout.getSavedOrder(req.user, req.params.id) })))
 router.post('/inventory', modules('inventory'), run(async (req, res) => {
   if (!['admin', 'stockist'].includes(req.user.role)) throw a.httpError('Stockman access is required', 403)
   const body = req.body || {}, fields = body.values || {}

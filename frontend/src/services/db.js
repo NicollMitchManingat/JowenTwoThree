@@ -368,13 +368,12 @@ export const db = {
   },
 
   async getTransactions() {
-    return queryWithTimeout((signal) => supabase
-      .from('transactions')
-      .select('*')
-      .order('created_at', { ascending: false })
-      .limit(50)
-      .abortSignal(signal))
+    return queryWithTimeout(async signal => ({ data: (await apiRequest('/api/transactions/history', { signal })).history }))
   },
+  async saveOrder(input) { return (await apiRequest('/api/commands/save-order', { method: 'POST', body: input })).order },
+  async getSavedOrders() { return queryWithTimeout(async signal => ({ data: (await apiRequest('/api/commands/saved-orders', { signal })).orders })) },
+  async getSavedOrderCount() { return queryWithTimeout(async signal => ({ data: (await apiRequest('/api/commands/saved-orders/count', { signal })).count })) },
+  async getSavedOrder(id) { return queryWithTimeout(async signal => ({ data: (await apiRequest(`/api/commands/saved-orders/${encodeURIComponent(id)}`, { signal })).order })) },
 
   async getTransactionsByDateRange(startDate, endDate) {
     return queryWithTimeout((signal) => supabase

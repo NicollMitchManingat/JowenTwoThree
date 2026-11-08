@@ -6,6 +6,8 @@
 //   ~400KB lib out of the initial bundle), builds the workbook and triggers
 //   a browser download. Throws on failure so callers can toast the error.
 
+import { orderTypeLabel, paymentStatusFor } from '../services/transactionAPI';
+
 export const TRANSACTION_COLUMNS = [
   { header: 'Transaction #', key: 'txn', width: 18 },
   { header: 'Subtotal', key: 'subtotal', width: 14 },
@@ -13,13 +15,15 @@ export const TRANSACTION_COLUMNS = [
   { header: 'Total', key: 'total', width: 14 },
   { header: 'Refunded', key: 'refunded', width: 14 },
   { header: 'Net', key: 'net', width: 14 },
-  { header: 'Status', key: 'status', width: 19 },
+  { header: 'Payment status', key: 'status', width: 19 },
   { header: 'Payment', key: 'payment', width: 12 },
   { header: 'Customers', key: 'customers', width: 11 },
   { header: 'Male', key: 'male', width: 8 },
   { header: 'Female', key: 'female', width: 8 },
   { header: 'Unspecified', key: 'unspecified', width: 12 },
   { header: 'Date', key: 'date', width: 20 },
+  { header: 'Order type', key: 'order_type', width: 17 },
+  { header: 'Refund status', key: 'refund_status', width: 21 },
 ];
 
 export const HEADER_ROW = 5;
@@ -34,13 +38,14 @@ const MONEY_FMT = '"₱"#,##0.00';
 const DATE_FMT = 'yyyy-mm-dd hh:mm';
 
 export const STATUS_META = {
-  COMPLETED: { label: 'Completed', fill: 'FFE6F4EA', font: 'FF166534' },
+  COMPLETED: { label: 'Paid', fill: 'FFE6F4EA', font: 'FF166534' },
+  UNPAID: { label: 'Unpaid', fill: 'FFFEF3C7', font: 'FF92400E' },
   PARTIALLY_REFUNDED: { label: 'Partially refunded', fill: 'FFFEF3C7', font: 'FF92400E' },
   REFUNDED: { label: 'Refunded', fill: 'FFFEE2E2', font: 'FF991B1B' },
 };
 
 export const statusLabelFor = (status) =>
-  STATUS_META[status]?.label ?? 'Completed';
+  STATUS_META[status]?.label ?? 'Paid';
 
 export function refundTotalForRow(refundsByTxn, transactionId) {
   return (refundsByTxn?.[transactionId] || []).reduce(
@@ -51,6 +56,7 @@ export function refundTotalForRow(refundsByTxn, transactionId) {
 
 /** Per-row net, consistent with the page's revenue rule: fully-refunded rows net to 0. */
 export function netForRow(order, refunded) {
+  if (paymentStatusFor(order) === 'UNPAID') return 0;
   if ((order.status || 'COMPLETED') === 'REFUNDED') return 0;
   return Number(order.total || 0) - refunded;
 }
@@ -59,7 +65,7 @@ export function summarizeRows(rows) {
   return rows.reduce(
     (acc, r) => ({
       count: acc.count + 1,
-      gross: acc.gross + Number(r.total || 0),
+      gross: acc.gross + (r.payment_status === 'UNPAID' ? 0 : Number(r.total || 0)),
       refunded: acc.refunded + Number(r.refunded || 0),
       net: acc.net + Number(r.net || 0),
     }),
@@ -111,7 +117,9 @@ export function buildTransactionsWorkbook(ExcelJS, { orders = [], refundsByTxn =
       refunded,
       net: netForRow(order, refunded),
       status: order.status || 'COMPLETED',
-      payment: order.payment_method || 'Cash',
+      payment_status: paymentStatusFor(order),
+      order_type: orderTypeLabel(order.order_type),
+      payment: paymentStatusFor(order) === 'UNPAID' ? '' : order.payment_method || 'Cash',
       customers: Number(order.customer_count || 0),
       male: order.male_count ?? null,
       female: order.female_count ?? null,
@@ -199,12 +207,13 @@ export function buildTransactionsWorkbook(ExcelJS, { orders = [], refundsByTxn =
       const rowNumber = DATA_START_ROW + idx;
       const row = ws.getRow(rowNumber);
       const banded = idx % 2 === 1;
-      const status = STATUS_META[r.status] ?? STATUS_META.COMPLETED;
+      const status = r.payment_status === 'UNPAID' ? STATUS_META.UNPAID : STATUS_META.COMPLETED;
 
       const values = [
         r.txn, r.subtotal, r.discount, r.total, r.refunded, r.net,
-        statusLabelFor(r.status), r.payment, r.customers,
-        r.male, r.female, r.unspecified, r.date,
+        r.payment_status === 'UNPAID' ? 'Unpaid' : 'Paid', r.payment, r.customers,
+        r.male, r.female, r.unspecified, r.date, r.order_type,
+        ['REFUNDED','PARTIALLY_REFUNDED'].includes(r.status) ? statusLabelFor(r.status) : '',
       ];
       values.forEach((v, i) => {
         const cell = row.getCell(i + 1);
@@ -243,7 +252,9 @@ export function buildTransactionsWorkbook(ExcelJS, { orders = [], refundsByTxn =
   if (rows.length > 0) {
     moneyKeys.forEach((colLetter) => {
       const cell = totalsRow.getCell(colLetter);
-      cell.value = { formula: `SUM(${colLetter}${DATA_START_ROW}:${colLetter}${dataEndRow})` };
+      cell.value = { formula: rows.some(r => r.payment_status === 'UNPAID')
+        ? `SUMIF($G${DATA_START_ROW}:$G${dataEndRow},"Paid",${colLetter}${DATA_START_ROW}:${colLetter}${dataEndRow})`
+        : `SUM(${colLetter}${DATA_START_ROW}:${colLetter}${dataEndRow})` };
       cell.numFmt = MONEY_FMT;
     });
   } else {

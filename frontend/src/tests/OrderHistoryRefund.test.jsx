@@ -60,13 +60,31 @@ describe('OrderHistoryPage refunds', () => {
     })
   })
 
+  it('shows unpaid orders separately, prevents refunds, and resumes the selected order through POS', async () => {
+    const unpaid = { ...ORDERS[0], id: 'saved', transaction_number: 'TXN-SAVED', payment_status: 'UNPAID', status: 'SAVED', payment_method: null, order_type: 'DELIVERY' }
+    db.getTransactions.mockResolvedValueOnce([...ORDERS, unpaid])
+    const onResume = vi.fn(), user = userEvent.setup()
+    render(<OrderHistoryPage user={{ id: 'cashier', role: 'cashier', permissions: ['pos', 'transactions'] }} onResume={onResume} />)
+    const row = await screen.findByTestId('order-row-saved')
+    expect(row).toHaveTextContent('Unpaid'); expect(row).toHaveTextContent('Delivery')
+    expect(kpiCard('Paid')).toHaveTextContent('3')
+    expect(kpiCard('Total Customers')).toHaveTextContent('4')
+    await user.click(screen.getByTestId('select-order-saved'))
+    expect(screen.getByTestId('toolbar-refund-btn')).toBeDisabled()
+    await user.click(screen.getByRole('button', { name: 'Resume unpaid order' }))
+    expect(onResume).toHaveBeenCalledWith('saved')
+    fireEvent.change(screen.getByTestId('txn-status-select'), { target: { value: 'UNPAID' } })
+    expect(screen.getByTestId('order-row-saved')).toBeInTheDocument()
+    expect(screen.queryByTestId('order-row-t1')).not.toBeInTheDocument()
+  })
+
   it('should show status badges and refunded amounts per row', async () => {
     render(<OrderHistoryPage user={{ username: 'admin', role: 'admin' }} />)
 
     await waitFor(() => {
       expect(screen.getByTestId('order-row-t1')).toBeInTheDocument()
     })
-    expect(screen.getByTestId('order-row-t1')).toHaveTextContent('Completed')
+    expect(screen.getByTestId('order-row-t1')).toHaveTextContent('Paid')
     expect(screen.getByTestId('order-row-t2')).toHaveTextContent('Refunded')
     expect(screen.getByTestId('order-row-t3')).toHaveTextContent('Partially refunded')
     expect(screen.getByTestId('order-row-t3')).toHaveTextContent('-₱180.00')
@@ -174,19 +192,18 @@ describe('OrderHistoryPage refunds', () => {
     })
     const statusSelect = screen.getByTestId('txn-status-select')
     expect(statusSelect).toHaveTextContent('All (3)')
-    expect(statusSelect).toHaveTextContent('Completed (1)')
-    expect(statusSelect).toHaveTextContent('Partially refunded (1)')
-    expect(statusSelect).toHaveTextContent('Refunded (1)')
+    expect(statusSelect).toHaveTextContent('Paid (3)')
+    expect(statusSelect).toHaveTextContent('Unpaid (0)')
 
-    fireEvent.change(statusSelect, { target: { value: 'REFUNDED' } })
+    fireEvent.change(screen.getByTestId('txn-refund-select'), { target: { value: 'REFUNDED' } })
     expect(screen.getByTestId('order-row-t2')).toBeInTheDocument()
     expect(screen.queryByTestId('order-row-t1')).not.toBeInTheDocument()
     expect(screen.queryByTestId('order-row-t3')).not.toBeInTheDocument()
     expect(kpiCard('Total Transactions')).toHaveTextContent('1')
-    expect(kpiCard('Completed')).toHaveTextContent('0')
+    expect(kpiCard('Paid')).toHaveTextContent('1')
     expect(kpiCard('Total Customers')).toHaveTextContent('1')
 
-    fireEvent.change(statusSelect, { target: { value: 'all' } })
+    fireEvent.change(screen.getByTestId('txn-refund-select'), { target: { value: 'all' } })
     expect(screen.getByTestId('order-row-t1')).toBeInTheDocument()
     expect(screen.getByTestId('order-row-t3')).toBeInTheDocument()
     expect(kpiCard('Total Transactions')).toHaveTextContent('3')
@@ -266,7 +283,7 @@ describe('OrderHistoryPage refunds', () => {
     const headers = screen
       .getAllByRole('columnheader')
       .filter((header) => header.textContent.trim())
-    expect(headers).toHaveLength(9)
+    expect(headers).toHaveLength(10)
 
     headers.forEach((header) => {
       fireEvent.click(header)
@@ -292,15 +309,13 @@ describe('OrderHistoryPage refunds', () => {
     const refundedAsc = rowIds()
     expect(refundedAsc[refundedAsc.length - 1]).toBe('order-row-t3')
 
-    const statusHeader = screen.getByRole('columnheader', { name: /Status/ })
+    const statusHeader = screen.getByRole('columnheader', { name: /Payment status/ })
     fireEvent.click(statusHeader)
-    let ids = rowIds()
-    expect(ids[0]).toBe('order-row-t2')
-    expect(ids[ids.length - 1]).toBe('order-row-t1')
+    expect(statusHeader.textContent).toContain(String.fromCharCode(9660))
+    expect(rowIds()).toHaveLength(3)
     fireEvent.click(statusHeader)
-    ids = rowIds()
-    expect(ids[0]).toBe('order-row-t1')
-    expect(ids[ids.length - 1]).toBe('order-row-t2')
+    expect(statusHeader.textContent).toContain(String.fromCharCode(9650))
+
   })
 
   it('should paginate at twenty rows and reset the page on search', async () => {

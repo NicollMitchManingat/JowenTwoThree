@@ -26,6 +26,10 @@ vi.mock('../services/db', () => ({
     applyDeductions: vi.fn().mockResolvedValue({ shorted: [] }),
     approveDiscount: vi.fn().mockResolvedValue({ approvalId: "approval-1" }),
     checkoutOrder: vi.fn(),
+    saveOrder: vi.fn(),
+    getSavedOrders: vi.fn().mockResolvedValue([]),
+    getSavedOrderCount: vi.fn().mockResolvedValue(0),
+    getSavedOrder: vi.fn(),
     createTransaction: vi.fn().mockResolvedValue({ id: 'txn-1', transaction_number: 'TXN-1' }),
     createTransactionItems: vi.fn().mockResolvedValue([]),
     logTraffic: vi.fn(),
@@ -53,6 +57,7 @@ describe('MainPOS', () => {
     // clearAllMocks keeps implementations: reset per-test overrides here.
     isRetryableError.mockReturnValue(false)
     db.getActiveDiscounts.mockResolvedValue([])
+    db.getSavedOrderCount.mockReset().mockResolvedValue(0)
     db.checkoutOrder.mockImplementation(async input => {
       const subtotal=input.cart.reduce((n,i)=>n+i.qty*i.price,0), resolved=resolveDiscount(subtotal,input.discountType,VOUCHERS), total=subtotal-resolved.amount
       return {quote:{cart:input.cart,subtotal,discount:resolved.amount,total,discountLabel:resolved.label},transaction:{id:'txn-1',transaction_number:'TXN-1',payment_method:input.paymentMethod,cash_received:total,change_amount:0,customer_count:Object.values(input.counts).reduce((a,b)=>a+b,0),male_count:input.counts.male,female_count:input.counts.female,unspecified_count:input.counts.unspecified},shorted:[]}
@@ -66,6 +71,67 @@ describe('MainPOS', () => {
       expect(screen.getByPlaceholderText('Search menu...')).toBeInTheDocument()
     })
     expect(screen.getByText('Espresso')).toBeInTheDocument()
+  })
+
+  it('saves a delivery order as unpaid without charging or deducting stock', async () => {
+    const user = userEvent.setup()
+    db.saveOrder.mockResolvedValueOnce({ id: 'saved-1', transaction_number: 'TXN-SAVED', payment_status: 'UNPAID' })
+    render(<MainPOS user={mockUser} />)
+    await user.click(await screen.findByText('Espresso'))
+    await waitFor(() => expect(screen.getByTestId('saved-orders-count')).toHaveTextContent('0'))
+    db.getSavedOrderCount.mockResolvedValue(1)
+    await user.selectOptions(screen.getByLabelText('Order type'), 'DELIVERY')
+    await user.click(screen.getByRole('button', { name: 'Save unpaid' }))
+    await waitFor(() => expect(db.saveOrder).toHaveBeenCalledWith(expect.objectContaining({ orderType: 'DELIVERY', savedOrderId: null, savedRevision: 0 })))
+    expect(db.checkoutOrder).not.toHaveBeenCalled()
+    expect(db.applyDeductions).not.toHaveBeenCalled()
+    expect(screen.queryByTestId('receipt')).not.toBeInTheDocument()
+    expect(screen.getByLabelText('Order type')).toHaveValue('DINE_IN')
+    expect(await screen.findByText(/Saved TXN-SAVED as Unpaid/)).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByTestId('saved-orders-count')).toHaveTextContent('1'))
+  })
+
+  it('resumes a saved order with current prices and submits its ID and revision for payment', async () => {
+    const user = userEvent.setup()
+    db.getSavedOrderCount.mockResolvedValue(1)
+    db.getSavedOrder.mockResolvedValueOnce({ id: 'saved-1', revision: 3, order_key: 'original-key', order_type: 'TAKE_OUT', transaction_number: 'TXN-SAVED',
+      male_count: 1, female_count: 0, unspecified_count: 0, discount: 0, cart: [{ productId: '1', name: 'Espresso', qty: 2, price: 99 }] })
+    render(<MainPOS user={mockUser} resumeOrderId="saved-1" onResumeHandled={() => {}} />)
+    await waitFor(() => expect(screen.getByLabelText('Order type')).toHaveValue('TAKE_OUT'))
+    await waitFor(() => expect(screen.getByTestId('saved-orders-count')).toHaveTextContent('1'))
+    db.getSavedOrderCount.mockResolvedValue(0)
+    await user.click(screen.getByText('Checkout & Log Traffic'))
+    await waitFor(() => expect(db.checkoutOrder).toHaveBeenCalledWith(expect.objectContaining({ orderKey: 'original-key', savedOrderId: 'saved-1', savedRevision: 3,
+      orderType: 'TAKE_OUT', approvalId: null, cart: expect.arrayContaining([expect.objectContaining({ price: 150 })]) })))
+    await waitFor(() => expect(screen.getByTestId('saved-orders-count')).toHaveTextContent('0'))
+  })
+
+  it('places Saved orders beside traffic and refreshes its count on focus and opening', async () => {
+    const user = userEvent.setup()
+    db.getSavedOrderCount.mockResolvedValue(2)
+    render(<MainPOS user={mockUser} />)
+    const button = await screen.findByRole('button', { name: 'Saved orders' })
+    expect(screen.getByTestId('traffic-widget').parentElement).toContainElement(button)
+    expect(screen.queryByRole('button', { name: 'Saved unpaid orders' })).not.toBeInTheDocument()
+    await waitFor(() => expect(screen.getByTestId('saved-orders-count')).toHaveTextContent('2'))
+    db.getSavedOrderCount.mockResolvedValue(3)
+    window.dispatchEvent(new Event('focus'))
+    await waitFor(() => expect(screen.getByTestId('saved-orders-count')).toHaveTextContent('3'))
+    db.getSavedOrderCount.mockResolvedValue(4)
+    await user.click(button)
+    expect(screen.getByRole('dialog', { name: 'Saved orders' })).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByTestId('saved-orders-count')).toHaveTextContent('4'))
+    expect(db.getSavedOrders).toHaveBeenCalled()
+  })
+
+  it('keeps the last known count if a background refresh fails', async () => {
+    db.getSavedOrderCount.mockResolvedValue(2)
+    render(<MainPOS user={mockUser} />)
+    await waitFor(() => expect(screen.getByTestId('saved-orders-count')).toHaveTextContent('2'))
+    db.getSavedOrderCount.mockRejectedValueOnce(new Error('Offline'))
+    window.dispatchEvent(new Event('online'))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Saved orders' })).toHaveAttribute('title', 'Count could not refresh. Open saved orders to retry.'))
+    expect(screen.getByTestId('saved-orders-count')).toHaveTextContent('2')
   })
 
   it('should display gender-split customer traffic controls', async () => {

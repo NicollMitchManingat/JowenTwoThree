@@ -825,6 +825,39 @@
   margin: 0;
 }
 
+.pos-traffic-toolbar {
+  flex-wrap: wrap;
+}
+
+.saved-orders-button {
+  position: relative;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.saved-orders-count {
+  position: absolute;
+  top: -0.45rem;
+  right: -0.45rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.35rem;
+  height: 1.35rem;
+  padding: 0 0.3rem;
+  border: 2px solid var(--bg-surface);
+  border-radius: 999px;
+  background: var(--color-danger);
+  color: white;
+  font-size: 0.7rem;
+  font-weight: 700;
+  pointer-events: none;
+}
+
+.saved-orders-count-muted {
+  background: var(--text-muted);
+}
+
 .category-filters {
   display: flex;
   gap: 0.5rem;

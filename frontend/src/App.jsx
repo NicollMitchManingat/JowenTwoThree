@@ -23,6 +23,7 @@ function App() {
   const [isDesktopCollapsed, setIsDesktopCollapsed] = useState(false);
   const [isMobileOpen, setIsMobileOpen] = useState(false);
   const [queueNeedsReview, setQueueNeedsReview] = useState(false);
+  const [resumeOrderId, setResumeOrderId] = useState(null);
   const handleLogin = (user) => {
     localStorage.removeItem('jowen_user');
     setCurrentUser(user);
@@ -89,11 +90,11 @@ function App() {
     if (!page) return <div className="page-content"><p>No modules have been assigned to your account. Ask an administrator to update your Access Level.</p><button className="btn btn-secondary" onClick={handleLogout}>Sign out</button></div>;
     switch (page) {
       case 'pos':
-        return <MainPOS user={currentUser} />;
+        return <MainPOS user={currentUser} resumeOrderId={resumeOrderId} onResumeHandled={() => setResumeOrderId(null)} />;
       case 'inventory':
         return <InventoryPage userRole={currentUser.role} />;
       case 'orders':
-        return <OrderHistoryPage user={currentUser} />;
+        return <OrderHistoryPage user={currentUser} onResume={id => { setResumeOrderId(id); setCurrentPage('pos'); }} />;
       case 'reports':
         return <AnalyticsProvider><DashboardContent activeTab="Sales" user={currentUser} onNavigate={handleNavClick} /></AnalyticsProvider>;
       case 'settings':

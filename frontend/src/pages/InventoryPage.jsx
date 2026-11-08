@@ -1,10 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Search, Plus, Edit, Trash2, X, AlertCircle } from 'lucide-react';
 import { db, isRetryableError, isQueuedRecord } from '../services/db';
 import LowStockBell from '../components/inventory/LowStockBell';
 import LoadingSkeleton from '../components/analytics/LoadingSkeleton';
 import { saveStockCache, loadStockCache } from '../services/stockCache';
-import { formatStock } from '../utils/formatStock';
+import { formatStock, formatInventoryMoney, inventoryTotal } from '../utils/formatStock';
 import { processQueue, offlineQueue } from '../services/offlineQueue';
 
 const PAGE_SIZE = 10;
@@ -39,6 +39,10 @@ export default function InventoryPage({ userRole }) {
   const [isEditing, setIsEditing] = useState(false);
   const [editId, setEditId] = useState(null);
   const [editVersion, setEditVersion] = useState(null);
+  const [originalItem, setOriginalItem] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const saveBusy = useRef(false);
+  const [formError, setFormError] = useState('');
   const [inventoryData, setInventoryData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(null);
@@ -47,13 +51,16 @@ export default function InventoryPage({ userRole }) {
   const [wastageQty, setWastageQty] = useState('');
   const [wastageReason, setWastageReason] = useState('spoiled');
   const [wastageNotes, setWastageNotes] = useState('');
+  const [wastageError, setWastageError] = useState('');
+  const [loggingWastage, setLoggingWastage] = useState(false);
+  const wastageBusy = useRef(false);
   // Last-good snapshot timestamp while showing cached stock (null = live).
   const [staleSince, setStaleSince] = useState(null);
 
   const wastageReasons = ['spoiled', 'expired', 'damaged', 'overproduction', 'other'];
 
   const [formData, setFormData] = useState({
-    name: '', category: 'Ingredients', stock_quantity: '', unit: 'kg'
+    name: '', category: 'Ingredients', stock_quantity: '', unit: 'units', unit_price: ''
   });
 
   const categories = ['Ingredients', 'Dairy', 'Syrups', 'Packaging', 'Fruits', 'Other'];
@@ -172,7 +179,8 @@ export default function InventoryPage({ userRole }) {
   };
 
   const handleOpenAdd = () => {
-    setFormData({ name: '', category: 'Ingredients', stock_quantity: '', unit: 'kg' });
+    setFormData({ name: '', category: 'Ingredients', stock_quantity: '', unit: 'units', unit_price: '' });
+    setFormError(''); setOriginalItem(null);
     setIsEditing(false);
     setEditId(null);
     setShowModal(true);
@@ -181,7 +189,8 @@ export default function InventoryPage({ userRole }) {
   const handleOpenEdit = (item) => {
     if (!canManage || item._pendingSync) return;
     setSelectedId(item.id);
-    setFormData({ name: item.name, category: item.category || 'Other', stock_quantity: item.stock_quantity, unit: item.unit || 'kg' });
+    setFormData({ name: item.name, category: item.category || 'Other', stock_quantity: item.stock_quantity, unit: item.unit || 'units', unit_price: item.unit_price ?? '' });
+    setFormError(''); setOriginalItem(item);
     setIsEditing(true);
     setEditId(item.id);
     setEditVersion(stockVersion(item));
@@ -197,23 +206,28 @@ export default function InventoryPage({ userRole }) {
   }
 
   const handleSave = async () => {
-    if (!formData.name || !formData.stock_quantity) return;
+    if (saveBusy.current || !canManage) return;
+    const quantity = Number(formData.stock_quantity);
+    const priceText = String(formData.unit_price).trim();
+    if (!formData.name.trim()) { setFormError('Item name is required.'); return; }
+    if (String(formData.stock_quantity).trim() === '' || !Number.isFinite(quantity) || quantity < 0) { setFormError('Quantity must be zero or a positive number.'); return; }
+    if (!formData.unit.trim() || formData.unit.trim().length > 32) { setFormError('Unit of measurement is required (up to 32 characters).'); return; }
+    if (priceText !== '' && (!/^\d+(\.\d{1,2})?$/.test(priceText) || Number(priceText) > 9999999999.99)) { setFormError('Price must be nonnegative, with at most two decimal places (maximum 9,999,999,999.99).'); return; }
+    saveBusy.current = true; setSaving(true); setFormError('');
     const updates = {
-      name: formData.name,
+      name: formData.name.trim(),
       category: formData.category,
-      stock_quantity: Number(formData.stock_quantity),
-      unit: formData.unit || 'units',
+      unit: formData.unit.trim(),
     }
+    // Metadata-only edits must not rewrite high-precision stored balances.
+    if (!isEditing || quantity !== Number(originalItem?.stock_quantity)) updates.stock_quantity = quantity;
+    const unitPrice = priceText === '' ? null : Number(priceText);
+    if (!isEditing || unitPrice !== (originalItem?.unit_price == null ? null : Number(originalItem.unit_price))) updates.unit_price = unitPrice;
     try {
       if (isEditing && editId) {
         await db.updateInventoryItem(editId, updates, editVersion)
       } else {
-        const created = await db.createInventoryItem({
-          name: formData.name,
-          category: formData.category,
-          stock_quantity: Number(formData.stock_quantity),
-          unit: formData.unit || 'units',
-        })
+        const created = await db.createInventoryItem(updates)
         if (isQueuedRecord(created)) {
           // Queued offline: show it now flagged pending-sync (locked from
           // further edits until its real id comes back from sync).
@@ -230,7 +244,7 @@ export default function InventoryPage({ userRole }) {
         try {
           await db.queueInventoryUpdate(editId, updates, { ...editVersion, ...(err.command || {}) })
           applyOptimisticList(inventoryData.map(i =>
-            String(i.id) === String(editId) ? { ...i, ...updates } : i
+            String(i.id) === String(editId) ? { ...i, ...updates, total_amount: inventoryTotal(updates.stock_quantity ?? i.stock_quantity, Object.hasOwn(updates, 'unit_price') ? updates.unit_price : i.unit_price) } : i
           ))
           setShowModal(false)
           alert('Saved offline — will sync when the database is back.')
@@ -239,8 +253,8 @@ export default function InventoryPage({ userRole }) {
         }
         return
       }
-      alert('Failed to save: ' + err.message)
-    }
+      setFormError('Failed to save: ' + err.message)
+    } finally { saveBusy.current = false; setSaving(false); }
   };
 
   const handleDeleteConfirm = async () => {
@@ -279,14 +293,17 @@ export default function InventoryPage({ userRole }) {
     setWastageQty('');
     setWastageReason('spoiled');
     setWastageNotes('');
+    setWastageError('');
     setShowWastageModal(true);
   };
 
   const handleLogWastage = async () => {
-    if (!wastageItem || !wastageQty) return;
+    if (!wastageItem || wastageBusy.current || !canManage) return;
     const qty = Number(wastageQty);
     const prevQty = Number(wastageItem.stock_quantity);
-    const newQty = Math.max(0, prevQty - qty);
+    if (!Number.isFinite(qty) || qty <= 0 || qty > prevQty) { setWastageError('Wasted quantity must be greater than zero and no more than the available quantity.'); return; }
+    const newQty = prevQty - qty;
+    wastageBusy.current = true; setLoggingWastage(true); setWastageError('');
     // The server commits the quantity and adjustment together.
     try {
       await db.updateInventoryItem(wastageItem.id, {
@@ -309,7 +326,7 @@ export default function InventoryPage({ userRole }) {
           );
           const id = wastageItem.id;
           applyOptimisticList(inventoryData.map(i =>
-            String(i.id) === String(id) ? { ...i, stock_quantity: newQty } : i
+            String(i.id) === String(id) ? { ...i, stock_quantity: newQty, total_amount: inventoryTotal(newQty, i.unit_price) } : i
           ));
           setShowWastageModal(false);
           alert('Wastage logged offline — will sync when the database is back.');
@@ -318,8 +335,8 @@ export default function InventoryPage({ userRole }) {
         }
         return;
       }
-      alert('Failed to log wastage: ' + err.message);
-    }
+      setWastageError('Failed to log wastage: ' + err.message);
+    } finally { wastageBusy.current = false; setLoggingWastage(false); }
   };
 
   const getStatus = (stock) => {
@@ -339,72 +356,95 @@ export default function InventoryPage({ userRole }) {
   return (
     <div className="page-content">
       {showModal && (
-        <div className="modal-overlay" onClick={() => setShowModal(false)}>
-          <div className="modal-content card" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-overlay" onClick={() => !saving && setShowModal(false)}>
+          <div className="modal-content card" role="dialog" aria-label={isEditing ? 'Edit Item' : 'Add Item'} onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h3>{isEditing ? 'Edit Item' : 'Add Item'}</h3>
-              <button className="btn-icon-small" onClick={() => setShowModal(false)}><X size={18} /></button>
+              <button className="btn-icon-small" disabled={saving} aria-label="Close item form" onClick={() => setShowModal(false)}><X size={18} /></button>
             </div>
             <div className="modal-body">
+              {formError && <p role="alert" className="text-danger">{formError}</p>}
+              <fieldset disabled={saving} className="inventory-item-fields">
               <div className="form-group">
-                <label>Item Name</label>
-                <input type="text" className="form-input" placeholder="e.g., Almond Milk"
+                <label htmlFor="inventory-item-name">Item Name</label>
+                <input id="inventory-item-name" type="text" className="form-input" placeholder="e.g., Almond Milk"
                   value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} />
               </div>
               <div className="form-group">
-                <label>Category</label>
-                <select className="form-input" value={formData.category}
+                <label htmlFor="inventory-category">Category</label>
+                <select id="inventory-category" className="form-input" value={formData.category}
                   onChange={(e) => setFormData({ ...formData, category: e.target.value })}>
+                  {!categories.includes(formData.category) && <option value={formData.category}>{formData.category}</option>}
                   {categories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
                 </select>
               </div>
               <div className="form-row-grid">
                 <div className="form-group m-0">
-                  <label>Quantity</label>
-                  <input type="number" className="form-input" placeholder="0"
+                  <label htmlFor="inventory-quantity">Quantity</label>
+                  <input id="inventory-quantity" type="number" className="form-input" placeholder="0" min="0" step="any"
                     value={formData.stock_quantity} onChange={(e) => setFormData({ ...formData, stock_quantity: e.target.value })} />
                 </div>
+                <div className="form-group m-0">
+                  <label htmlFor="inventory-unit">Unit of Measurement</label>
+                  <input id="inventory-unit" type="text" className="form-input" maxLength={32} placeholder="e.g., kg, L, pcs" value={formData.unit}
+                    onChange={e => setFormData({ ...formData, unit: e.target.value })} />
+                </div>
               </div>
+              <p className="text-sm text-muted">Quantity and price use this unit. Changing the unit does not convert quantities. Units used by recipes must stay unchanged until those recipes are reviewed.</p>
+              <div className="form-group">
+                <label htmlFor="inventory-price">Price per {formData.unit.trim() || 'unit'} (₱)</label>
+                <input id="inventory-price" type="number" className="form-input" placeholder="Not recorded" min="0" max="9999999999.99" step="0.01"
+                  value={formData.unit_price} onChange={e => setFormData({ ...formData, unit_price: e.target.value })} />
+                <p className="text-sm text-muted">Leave blank if the price is not recorded.</p>
+              </div>
+              <div className="flex justify-between items-center">
+                <span>Status</span><span>{getStatus(Number(formData.stock_quantity))}</span>
+              </div>
+              <div className="flex justify-between items-center mt-2">
+                <span>Total Amount</span><output aria-label="Total Amount">{formatInventoryMoney(inventoryTotal(formData.stock_quantity, formData.unit_price))}</output>
+              </div>
+              </fieldset>
             </div>
             <div className="modal-footer">
-              <button className="btn btn-secondary" onClick={() => setShowModal(false)}>Cancel</button>
-              <button className="btn btn-primary" onClick={handleSave}>{isEditing ? 'Save' : 'Add Item'}</button>
+              <button className="btn btn-secondary" disabled={saving} onClick={() => setShowModal(false)}>Cancel</button>
+              <button className="btn btn-primary" disabled={saving} onClick={handleSave}>{saving ? 'Saving…' : isEditing ? 'Save' : 'Add Item'}</button>
             </div>
           </div>
         </div>
       )}
 
       {showWastageModal && wastageItem && (
-        <div className="modal-overlay" onClick={() => setShowWastageModal(false)}>
+        <div className="modal-overlay" onClick={() => !loggingWastage && setShowWastageModal(false)}>
           <div className="modal-content card" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h3>Log Wastage</h3>
-              <button className="btn-icon-small" onClick={() => setShowWastageModal(false)}><X size={18} /></button>
+              <button className="btn-icon-small" disabled={loggingWastage} aria-label="Close wastage form" onClick={() => setShowWastageModal(false)}><X size={18} /></button>
             </div>
             <div className="modal-body">
-              <p className="text-sm text-muted mb-3">Item: <strong>{wastageItem.name}</strong> (Current stock: {formatStock(wastageItem.stock_quantity)})</p>
+              {wastageError && <p role="alert" className="text-danger">{wastageError}</p>}
+              <p className="text-sm text-muted mb-3">Item: <strong>{wastageItem.name}</strong> (Current quantity: {formatStock(wastageItem.stock_quantity)} {wastageItem.unit || 'units'})</p>
               <div className="form-group">
                 <label>Wasted Quantity</label>
-                <input type="number" className="form-input" placeholder="0"
-                  value={wastageQty} min="1" max={wastageItem.stock_quantity}
+                <input type="number" className="form-input" placeholder="0" disabled={loggingWastage}
+                  value={wastageQty} min="0" step="any" max={wastageItem.stock_quantity}
                   onChange={(e) => setWastageQty(e.target.value)} />
               </div>
               <div className="form-group">
                 <label>Reason</label>
-                <select className="form-input" value={wastageReason}
+                <select className="form-input" disabled={loggingWastage} value={wastageReason}
                   onChange={(e) => setWastageReason(e.target.value)}>
                   {wastageReasons.map(r => <option key={r} value={r}>{r.charAt(0).toUpperCase() + r.slice(1)}</option>)}
                 </select>
               </div>
               <div className="form-group">
                 <label>Notes (optional)</label>
-                <textarea className="form-input" rows="2" placeholder="e.g., batch was left out overnight..."
+                <textarea className="form-input" disabled={loggingWastage} rows="2" placeholder="e.g., batch was left out overnight..."
                   value={wastageNotes} onChange={(e) => setWastageNotes(e.target.value)} />
               </div>
             </div>
             <div className="modal-footer">
-              <button className="btn btn-secondary" onClick={() => setShowWastageModal(false)}>Cancel</button>
-              <button className="btn btn-danger" onClick={handleLogWastage}>Log Wastage</button>
+              <button className="btn btn-secondary" disabled={loggingWastage} onClick={() => setShowWastageModal(false)}>Cancel</button>
+              <button className="btn btn-danger" disabled={loggingWastage} onClick={handleLogWastage}>{loggingWastage ? 'Saving…' : 'Log Wastage'}</button>
             </div>
           </div>
         </div>
@@ -521,7 +561,7 @@ export default function InventoryPage({ userRole }) {
           <thead>
             <tr>
               {canManage && <th scope="col" aria-label="Select" style={{ width: '2.5rem' }} />}
-              <th>Name</th><th>Category</th><th>Quantity</th><th>Status</th>
+              <th>Item Name</th><th>Category</th><th>Quantity</th><th>Unit of Measurement</th><th>Price per Unit</th><th>Status</th><th>Total Amount</th>
               {canManage && <th scope="col" aria-label="Edit" />}
             </tr>
           </thead>
@@ -558,6 +598,8 @@ export default function InventoryPage({ userRole }) {
                 <td className="font-semibold">{item.name}</td>
                 <td>{item.category || '-'}</td>
                 <td>{formatStock(item.stock_quantity)}</td>
+                <td>{item.unit || 'units'}</td>
+                <td>{item.unit_price == null ? <span className="text-muted">Not recorded</span> : <span>{formatInventoryMoney(item.unit_price)} / {item.unit || 'units'}</span>}</td>
                 <td>
                   <span className={`badge ${status === 'Good' ? 'badge-success' : status === 'Low Stock' ? 'badge-warning' : 'badge-danger'}`}>
                     {status}
@@ -568,6 +610,7 @@ export default function InventoryPage({ userRole }) {
                     </span>
                   )}
                 </td>
+                <td>{formatInventoryMoney(item.total_amount ?? inventoryTotal(item.stock_quantity, item.unit_price))}</td>
                 {canManage && (
                   <td onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
                     <button
@@ -585,7 +628,7 @@ export default function InventoryPage({ userRole }) {
               </tr>
               );
             }) : (
-              <tr><td colSpan={canManage ? '6' : '4'} className="text-center py-4 text-muted">
+              <tr><td colSpan={canManage ? '9' : '7'} className="text-center py-4 text-muted">
                 {inventoryData.length === 0
                   ? 'No items found.'
                   : <>{filteredData.length === 0 && (searchTerm || statusFilter !== 'all') && (

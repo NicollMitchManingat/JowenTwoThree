@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import InventoryPage from '../pages/InventoryPage'
 
 vi.mock('../services/db', () => ({
@@ -57,6 +57,98 @@ describe('InventoryPage roles', () => {
     // Status filter pills with live counts.
     expect(screen.getByTestId('status-filter-all')).toHaveTextContent('All (1)')
     expect(screen.getByTestId('status-filter-good')).toHaveTextContent('Good (1)')
+  })
+
+  it('shows the unit, unit price and total without inventing missing prices', async () => {
+    db.getInventory.mockResolvedValueOnce([
+      { id: 'i1', name: 'Milk', category: 'Dairy', stock_quantity: 7.125, unit: 'L', unit_price: '85.20', total_amount: '607.05' },
+      { id: 'i2', name: 'Beans', stock_quantity: 0, unit: 'kg', unit_price: null, total_amount: null },
+    ])
+    render(<InventoryPage userRole="cashier" />)
+    const milk = within((await screen.findByText('Milk')).closest('tr'))
+    for (const heading of ['Item Name', 'Quantity', 'Unit of Measurement', 'Price per Unit', 'Status', 'Total Amount']) expect(screen.getByRole('columnheader', { name: heading })).toBeInTheDocument()
+    expect(milk.getByText('7.125')).toBeInTheDocument()
+    expect(milk.getByText('₱85.20 / L')).toBeInTheDocument()
+    expect(milk.getByText('₱607.05')).toBeInTheDocument()
+    expect(within(screen.getByText('Beans').closest('tr')).getByText('Not recorded')).toBeInTheDocument()
+  })
+
+  it('saves a unit price without rewriting a high-precision quantity and previews exact cents', async () => {
+    const user = userEvent.setup()
+    db.getInventory.mockResolvedValueOnce([{ id: 'i1', name: 'Milk', stock_quantity: '1.0050000000000001', unit: 'L', unit_price: null, updated_at: '2026-11-08T10:00:00Z' }])
+    render(<InventoryPage userRole="stockist" />)
+    await user.click(await screen.findByRole('button', { name: 'Edit Milk' }))
+    await user.type(screen.getByLabelText('Price per L (₱)'), '1.00')
+    expect(screen.getByLabelText('Total Amount')).toHaveTextContent('₱1.01')
+    await user.click(screen.getByRole('button', { name: 'Save', exact: true }))
+    await waitFor(() => expect(db.updateInventoryItem).toHaveBeenCalledWith('i1', { name: 'Milk', category: 'Other', unit: 'L', unit_price: 1 },
+      { baseStockQty: Number('1.0050000000000001'), expectedUpdatedAt: '2026-11-08T10:00:00Z' }))
+    expect(db.updateInventoryItem.mock.calls[0][1]).not.toHaveProperty('stock_quantity')
+  })
+
+  it('creates an item with zero quantity and an explicit zero price', async () => {
+    const user = userEvent.setup()
+    render(<InventoryPage userRole="admin" />)
+    await user.click(await screen.findByRole('button', { name: 'Add Item' }))
+    await user.type(screen.getByLabelText('Item Name'), 'Cups')
+    await user.type(screen.getByLabelText('Quantity'), '0')
+    await user.clear(screen.getByLabelText('Unit of Measurement'))
+    await user.type(screen.getByLabelText('Unit of Measurement'), 'pcs')
+    await user.type(screen.getByLabelText('Price per pcs (₱)'), '0')
+    expect(screen.getByLabelText('Total Amount')).toHaveTextContent('₱0.00')
+    await user.click(within(screen.getByRole('dialog', { name: 'Add Item' })).getByRole('button', { name: 'Add Item' }))
+    await waitFor(() => expect(db.createInventoryItem).toHaveBeenCalledWith({ name: 'Cups', category: 'Ingredients', stock_quantity: 0, unit: 'pcs', unit_price: 0 }))
+  })
+
+  it.each(['-1', '1.001', '10000000000'])('rejects invalid unit price %s without sending an update', async price => {
+    const user = userEvent.setup()
+    render(<InventoryPage userRole="admin" />)
+    await user.click(await screen.findByRole('button', { name: 'Edit Milk' }))
+    await user.type(screen.getByLabelText('Price per units (₱)'), price)
+    await user.click(screen.getByRole('button', { name: 'Save', exact: true }))
+    expect(screen.getByRole('alert')).toHaveTextContent('Price must be nonnegative')
+    expect(db.updateInventoryItem).not.toHaveBeenCalled()
+  })
+
+  it('clears an existing price explicitly while leaving the quantity untouched', async () => {
+    const user = userEvent.setup()
+    db.getInventory.mockResolvedValueOnce([{ id: 'i1', name: 'Milk', stock_quantity: 8, unit: 'L', unit_price: 85.2 }])
+    render(<InventoryPage userRole="admin" />)
+    await user.click(await screen.findByRole('button', { name: 'Edit Milk' }))
+    await user.clear(screen.getByLabelText('Price per L (₱)'))
+    await user.click(screen.getByRole('button', { name: 'Save', exact: true }))
+    await waitFor(() => expect(db.updateInventoryItem).toHaveBeenCalledWith('i1', expect.objectContaining({ unit_price: null }), { baseStockQty: 8 }))
+    expect(db.updateInventoryItem.mock.calls[0][1]).not.toHaveProperty('stock_quantity')
+  })
+
+  it('blocks repeated saves while the first request is pending', async () => {
+    let complete
+    db.updateInventoryItem.mockImplementationOnce(() => new Promise(resolve => { complete = resolve }))
+    const user = userEvent.setup()
+    render(<InventoryPage userRole="admin" />)
+    await user.click(await screen.findByRole('button', { name: 'Edit Milk' }))
+    await user.dblClick(screen.getByRole('button', { name: 'Save', exact: true }))
+    expect(db.updateInventoryItem).toHaveBeenCalledTimes(1)
+    expect(screen.getByLabelText('Quantity')).toBeDisabled()
+    complete({})
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Edit Item' })).not.toBeInTheDocument())
+  })
+
+  it('accepts fractional wastage and rejects a quantity beyond available stock', async () => {
+    const user = userEvent.setup()
+    render(<InventoryPage userRole="admin" />)
+    await user.click(await screen.findByTestId('select-item-i1'))
+    await user.click(screen.getByTestId('toolbar-wastage-btn'))
+    const quantity = screen.getByPlaceholderText('0')
+    expect(quantity).toHaveAttribute('step', 'any')
+    await user.type(quantity, '9')
+    await user.click(screen.getByRole('button', { name: 'Log Wastage' }))
+    expect(screen.getByRole('alert')).toHaveTextContent('no more than the available quantity')
+    expect(db.updateInventoryItem).not.toHaveBeenCalled()
+    await user.clear(quantity)
+    await user.type(quantity, '0.125')
+    await user.click(screen.getByRole('button', { name: 'Log Wastage' }))
+    await waitFor(() => expect(db.updateInventoryItem).toHaveBeenCalledWith('i1', { stock_quantity: 7.875 }, expect.objectContaining({ baseStockQty: 8, reason: 'spoiled' })))
   })
 
   it('should give stockists toolbar edit, wastage, and delete controls', async () => {

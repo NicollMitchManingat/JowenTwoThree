@@ -80,7 +80,7 @@ describe('Inventory Dashboard', () => {
     await user.click(inventoryNavItem)
 
     await waitFor(() => {
-      expect(screen.getByText('Name')).toBeInTheDocument()
+      expect(screen.getByText('Item Name')).toBeInTheDocument()
       expect(screen.getByText('Category')).toBeInTheDocument()
       expect(screen.getByText('Quantity')).toBeInTheDocument()
       expect(screen.getByText('Status')).toBeInTheDocument()

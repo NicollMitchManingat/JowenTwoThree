@@ -27,6 +27,7 @@ describe('mapInventoryRow (category & stock resolution)', () => {
       name: 'Test Item',
       category: 'CategoryName',
       inStock: 7,
+      unit: 'units', unit_price: null, total_amount: null,
       status: 'NearingExpiration',
     })
   })
@@ -151,6 +152,7 @@ describe('inventoryService (unit)', () => {
           name: 'Coffee Beans',
           category: 'Beverage',
           inStock: 25,
+          unit: 'units', unit_price: null, total_amount: null,
           status: 'Good',
         },
       ])
@@ -275,6 +277,7 @@ describe('inventoryService (unit)', () => {
           name: 'Iced Tea',
           category: 'Beverage',
           inStock: 12,
+          unit: 'units', unit_price: null, total_amount: null,
           status: 'Good',
         },
       ])
@@ -308,6 +311,7 @@ describe('inventoryService (unit)', () => {
           name: 'Green Tea',
           category: 'Beverage',
           inStock: 3,
+          unit: 'units', unit_price: null, total_amount: null,
           status: 'Low',
         },
       ])
@@ -341,6 +345,7 @@ describe('inventoryService (unit)', () => {
           name: 'Yogurt',
           category: 'Dairy',
           inStock: 0,
+          unit: 'units', unit_price: null, total_amount: null,
           status: 'OutOfStock',
         },
       ])

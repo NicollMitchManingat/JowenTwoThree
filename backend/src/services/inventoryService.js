@@ -21,6 +21,9 @@ function mapInventoryRow(row) {
     name,
     category,
     inStock,
+    unit: row.unit || 'units',
+    unit_price: row.unit_price ?? null,
+    total_amount: row.total_amount ?? null,
     status: computeStatus(inStock),
   }
 }

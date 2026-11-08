@@ -14,10 +14,14 @@ router.post('/inventory', modules('inventory'), run(async (req, res) => {
   if (!['admin', 'stockist'].includes(req.user.role)) throw a.httpError('Stockman access is required', 403)
   const body = req.body || {}, fields = body.values || {}
   if (!['create', 'update', 'archive'].includes(body.action) || typeof body.operationKey !== 'string' || !body.operationKey || body.operationKey.length > 128) throw a.httpError('Invalid inventory command')
-  if (Array.isArray(fields) || typeof fields !== 'object' || Object.keys(fields).some(k => !['name', 'category', 'unit', 'stock_quantity'].includes(k))) throw a.httpError('Invalid inventory fields')
+  if (Array.isArray(fields) || typeof fields !== 'object' || Object.keys(fields).some(k => !['name', 'category', 'unit', 'stock_quantity', 'unit_price'].includes(k))) throw a.httpError('Invalid inventory fields')
   if (body.action === 'create' && (!fields.name || fields.stock_quantity == null)) throw a.httpError('Item name and quantity are required')
-  if (fields.stock_quantity !== undefined && (!Number.isFinite(Number(fields.stock_quantity)) || Number(fields.stock_quantity) < 0)) throw a.httpError('Quantity must be a nonnegative number')
-  if (fields.stock_quantity !== undefined && body.action === 'update' && !Number.isFinite(Number(body.baseStockQty))) throw a.httpError('The current quantity is required')
+  const numericValue = value => ['number', 'string'].includes(typeof value) && String(value).trim() !== '' && Number.isFinite(Number(value)) && Number(value) >= 0
+  if (fields.name !== undefined && (typeof fields.name !== 'string' || !fields.name.trim())) throw a.httpError('Item name is required')
+  if (fields.unit !== undefined && (typeof fields.unit !== 'string' || !fields.unit.trim() || fields.unit.trim().length > 32)) throw a.httpError('Unit of measurement is required (up to 32 characters)')
+  if (fields.stock_quantity !== undefined && !numericValue(fields.stock_quantity)) throw a.httpError('Quantity must be a nonnegative number')
+  if (fields.unit_price !== undefined && fields.unit_price !== null && (!numericValue(fields.unit_price) || !/^\d+(\.\d{1,2})?$/.test(String(fields.unit_price)) || Number(fields.unit_price) > 9999999999.99)) throw a.httpError('Price must be nonnegative, with at most two decimal places (maximum 9,999,999,999.99)')
+  if (fields.stock_quantity !== undefined && body.action === 'update' && !numericValue(body.baseStockQty)) throw a.httpError('The current quantity is required')
   const result = await a.database().rpc('jowen_inventory_command', { p_session_hash: req.auth.tokenHash, p_data: req.body })
   if (result.error) throw checkout.rpcError(result.error)
   res.json({ data: result.data })

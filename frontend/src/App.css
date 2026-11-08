@@ -811,6 +811,13 @@
   padding-top: 0.25rem;
 }
 
+.inventory-item-fields {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+
 .pos-header {
   display: flex;
   flex-direction: column;

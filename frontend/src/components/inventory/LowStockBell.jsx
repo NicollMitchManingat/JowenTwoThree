@@ -14,7 +14,7 @@ export const STOCK_ALERTS_EXIT_MS = 180
 // `size="small"` matches compact neighbors (POS steppers); default matches
 // standard buttons (Inventory "Add Item"). Fixed square in both variants so
 // the button never shifts when alerts load or the spinner shows.
-export default function LowStockBell({ size = 'default' }) {
+export default function LowStockBell({ size = 'default', wholeNumberQuantities = false }) {
   const [lowStockItems, setLowStockItems] = useState([])
   const [outOfStockItems, setOutOfStockItems] = useState([])
   const [lowStockLoading, setLowStockLoading] = useState(false)
@@ -195,7 +195,7 @@ export default function LowStockBell({ size = 'default' }) {
                               <p className="font-medium">{item.name}</p>
                               <p className="text-sm text-muted">{item.category || 'Uncategorized'}</p>
                             </div>
-                            <span className="badge badge-danger">{formatStock(item.stock_quantity)} {item.unit || 'units'}</span>
+                            <span className="badge badge-danger">{formatStock(item.stock_quantity, { wholeNumber: wholeNumberQuantities })} {item.unit || 'units'}</span>
                           </div>
                         ))}
                       </div>
@@ -213,7 +213,7 @@ export default function LowStockBell({ size = 'default' }) {
                               <p className="font-medium">{item.name}</p>
                               <p className="text-sm text-muted">{item.category || 'Uncategorized'}</p>
                             </div>
-                            <span className="badge badge-warning">{formatStock(item.stock_quantity)} {item.unit || 'units'} left</span>
+                            <span className="badge badge-warning">{formatStock(item.stock_quantity, { wholeNumber: wholeNumberQuantities })} {item.unit || 'units'} left</span>
                           </div>
                         ))}
                       </div>

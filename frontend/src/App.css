@@ -668,6 +668,153 @@
   vertical-align: middle;
 }
 
+/* Keep native table rows at every width. Columns share the available space,
+   with more room for names/references and wrapping instead of hidden values. */
+.record-list-page {
+  min-width: 0;
+  width: 100%;
+}
+
+.record-table-layout {
+  container: records / inline-size;
+  min-width: 0;
+  width: 100%;
+}
+
+.record-list-page .record-table {
+  min-width: 0;
+  max-width: 100%;
+  overflow: visible;
+}
+
+.record-table .data-table {
+  min-width: 0;
+  width: 100%;
+  table-layout: fixed;
+}
+
+.record-table .data-table th,
+.record-table .data-table td {
+  padding: 0.875rem 0.625rem;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.5;
+}
+
+.record-table .data-table th {
+  vertical-align: bottom;
+  letter-spacing: 0.025em;
+}
+
+.record-table .data-table th:first-child {
+  border-top-left-radius: 11px;
+}
+
+.record-table .data-table th:last-child {
+  border-top-right-radius: 11px;
+}
+
+.record-table .data-table td {
+  vertical-align: top;
+  font-variant-numeric: tabular-nums;
+}
+
+.record-table .data-table .record-numeric-heading,
+.record-table .data-table td[data-label="Quantity"],
+.record-table .data-table td[data-label="Subtotal"],
+.record-table .data-table td[data-label="Discount"],
+.record-table .data-table td[data-label="Total"],
+.record-table .data-table td[data-label="Refunded"],
+.record-table .data-table td[data-label="Price per Unit"],
+.record-table .data-table td[data-label="Total Amount"] {
+  text-align: right;
+}
+
+.record-table .data-table .record-select-cell {
+  padding-left: 0.2rem;
+  padding-right: 0.2rem;
+  text-align: center;
+  vertical-align: middle;
+}
+
+.record-table .badge {
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.4;
+}
+
+.record-table .data-table td[data-label="Payment status"] > span {
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+
+@container records (max-width: 70rem) {
+  .record-table .data-table th {
+    padding: 0.75rem 0.375rem;
+    font-size: 0.6875rem;
+    text-transform: none;
+    letter-spacing: 0;
+    line-height: 1.45;
+  }
+
+  .record-table .data-table td {
+    padding: 0.75rem 0.375rem;
+    font-size: 0.8125rem;
+  }
+
+  .record-table .badge {
+    padding: 0.2rem 0.35rem;
+    font-size: 0.6875rem;
+  }
+
+  .record-table .data-table .record-select-cell {
+    padding-left: 0.125rem;
+    padding-right: 0.125rem;
+  }
+}
+
+@container records (max-width: 48rem) {
+  .record-table .data-table th,
+  .record-table .data-table td {
+    padding-left: 0.25rem;
+    padding-right: 0.25rem;
+  }
+
+  .transactions-list-page .data-table td {
+    font-size: 0.75rem;
+  }
+}
+
+/* Give inventory its own gutters; transaction density stays unchanged. */
+.inventory-list-page .data-table th,
+.inventory-list-page .data-table td {
+  padding-left: 0.875rem;
+  padding-right: 0.875rem;
+}
+
+.inventory-list-page .data-table .record-unit-heading,
+.inventory-list-page .data-table td[data-label="Unit"] {
+  text-align: center;
+}
+
+.inventory-list-page .data-table td[data-label="Status"] .badge {
+  display: block;
+  width: fit-content;
+}
+
+.inventory-list-page .data-table td[data-label="Status"] .badge + .badge {
+  margin-top: 0.375rem;
+}
+
+@container records (max-width: 70rem) {
+  .inventory-list-page .data-table th,
+  .inventory-list-page .data-table td {
+    padding-left: 0.5rem;
+    padding-right: 0.5rem;
+  }
+}
+
 .modal-overlay {
   position: fixed;
   top: 0;

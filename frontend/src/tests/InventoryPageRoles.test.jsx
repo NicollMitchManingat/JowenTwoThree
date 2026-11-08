@@ -45,9 +45,10 @@ describe('InventoryPage roles', () => {
       expect(screen.getByText('Milk')).toBeInTheDocument()
     })
     expect(screen.getByText('Add Item')).toBeInTheDocument()
-    // The row edit icon complements the selection-based toolbar.
+    // Editing is available through the toolbar and double-click, with no row icon.
     expect(screen.queryByText('Actions')).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Edit Milk' })).toBeEnabled()
+    expect(screen.queryByRole('button', { name: 'Edit Milk' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('columnheader', { name: 'Edit', exact: true })).not.toBeInTheDocument()
     expect(screen.getByRole('columnheader', { name: 'Quantity' })).toBeInTheDocument()
     // Toolbar buttons exist but stay disabled until a row is selected.
     expect(screen.getByTestId('toolbar-edit-btn')).toBeDisabled()
@@ -66,8 +67,10 @@ describe('InventoryPage roles', () => {
     ])
     render(<InventoryPage userRole="cashier" />)
     const milk = within((await screen.findByText('Milk')).closest('tr'))
-    for (const heading of ['Item Name', 'Quantity', 'Unit of Measurement', 'Price per Unit', 'Status', 'Total Amount']) expect(screen.getByRole('columnheader', { name: heading })).toBeInTheDocument()
-    expect(milk.getByText('7.125')).toBeInTheDocument()
+    for (const heading of ['Item Name', 'Quantity', 'Unit', 'Price per Unit', 'Status', 'Total Amount']) expect(screen.getByRole('columnheader', { name: heading })).toBeInTheDocument()
+    expect(screen.queryByRole('columnheader', { name: 'Unit of Measurement' })).not.toBeInTheDocument()
+    expect(milk.getByText('7')).toBeInTheDocument()
+    expect(milk.queryByText('7.125')).not.toBeInTheDocument()
     expect(milk.getByText('₱85.20 / L')).toBeInTheDocument()
     expect(milk.getByText('₱607.05')).toBeInTheDocument()
     expect(within(screen.getByText('Beans').closest('tr')).getByText('Not recorded')).toBeInTheDocument()
@@ -77,7 +80,7 @@ describe('InventoryPage roles', () => {
     const user = userEvent.setup()
     db.getInventory.mockResolvedValueOnce([{ id: 'i1', name: 'Milk', stock_quantity: '1.0050000000000001', unit: 'L', unit_price: null, updated_at: '2026-11-08T10:00:00Z' }])
     render(<InventoryPage userRole="stockist" />)
-    await user.click(await screen.findByRole('button', { name: 'Edit Milk' }))
+    await user.dblClick((await screen.findByText('Milk')).closest('tr'))
     await user.type(screen.getByLabelText('Price per L (₱)'), '1.00')
     expect(screen.getByLabelText('Total Amount')).toHaveTextContent('₱1.01')
     await user.click(screen.getByRole('button', { name: 'Save', exact: true }))
@@ -103,7 +106,7 @@ describe('InventoryPage roles', () => {
   it.each(['-1', '1.001', '10000000000'])('rejects invalid unit price %s without sending an update', async price => {
     const user = userEvent.setup()
     render(<InventoryPage userRole="admin" />)
-    await user.click(await screen.findByRole('button', { name: 'Edit Milk' }))
+    await user.dblClick((await screen.findByText('Milk')).closest('tr'))
     await user.type(screen.getByLabelText('Price per units (₱)'), price)
     await user.click(screen.getByRole('button', { name: 'Save', exact: true }))
     expect(screen.getByRole('alert')).toHaveTextContent('Price must be nonnegative')
@@ -114,7 +117,7 @@ describe('InventoryPage roles', () => {
     const user = userEvent.setup()
     db.getInventory.mockResolvedValueOnce([{ id: 'i1', name: 'Milk', stock_quantity: 8, unit: 'L', unit_price: 85.2 }])
     render(<InventoryPage userRole="admin" />)
-    await user.click(await screen.findByRole('button', { name: 'Edit Milk' }))
+    await user.dblClick((await screen.findByText('Milk')).closest('tr'))
     await user.clear(screen.getByLabelText('Price per L (₱)'))
     await user.click(screen.getByRole('button', { name: 'Save', exact: true }))
     await waitFor(() => expect(db.updateInventoryItem).toHaveBeenCalledWith('i1', expect.objectContaining({ unit_price: null }), { baseStockQty: 8 }))
@@ -126,7 +129,7 @@ describe('InventoryPage roles', () => {
     db.updateInventoryItem.mockImplementationOnce(() => new Promise(resolve => { complete = resolve }))
     const user = userEvent.setup()
     render(<InventoryPage userRole="admin" />)
-    await user.click(await screen.findByRole('button', { name: 'Edit Milk' }))
+    await user.dblClick((await screen.findByText('Milk')).closest('tr'))
     await user.dblClick(screen.getByRole('button', { name: 'Save', exact: true }))
     expect(db.updateInventoryItem).toHaveBeenCalledTimes(1)
     expect(screen.getByLabelText('Quantity')).toBeDisabled()
@@ -207,15 +210,18 @@ describe('InventoryPage roles', () => {
     expect(db.createInventoryItem).not.toHaveBeenCalled()
   })
 
-  it('should edit by keyboard using the row icon and preserve fractional quantities when saving', async () => {
+  it('should edit by keyboard using row selection and the toolbar, preserving fractional quantities', async () => {
     const user = userEvent.setup()
     db.getInventory.mockResolvedValueOnce([
       { id: 'i1', name: 'Milk', category: 'Dairy', stock_quantity: 8.25, unit: 'L' },
     ])
     render(<InventoryPage userRole="stockist" />)
 
-    const edit = await screen.findByRole('button', { name: 'Edit Milk' })
-    expect(edit.closest('tr')).toHaveTextContent('8.25')
+    const row = (await screen.findByText('Milk')).closest('tr')
+    expect(within(row).getByRole('cell', { name: '8', exact: true })).toHaveAttribute('data-label', 'Quantity')
+    row.focus()
+    await user.keyboard('{Enter}')
+    const edit = screen.getByTestId('toolbar-edit-btn')
     edit.focus()
     await user.keyboard('{Enter}')
 
@@ -233,10 +239,11 @@ describe('InventoryPage roles', () => {
     expect(db.createInventoryItem).not.toHaveBeenCalled()
   })
 
-  it('should open the same edit form when the row icon is clicked', async () => {
+  it('should open the same edit form from the toolbar after selecting a row', async () => {
     const user = userEvent.setup()
     render(<InventoryPage userRole="admin" />)
-    await user.click(await screen.findByRole('button', { name: 'Edit Milk' }))
+    await user.click(await screen.findByTestId('select-item-i1'))
+    await user.click(screen.getByTestId('toolbar-edit-btn'))
 
     expect(screen.getByRole('heading', { name: 'Edit Item' })).toBeInTheDocument()
     expect(screen.getByPlaceholderText('e.g., Almond Milk')).toHaveValue('Milk')
@@ -430,7 +437,7 @@ describe('InventoryPage roles', () => {
     expect(screen.getByTestId('toolbar-delete-btn')).toBeDisabled()
     expect(screen.getByTestId('toolbar-edit-btn')).toHaveAttribute('title', expect.stringMatching(/sync/i))
     expect(screen.getByTestId('selected-chip')).toHaveTextContent(/pending sync/i)
-    expect(screen.getByRole('button', { name: 'Edit Oats' })).toBeDisabled()
+    expect(screen.queryByRole('button', { name: 'Edit Oats' })).not.toBeInTheDocument()
     await user.dblClick(screen.getByTestId('select-item-temp-9').closest('tr'))
     expect(screen.queryByRole('heading', { name: 'Edit Item' })).not.toBeInTheDocument()
     expect(alertSpy).toHaveBeenCalledWith(expect.stringMatching(/offline/i))

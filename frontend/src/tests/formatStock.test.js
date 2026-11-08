@@ -11,7 +11,14 @@ describe('formatStock', () => {
 
   it.each(['invalid', undefined, null, '', NaN, Infinity])('uses a placeholder for %s', (quantity) => {
     expect(formatStock(quantity)).toBe('-')
+    expect(formatStock(quantity, { wholeNumber: true })).toBe('-')
   })
+
+  it.each([[0, '0'], ['12.00', '12'], [7.125, '7'], ['8.50', '9'], [0.25, '0'], [7.875, '8']])(
+    'rounds %s only for a whole-number display', (quantity, expected) => {
+      expect(formatStock(quantity, { wholeNumber: true })).toBe(expected)
+      expect(formatStock(quantity)).toBe(String(Number(quantity)))
+    })
 })
 
 describe('inventory valuation', () => {

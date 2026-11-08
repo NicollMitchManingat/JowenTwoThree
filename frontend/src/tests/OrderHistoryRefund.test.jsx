@@ -331,6 +331,32 @@ describe('OrderHistoryPage refunds', () => {
     expect(ascending[ascending.length - 1]).toBe('order-row-t1')
   })
 
+  it('retains every transaction column and full reference in the fitted table', async () => {
+    const reference = 'TXN-12345678-1234-4321-abcd-123456789012'
+    db.getTransactions.mockResolvedValueOnce([{ ...ORDERS[0], transaction_number: reference, order_type: 'DELIVERY' }])
+    render(<OrderHistoryPage user={{ role: 'admin' }} />)
+    const row = await screen.findByTestId('order-row-t1')
+    expect(row).toHaveTextContent(reference)
+    expect(row).toHaveTextContent('Delivery')
+    expect(Array.from(row.querySelectorAll('td')).map(cell => cell.dataset.label)).toEqual([
+      'Select', 'Transaction #', 'Subtotal', 'Discount', 'Total', 'Refunded',
+      'Payment status', 'Order type', 'Payment', 'Customers', 'Date',
+    ])
+    expect(screen.getByRole('table', { name: 'Transactions' })).toBeInTheDocument()
+  })
+
+  it('keeps sorting on the original headers without a separate compact toolbar', async () => {
+    render(<OrderHistoryPage user={{ role: 'admin' }} />)
+    await screen.findByTestId('order-row-t1')
+    fireEvent.click(screen.getByRole('columnheader', { name: /^Total/ }))
+    expect(screen.getAllByTestId(/^order-row-/)[0]).toHaveAttribute('data-testid', 'order-row-t3')
+    fireEvent.click(screen.getByRole('columnheader', { name: /^Total/ }))
+    expect(screen.getAllByTestId(/^order-row-/)[0]).toHaveAttribute('data-testid', 'order-row-t2')
+    fireEvent.click(screen.getByRole('columnheader', { name: /Customers/ }))
+    expect(screen.getAllByTestId(/^order-row-/)[0]).toHaveAttribute('data-testid', 'order-row-t1')
+    expect(screen.queryByRole('combobox', { name: 'Sort transactions by' })).not.toBeInTheDocument()
+  })
+
   it('should make every data header sortable with asc/desc indicators', async () => {
     render(<OrderHistoryPage user={{ username: 'admin', role: 'admin' }} />)
 

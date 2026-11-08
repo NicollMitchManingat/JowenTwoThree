@@ -354,7 +354,7 @@ export default function InventoryPage({ userRole }) {
   }
 
   return (
-    <div className="page-content">
+    <div className="page-content record-list-page inventory-list-page">
       {showModal && (
         <div className="modal-overlay" onClick={() => !saving && setShowModal(false)}>
           <div className="modal-content card" role="dialog" aria-label={isEditing ? 'Edit Item' : 'Add Item'} onClick={(e) => e.stopPropagation()}>
@@ -461,7 +461,7 @@ export default function InventoryPage({ userRole }) {
             </div>
             <div className="modal-body">
               <p className="text-sm text-muted m-0">
-                This removes <strong>{deleteTarget.name}</strong> ({formatStock(deleteTarget.stock_quantity)} in stock) from active inventory.
+                This removes <strong>{deleteTarget.name}</strong> ({formatStock(deleteTarget.stock_quantity, { wholeNumber: true })} in stock) from active inventory.
                 Past transactions and inventory adjustments are kept.
               </p>
             </div>
@@ -528,18 +528,18 @@ export default function InventoryPage({ userRole }) {
               </button>
             </>
           )}
-          <LowStockBell />
+          <LowStockBell wholeNumberQuantities />
         </div>
       </div>
 
       {canManage && selectedItem && (
         <p className="selected-chip" data-testid="selected-chip">
-          Selected: <strong>{selectedItem.name}</strong> ({formatStock(selectedItem.stock_quantity)} in stock)
+          Selected: <strong>{selectedItem.name}</strong> ({formatStock(selectedItem.stock_quantity, { wholeNumber: true })} in stock)
           {selectedLocked && ' — pending sync, actions locked'}
         </p>
       )}
       {canManage && !selectedItem && inventoryData.length > 0 && (
-        <p className="selected-hint" data-testid="selection-hint">Double-click a row or use its edit icon to edit. Select a row to log wastage or delete.</p>
+        <p className="selected-hint" data-testid="selection-hint">Double-click a row to edit, or select a row to use Edit, Log Wastage or Delete above.</p>
       )}
 
       <div className="inventory-filter-row" role="radiogroup" aria-label="Filter by stock status">
@@ -556,21 +556,27 @@ export default function InventoryPage({ userRole }) {
         ))}
       </div>
 
-      <div className="card table-card table-responsive">
-        <table className="data-table">
-          <thead>
-            <tr>
-              {canManage && <th scope="col" aria-label="Select" style={{ width: '2.5rem' }} />}
-              <th>Item Name</th><th>Category</th><th>Quantity</th><th>Unit of Measurement</th><th>Price per Unit</th><th>Status</th><th>Total Amount</th>
-              {canManage && <th scope="col" aria-label="Edit" />}
+      <p className="text-sm text-muted m-0">Quantities are rounded to the nearest whole number for display. Totals and stock operations use exact quantities.</p>
+      <div className="record-table-layout">
+      <div className="card table-card table-responsive record-table">
+        <table className="data-table" role="table" aria-label="Inventory items">
+          <colgroup>
+            {canManage && <col style={{ width: '4%' }} />}
+            {[23, 12, 10, 8, 17, 14, 16].map((width, index) => <col key={index} style={{ width: `${width * (canManage ? 0.96 : 1)}%` }} />)}
+          </colgroup>
+          <thead role="rowgroup">
+            <tr role="row">
+              {canManage && <th scope="col" aria-label="Select" />}
+              <th>Item Name</th><th>Category</th><th className="record-numeric-heading">Quantity</th><th className="record-unit-heading">Unit</th><th className="record-numeric-heading">Price per Unit</th><th>Status</th><th className="record-numeric-heading">Total Amount</th>
             </tr>
           </thead>
-          <tbody>
+          <tbody role="rowgroup">
             {filteredData.length > 0 ? pagedData.map(item => {
               const isSelected = String(selectedId) === String(item.id);
               const status = getStatus(item.stock_quantity);
               return (
               <tr
+                role="row"
                 key={item.id}
                 className={`${canManage ? 'row-selectable' : ''} ${isSelected ? 'row-selected' : ''}`}
                 aria-selected={canManage ? isSelected : undefined}
@@ -583,7 +589,7 @@ export default function InventoryPage({ userRole }) {
                 tabIndex={canManage ? 0 : undefined}
               >
                 {canManage && (
-                  <td onClick={(e) => e.stopPropagation()}>
+                  <td role="cell" data-label="Select" className="record-select-cell" onClick={(e) => e.stopPropagation()}>
                     <input
                       type="radio"
                       name="inventory-selection"
@@ -595,40 +601,26 @@ export default function InventoryPage({ userRole }) {
                     />
                   </td>
                 )}
-                <td className="font-semibold">{item.name}</td>
-                <td>{item.category || '-'}</td>
-                <td>{formatStock(item.stock_quantity)}</td>
-                <td>{item.unit || 'units'}</td>
-                <td>{item.unit_price == null ? <span className="text-muted">Not recorded</span> : <span>{formatInventoryMoney(item.unit_price)} / {item.unit || 'units'}</span>}</td>
-                <td>
+                <td role="cell" data-label="Item Name" className="font-semibold record-title-cell">{item.name}</td>
+                <td role="cell" data-label="Category">{item.category || '-'}</td>
+                <td role="cell" data-label="Quantity">{formatStock(item.stock_quantity, { wholeNumber: true })}</td>
+                <td role="cell" data-label="Unit">{item.unit || 'units'}</td>
+                <td role="cell" data-label="Price per Unit">{item.unit_price == null ? <span className="text-muted">Not recorded</span> : <span>{formatInventoryMoney(item.unit_price)} / {item.unit || 'units'}</span>}</td>
+                <td role="cell" data-label="Status">
                   <span className={`badge ${status === 'Good' ? 'badge-success' : status === 'Low Stock' ? 'badge-warning' : 'badge-danger'}`}>
                     {status}
                   </span>
                   {item._pendingSync && (
-                    <span className="badge badge-neutral" data-testid={`pending-sync-${item.id}`} title="Saved offline — edits unlock after it syncs" style={{ marginLeft: '0.35rem' }}>
+                    <span className="badge badge-neutral" data-testid={`pending-sync-${item.id}`} title="Saved offline — edits unlock after it syncs">
                       Pending sync
                     </span>
                   )}
                 </td>
-                <td>{formatInventoryMoney(item.total_amount ?? inventoryTotal(item.stock_quantity, item.unit_price))}</td>
-                {canManage && (
-                  <td onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
-                    <button
-                      type="button"
-                      className="btn-icon-small"
-                      aria-label={`Edit ${item.name}`}
-                      title={item._pendingSync ? 'Will sync when the database is back' : `Edit ${item.name}`}
-                      disabled={!!item._pendingSync}
-                      onClick={() => handleOpenEdit(item)}
-                    >
-                      <Edit size={16} />
-                    </button>
-                  </td>
-                )}
+                <td role="cell" data-label="Total Amount">{formatInventoryMoney(item.total_amount ?? inventoryTotal(item.stock_quantity, item.unit_price))}</td>
               </tr>
               );
             }) : (
-              <tr><td colSpan={canManage ? '9' : '7'} className="text-center py-4 text-muted">
+              <tr><td colSpan={canManage ? '8' : '7'} className="text-center py-4 text-muted">
                 {inventoryData.length === 0
                   ? 'No items found.'
                   : <>{filteredData.length === 0 && (searchTerm || statusFilter !== 'all') && (
@@ -650,6 +642,7 @@ export default function InventoryPage({ userRole }) {
             </div>
           </div>
         )}
+      </div>
       </div>
 
     </div>

@@ -325,7 +325,7 @@ export default function OrderHistoryPage({ user, onResume }) {
   }
 
   return (
-    <div className="page-content" ref={pageRef}>
+    <div className="page-content record-list-page transactions-list-page" ref={pageRef}>
       <div className="metrics-grid" style={{ gridTemplateColumns: 'repeat(3, 1fr)' }}>
         <div className="card metric-card">
           <div className="metric-icon" style={{ backgroundColor: '#e8f8f5' }}><Receipt size={24} style={{ color: '#27ae60' }} /></div>
@@ -425,16 +425,21 @@ export default function OrderHistoryPage({ user, onResume }) {
         setToast({ type: 'success', message: 'Unpaid transaction removed.' });
       }} />}
 
-      <div className="card table-card table-responsive">
-        <table className="data-table">
-          <thead>
-            <tr>
-              {canSelect && <th scope="col" aria-label="Select" style={{ width: '2.5rem' }} />}
+      <div className="record-table-layout">
+      <div className="card table-card table-responsive record-table">
+        <table className="data-table" role="table" aria-label="Transactions">
+          <colgroup>
+            {canSelect && <col style={{ width: '4%' }} />}
+            {[18, 9, 9, 10, 10, 10, 8, 7, 7, 12].map((width, index) => <col key={index} style={{ width: `${width * (canSelect ? 0.96 : 1)}%` }} />)}
+          </colgroup>
+          <thead role="rowgroup">
+            <tr role="row">
+              {canSelect && <th scope="col" aria-label="Select" />}
               <th onClick={() => handleSort('transaction_number')} style={{ cursor: 'pointer' }}>Transaction #{sortArrow('transaction_number')}</th>
-              <th onClick={() => handleSort('subtotal')} style={{ cursor: 'pointer' }}>Subtotal{sortArrow('subtotal')}</th>
-              <th onClick={() => handleSort('discount')} style={{ cursor: 'pointer' }}>Discount{sortArrow('discount')}</th>
-              <th onClick={() => handleSort('total')} style={{ cursor: 'pointer' }}>Total{sortArrow('total')}</th>
-              <th onClick={() => handleSort('refunded')} style={{ cursor: 'pointer' }}>Refunded{sortArrow('refunded')}</th>
+              <th className="record-numeric-heading" onClick={() => handleSort('subtotal')} style={{ cursor: 'pointer' }}>Subtotal{sortArrow('subtotal')}</th>
+              <th className="record-numeric-heading" onClick={() => handleSort('discount')} style={{ cursor: 'pointer' }}>Discount{sortArrow('discount')}</th>
+              <th className="record-numeric-heading" onClick={() => handleSort('total')} style={{ cursor: 'pointer' }}>Total{sortArrow('total')}</th>
+              <th className="record-numeric-heading" onClick={() => handleSort('refunded')} style={{ cursor: 'pointer' }}>Refunded{sortArrow('refunded')}</th>
               <th onClick={() => handleSort('status')} style={{ cursor: 'pointer' }}>Payment status{sortArrow('status')}</th>
               <th onClick={() => handleSort('order_type')} style={{ cursor: 'pointer' }}>Order type{sortArrow('order_type')}</th>
               <th onClick={() => handleSort('payment_method')} style={{ cursor: 'pointer' }}>Payment{sortArrow('payment_method')}</th>
@@ -442,12 +447,13 @@ export default function OrderHistoryPage({ user, onResume }) {
               <th onClick={() => handleSort('created_at')} style={{ cursor: 'pointer' }}>Date{sortArrow('created_at')}</th>
             </tr>
           </thead>
-          <tbody>
+          <tbody role="rowgroup">
             {filtered.length > 0 ? pagedOrders.map((order) => {
               const refunded = refundTotalFor(refundsByTxn, order.id)
               const isSelected = String(selectedId) === String(order.id);
               return (
               <tr
+                role="row"
                 key={order.id}
                 data-testid={`order-row-${order.id}`}
                 className={`${canSelect ? 'row-selectable' : ''} ${isSelected ? 'row-selected' : ''}`}
@@ -460,7 +466,7 @@ export default function OrderHistoryPage({ user, onResume }) {
                 tabIndex={canSelect ? 0 : undefined}
               >
                 {canSelect && (
-                  <td onClick={(e) => e.stopPropagation()}>
+                  <td role="cell" data-label="Select" className="record-select-cell" onClick={(e) => e.stopPropagation()}>
                     <input
                       type="radio"
                       name="transaction-selection"
@@ -472,16 +478,16 @@ export default function OrderHistoryPage({ user, onResume }) {
                     />
                   </td>
                 )}
-                <td className="font-semibold">{order.transaction_number}</td>
-                <td>₱{Number(order.subtotal).toFixed(2)}</td>
-                <td>{Number(order.discount) > 0 ? `-₱${Number(order.discount).toFixed(2)}` : '-'}</td>
-                <td className="font-semibold">₱{Number(order.total).toFixed(2)}</td>
-                <td>{refunded > 0 ? `-₱${refunded.toFixed(2)}` : '-'}{['REFUNDED','PARTIALLY_REFUNDED'].includes(order.status) && <span className="text-sm block">{order.status === 'REFUNDED' ? 'Refunded' : 'Partially refunded'}</span>}</td>
-                <td>{statusBadge(order)}</td>
-                <td>{orderTypeLabel(order.order_type)}</td>
-                <td>{paymentStatusFor(order) === 'UNPAID' ? '—' : order.payment_method || 'Cash'}</td>
-                <td>{order.customer_count || 0}{((order.male_count ?? 0) + (order.female_count ?? 0) + (order.unspecified_count ?? 0) > 0) ? ` (M${order.male_count ?? 0}/F${order.female_count ?? 0}${(order.unspecified_count ?? 0) > 0 ? `/U${order.unspecified_count}` : ''})` : ''}</td>
-                <td className="text-muted">{new Date(order.created_at).toLocaleString()}</td>
+                <td role="cell" data-label="Transaction #" className="font-semibold record-title-cell">{order.transaction_number}</td>
+                <td role="cell" data-label="Subtotal">₱{Number(order.subtotal).toFixed(2)}</td>
+                <td role="cell" data-label="Discount">{Number(order.discount) > 0 ? `-₱${Number(order.discount).toFixed(2)}` : '-'}</td>
+                <td role="cell" data-label="Total" className="font-semibold">₱{Number(order.total).toFixed(2)}</td>
+                <td role="cell" data-label="Refunded">{refunded > 0 ? `-₱${refunded.toFixed(2)}` : '-'}{['REFUNDED','PARTIALLY_REFUNDED'].includes(order.status) && <span className="text-sm block">{order.status === 'REFUNDED' ? 'Refunded' : 'Partially refunded'}</span>}</td>
+                <td role="cell" data-label="Payment status">{statusBadge(order)}</td>
+                <td role="cell" data-label="Order type">{orderTypeLabel(order.order_type)}</td>
+                <td role="cell" data-label="Payment">{paymentStatusFor(order) === 'UNPAID' ? '—' : order.payment_method || 'Cash'}</td>
+                <td role="cell" data-label="Customers">{order.customer_count || 0}{((order.male_count ?? 0) + (order.female_count ?? 0) + (order.unspecified_count ?? 0) > 0) ? ` (M${order.male_count ?? 0}/F${order.female_count ?? 0}${(order.unspecified_count ?? 0) > 0 ? `/U${order.unspecified_count}` : ''})` : ''}</td>
+                <td role="cell" data-label="Date" className="text-muted">{new Date(order.created_at).toLocaleString()}</td>
               </tr>
               )
             }) : (
@@ -505,6 +511,8 @@ export default function OrderHistoryPage({ user, onResume }) {
             </div>
           </div>
         )}
+      </div>
+
       </div>
 
       {showJump && (

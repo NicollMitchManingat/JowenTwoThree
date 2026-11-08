@@ -1,10 +1,10 @@
-// Formats an inventory quantity without padding decimals or rounding fractions.
+// Exact by default; wholeNumber is a presentation-only option for inventory lists.
 // Accepts numbers or numeric strings (Supabase returns numeric as string
 // in some cases). Non-numeric values fall back to '-'.
-export function formatStock(qty) {
+export function formatStock(qty, { wholeNumber = false } = {}) {
   if (qty == null || String(qty).trim() === '') return '-'
   const n = Number(qty)
-  return Number.isFinite(n) ? String(n) : '-'
+  return Number.isFinite(n) ? String(wholeNumber ? Math.round(n) : n) : '-'
 }
 
 // Decimal arithmetic keeps fractional stock valuation consistent with PostgreSQL

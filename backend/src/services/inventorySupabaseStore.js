@@ -7,7 +7,7 @@ function inventoryColumns(versioned = true) {
 function exactUnitRow(row) {
   if (!row) return row
   const result = { ...row }
-  for (const key of ['stock_quantity', 'unit_price', 'total_amount', 'unit_version', 'low_stock_threshold', 'qty_per_sale', 'inventory_unit_version']) {
+  for (const key of ['stock_quantity', 'unit_price', 'total_amount', 'unit_version', 'low_stock_threshold', 'qty_per_sale', 'inventory_unit_version', 'change_amount']) {
     if (Object.hasOwn(result, key + '_text')) { result[key] = result[key + '_text']; delete result[key + '_text'] }
   }
   if (result.inventory) result.inventory = exactUnitRow(result.inventory)

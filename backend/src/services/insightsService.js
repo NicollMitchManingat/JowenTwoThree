@@ -5,6 +5,7 @@
 // Builders are pure and exported for unit tests; only fetchContext and
 // getInsights touch the network.
 const insightsConfig = require("./insightsConfig")
+const unitReads = require("./inventorySupabaseStore")
 
 const DAY_MS = 24 * 3600 * 1000
 
@@ -271,6 +272,16 @@ function reorderCover({ inventory, recipes, unitsByProduct, windowDays }, cfg = 
 // 4. Wastage risk — spoiled-unit share of on-hand stock, naming the top
 // spoiled item (with its slow-selling product when recipes link one).
 function wastageRisk({ adjustments, inventory, recipeLinks, slowProducts }, cfg = insightsConfig) {
+  const items = (Array.isArray(inventory) ? inventory : []).filter(item => item && item.is_active !== false)
+  // Preserve the original aggregate for the unchanged generic-unit baseline.
+  // Once physical units/versions exist, compare only within one ingredient and
+  // its recorded current version. Never infer old units from today's label.
+  const genericBaseline = items.every(item => ['', 'units'].includes(String(item.unit || '').trim().toLowerCase()) && String(item.unit_version ?? 0) === '0') &&
+    (Array.isArray(adjustments) ? adjustments : []).every(adjustment =>
+      (adjustment?.unit_snapshot == null && adjustment?.unit_version == null) ||
+      (adjustment?.unit_snapshot === 'units' && String(adjustment?.unit_version) === '0'))
+  if (!genericBaseline) return unitAwareWastage({ adjustments, inventory: items, recipeLinks, slowProducts }, cfg)
+
   const reasons = (cfg.WASTAGE_REASONS || []).map((r) => String(r).toLowerCase())
   const byItem = new Map()
   let spoiledUnits = 0
@@ -304,6 +315,50 @@ function wastageRisk({ adjustments, inventory, recipeLinks, slowProducts }, cfg 
     impact: "Medium",
     numbers: [Math.round(share), Math.round(spoiledUnits)],
     detail: { item: topName, share, units: spoiledUnits },
+  }
+}
+
+// A percentage for one item is independent of whether another item uses kg,
+// grams or liters. Unknown/older snapshots are exposed as incomplete coverage.
+function unitAwareWastage({ adjustments, inventory, recipeLinks, slowProducts }, cfg) {
+  const reasons = (cfg.WASTAGE_REASONS || []).map(reason => String(reason).toLowerCase())
+  const byId = new Map(inventory.map(item => [String(item.id), item]))
+  const totals = new Map()
+  let excluded = 0
+  for (const adjustment of Array.isArray(adjustments) ? adjustments : []) {
+    if (!reasons.some(reason => String(adjustment?.reason || '').toLowerCase().includes(reason))) continue
+    const amount = Math.abs(toNum(adjustment?.change_amount))
+    if (!(amount > 0)) continue
+    const item = byId.get(String(adjustment.inventory_id))
+    if (!item || item.unit_version == null || adjustment.unit_version == null ||
+      adjustment.unit_snapshot == null || adjustment.unit_snapshot !== item.unit ||
+      String(adjustment.unit_version) !== String(item.unit_version)) { excluded++; continue }
+    totals.set(String(item.id), (totals.get(String(item.id)) || 0) + amount)
+  }
+  const flagged = []
+  for (const [id, units] of totals) {
+    const item = byId.get(id), stock = Number(item.stock_quantity)
+    if (!Number.isFinite(stock) || stock < 0) { excluded++; continue }
+    const share = stock > 0 ? units / stock * 100 : null
+    if (share === null || share > (cfg.WASTAGE_SHARE ?? 0.15) * 100) flagged.push({ item, units, share })
+  }
+  flagged.sort((left, right) => (right.share ?? Infinity) - (left.share ?? Infinity) || String(left.item.id).localeCompare(String(right.item.id)))
+  if (!flagged.length) return excluded ? {
+    key: 'wastage', metric: 'Wastage Review', value: 'Unit history incomplete',
+    insight: 'Review stock adjustments with unrecorded or earlier units before assessing wastage.',
+    impact: 'Medium', numbers: [], detail: { unitHistoryIncomplete: true, excludedAdjustments: excluded },
+  } : null
+  const { item, units, share } = flagged[0]
+  const slowSet = new Set((Array.isArray(slowProducts) ? slowProducts : []).map(String))
+  const linked = (recipeLinks?.[String(item.id)] || []).filter(name => slowSet.has(String(name)))
+  const finding = share === null ? 'Review wastage: no stock remaining' : 'Use in promos: ' + Math.round(share) + "% of this item's current stock spoiled"
+  return {
+    key: 'wastage', metric: 'Wastage Risk', value: item.name || 'Unknown item',
+    insight: finding + (linked.length ? ', slow seller: ' + linked[0] : '') +
+      (excluded ? '. Unrecorded or earlier units are excluded.' : ''),
+    impact: 'Medium', numbers: share === null ? [units] : [Math.round(share), units],
+    detail: { item: item.name, share, units, unit: item.unit, unitVersion: String(item.unit_version),
+      excludedAdjustments: excluded, unitSnapshotOnly: true },
   }
 }
 
@@ -431,9 +486,9 @@ async function fetchContext(client, { spanStart, end }, limits) {
   ] = await Promise.all([
     get(() => client.from("transactions").select(txnCols).gte("created_at", spanStart).lte("created_at", end).order("created_at", { ascending: true }).range(0, L.transactions || 999), []),
     get(() => client.from("customer_traffic").select("created_at,number_of_customer").gte("created_at", spanStart).lte("created_at", end).order("created_at", { ascending: true }).range(0, L.traffic || 499), []),
-    get(() => client.from("inventory").select("id,name,stock_quantity,unit").order("name").range(0, L.inventory || 100), []),
+    get(() => unitReads.readUnitRows(versioned => client.from("inventory").select(unitReads.inventoryColumns(versioned)).order("name").range(0, L.inventory || 100)), []),
     get(() => client.from("product_recipes").select("product_id,inventory_id,qty_per_sale").range(0, L.recipes || 499), []),
-    get(() => client.from("inventory_adjustments").select("inventory_id,change_amount,reason,created_at").gte("created_at", spanStart).lte("created_at", end).order("created_at", { ascending: true }).range(0, L.adjustments || 499), []),
+    get(() => unitReads.readUnitRows(versioned => client.from("inventory_adjustments").select("*,change_amount_text:change_amount::text" + (versioned ? ",unit_version_text:unit_version::text" : "")).gte("created_at", spanStart).lte("created_at", end).order("created_at", { ascending: true }).range(0, L.adjustments || 499)), []),
     get(() => client.from("refunds").select("refund_amount,created_at,transaction_id").gte("created_at", spanStart).lte("created_at", end).order("created_at", { ascending: true }).range(0, L.refunds || 499), []),
     get(() => client.from("discounts").select("*").order("name").range(0, L.discounts || 99), []),
     get(() => client.from("products").select("id,product_name").order("product_name").range(0, L.products || 100), []),

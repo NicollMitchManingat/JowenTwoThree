@@ -202,6 +202,42 @@ describe("reorderCover", () => {
 })
 
 describe("wastageRisk", () => {
+  it('never sums losses across kg, grams and liters after units are recorded', () => {
+    const out = wastageRisk({ inventory: [
+      { id: 'kg', name: 'Flour', unit: 'kg', unit_version: '1', stock_quantity: 10 },
+      { id: 'ml', name: 'Milk', unit: 'mL', unit_version: '1', stock_quantity: 100000 },
+    ], adjustments: [{ inventory_id: 'kg', change_amount: -2, reason: 'spoiled', unit_snapshot: 'kg', unit_version: '1' }] }, CFG)
+    expect(out.value).toBe('Flour')
+    expect(out.detail.share).toBe(20)
+    expect(out.detail.unit).toBe('kg')
+  })
+  it('excludes unknown units and even matching labels from older versions', () => {
+    const out = wastageRisk({ inventory: [{ id: 'i1', name: 'Flour', unit: 'kg', unit_version: '2', stock_quantity: 10 }],
+      adjustments: [
+        { inventory_id: 'i1', change_amount: -5000, reason: 'spoiled' },
+        { inventory_id: 'i1', change_amount: -100, reason: 'spoiled', unit_snapshot: 'kg', unit_version: '0' },
+      ] }, CFG)
+    expect(out.metric).toBe('Wastage Review')
+    expect(out.detail.excludedAdjustments).toBe(2)
+    expect(out.numbers).toEqual([])
+  })
+  it('reports known current loss with an explicit incomplete-history warning', () => {
+    const out = wastageRisk({ inventory: [{ id: 'i1', name: 'Flour', unit: 'g', unit_version: '1', stock_quantity: 1000 }],
+      adjustments: [
+        { inventory_id: 'i1', change_amount: -200, reason: 'spoiled', unit_snapshot: 'g', unit_version: '1' },
+        { inventory_id: 'i1', change_amount: -3, reason: 'spoiled' },
+      ] }, CFG)
+    expect(out.detail.share).toBe(20)
+    expect(out.detail.units).toBe(200)
+    expect(out.insight).toMatch(/earlier units are excluded/)
+  })
+  it('does not invent a percentage when no current stock remains', () => {
+    const out = wastageRisk({ inventory: [{ id: 'i1', name: 'Flour', unit: 'g', unit_version: '1', stock_quantity: 0 }],
+      adjustments: [{ inventory_id: 'i1', change_amount: -2, reason: 'spoiled', unit_snapshot: 'g', unit_version: '1' }] }, CFG)
+    expect(out.detail.share).toBeNull()
+    expect(out.insight).toMatch(/no stock remaining/)
+    expect(out.numbers.every(Number.isFinite)).toBe(true)
+  })
   const inventory = [
     { id: "i1", name: "Strawberries", stock_quantity: 20 },
     { id: "i2", name: "Milk", stock_quantity: 80 },

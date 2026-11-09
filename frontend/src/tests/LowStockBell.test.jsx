@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import LowStockBell from '../components/inventory/LowStockBell'
 import { saveStockCache } from '../services/stockCache'
@@ -106,6 +106,20 @@ describe('LowStockBell', () => {
       expect(db.getLowStockItems).toHaveBeenCalled()
     })
     expect(screen.getByTestId('low-stock-bell')).toHaveClass('stock-bell--small')
+  })
+
+  it('refreshes alert counts after a threshold edit and ignores older pending reads', async () => {
+    let finishOldRead
+    db.getLowStockItems.mockImplementationOnce(() => new Promise(resolve => { finishOldRead = resolve }))
+    const { rerender } = render(<LowStockBell refreshKey={0} />)
+    await waitFor(() => expect(db.getLowStockItems).toHaveBeenCalledTimes(1))
+    db.getLowStockItems.mockResolvedValue([])
+    rerender(<LowStockBell refreshKey={1} />)
+    await waitFor(() => expect(db.getLowStockItems).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(screen.getByTestId('low-stock-bell')).toHaveAttribute('aria-busy', 'false'))
+    await act(async () => finishOldRead([{ id: 'i1', name: 'Milk', stock_quantity: 2 }]))
+    await waitFor(() => expect(screen.getByTestId('low-stock-bell')).toHaveAttribute('data-severity', 'clear'))
+    expect(screen.queryByTestId('low-stock-bell-count')).not.toBeInTheDocument()
   })
 
   it('should show the empty state when fully stocked', async () => {

@@ -14,7 +14,7 @@ export const STOCK_ALERTS_EXIT_MS = 180
 // `size="small"` matches compact neighbors (POS steppers); default matches
 // standard buttons (Inventory "Add Item"). Fixed square in both variants so
 // the button never shifts when alerts load or the spinner shows.
-export default function LowStockBell({ size = 'default' }) {
+export default function LowStockBell({ size = 'default', refreshKey }) {
   const [lowStockItems, setLowStockItems] = useState([])
   const [outOfStockItems, setOutOfStockItems] = useState([])
   const [lowStockLoading, setLowStockLoading] = useState(false)
@@ -23,6 +23,7 @@ export default function LowStockBell({ size = 'default' }) {
   // it the dialog would vanish instantly on close (no exit animation).
   const [closing, setClosing] = useState(false)
   const closeTimer = useRef(null)
+  const alertRequest = useRef(0)
 
   const openModal = () => {
     if (closeTimer.current) {
@@ -50,15 +51,18 @@ export default function LowStockBell({ size = 'default' }) {
 
   useEffect(() => () => {
     if (closeTimer.current) clearTimeout(closeTimer.current)
+    alertRequest.current += 1
   }, [])
 
   const loadAlerts = async () => {
+    const request = ++alertRequest.current
     try {
       setLowStockLoading(true)
       const [lowRes, outRes] = await Promise.allSettled([
         db.getLowStockItems(5),
         db.getOutOfStockItems(),
       ])
+      if (request !== alertRequest.current) return
       // While the database is unreachable, derive alert counts from the
       // last-good stock snapshot so the bell doesn't read empty offline.
       const snap = (lowRes.status === 'rejected' || outRes.status === 'rejected')
@@ -76,7 +80,7 @@ export default function LowStockBell({ size = 'default' }) {
     } catch (err) {
       console.error('Failed to load low stock alerts:', err)
     } finally {
-      setLowStockLoading(false)
+      if (request === alertRequest.current) setLowStockLoading(false)
     }
   }
 
@@ -88,7 +92,7 @@ export default function LowStockBell({ size = 'default' }) {
     run()
     return () => { cancelled = true }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [refreshKey])
 
   const outCount = outOfStockItems.length
   const lowCount = lowStockItems.length

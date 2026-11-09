@@ -181,6 +181,17 @@ describe('authenticated inventory command validation (mocked database)', () => {
     expect((await request(app).post('/inventory').send({ action: 'create', operationKey: 'op-2', values: { name: 'Cups', stock_quantity: 0, unit: 'pcs', unit_price } })).status).toBe(200)
     expect(rpc).toHaveBeenCalledTimes(1)
   })
+
+  test.each([0, '0.25', '5000', '0.00000000000000001'])('accepts exact per-item threshold %s', async low_stock_threshold => {
+    const body = { action: 'update', id: 'item', operationKey: 'threshold', expectedUnitVersion: '1', values: { low_stock_threshold } }
+    expect((await require('supertest')(app).post('/inventory').send(body)).status).toBe(200)
+    expect(rpc).toHaveBeenCalledWith('jowen_inventory_command', { p_session_hash: 'test-session-hash', p_data: body })
+  })
+
+  test.each([null, '', -1, true, {}, [], 'NaN', 'Infinity', '1e2', '9'.repeat(129)])('rejects invalid threshold %j before database access', async low_stock_threshold => {
+    const result = await require('supertest')(app).post('/inventory').send({ action: 'update', id: 'item', operationKey: 'bad-threshold', values: { low_stock_threshold } })
+    expect(result.status).toBe(400);expect(rpc).not.toHaveBeenCalled()
+  })
   test.each([{ unit_price: -1 }, { unit_price: 1.001 }, { unit_price: 'NaN' }, { unit_price: '' }, { unit_price: true }, { unit_price: 10000000000 }, { stock_quantity: null }, { stock_quantity: '' }, { stock_quantity: false }, { unit: '' }, { unit: null }, { total_amount: 12 }])('rejects unsafe fields %j before database access', async values => {
     const request = require('supertest')
     const result = await request(app).post('/inventory').send({ action: 'update', id: 'item', operationKey: 'op-3', baseStockQty: 8, values })

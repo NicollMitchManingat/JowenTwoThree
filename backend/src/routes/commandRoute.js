@@ -20,12 +20,13 @@ router.post('/inventory', modules('inventory'), run(async (req, res) => {
   if (!['admin', 'stockist'].includes(req.user.role)) throw a.httpError('Stockman access is required', 403)
   const body = req.body || {}, fields = body.values || {}
   if (!['create', 'update', 'archive'].includes(body.action) || typeof body.operationKey !== 'string' || !body.operationKey || body.operationKey.length > 128) throw a.httpError('Invalid inventory command')
-  if (Array.isArray(fields) || typeof fields !== 'object' || Object.keys(fields).some(k => !['name', 'category', 'unit', 'stock_quantity', 'unit_price'].includes(k))) throw a.httpError('Invalid inventory fields')
+  if (Array.isArray(fields) || typeof fields !== 'object' || Object.keys(fields).some(k => !['name', 'category', 'unit', 'stock_quantity', 'unit_price', 'low_stock_threshold'].includes(k))) throw a.httpError('Invalid inventory fields')
   if (body.action === 'create' && (!fields.name || fields.stock_quantity == null)) throw a.httpError('Item name and quantity are required')
   const numericValue = value => ['number', 'string'].includes(typeof value) && String(value).trim() !== '' && Number.isFinite(Number(value)) && Number(value) >= 0
   if (fields.name !== undefined && (typeof fields.name !== 'string' || !fields.name.trim())) throw a.httpError('Item name is required')
   if (fields.unit !== undefined && (typeof fields.unit !== 'string' || !fields.unit.trim() || fields.unit.trim().length > 32)) throw a.httpError('Unit of measurement is required (up to 32 characters)')
   if (fields.stock_quantity !== undefined && !numericValue(fields.stock_quantity)) throw a.httpError('Quantity must be a nonnegative number')
+  if (fields.low_stock_threshold !== undefined && (!numericValue(fields.low_stock_threshold) || !/^\d+(\.\d+)?$/.test(String(fields.low_stock_threshold)) || String(fields.low_stock_threshold).length > 128)) throw a.httpError('Low stock threshold must be a finite nonnegative decimal (up to 128 characters)')
   const exactPrice = body.action === 'update' && /^[1-9]\d{0,18}$/.test(String(body.expectedUnitVersion))
   if (fields.unit_price !== undefined && fields.unit_price !== null && (!numericValue(fields.unit_price) ||
     !(exactPrice ? /^\d+(\.\d+)?$/ : /^\d+(\.\d{1,2})?$/).test(String(fields.unit_price)) || String(fields.unit_price).length > 128 || Number(fields.unit_price) > 9999999999.99)) throw a.httpError(exactPrice ? 'Price must be a finite nonnegative decimal within the supported range' : 'Price must be nonnegative, with at most two decimal places (maximum 9,999,999,999.99)')

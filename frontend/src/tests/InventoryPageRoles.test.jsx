@@ -174,6 +174,55 @@ describe('InventoryPage roles', () => {
     isRetryableError.mockReturnValue(false)
   })
 
+  it.each([['admin', '0'], ['stockist', '2.00000000000000001']])('lets %s set a threshold without rounding stock', async (userRole, threshold) => {
+    const item = { id: 'i1', name: 'Milk', category: 'Dairy', unit: 'L', stock_quantity: '1.0050000000000001', low_stock_threshold: '5', unit_version: '1', updated_at: '2026-11-09T00:00:00Z' }
+    db.getInventory.mockResolvedValue([item])
+    db.updateInventoryItem.mockImplementationOnce(async () => { db.getInventory.mockResolvedValue([{ ...item, low_stock_threshold: threshold }]); return {} })
+    render(<InventoryPage userRole={userRole} />)
+    fireEvent.doubleClick((await screen.findByText('Milk')).closest('tr'))
+    const dialog = screen.getByRole('dialog', { name: 'Edit Item' })
+    expect(screen.getByLabelText('Low stock threshold')).toHaveValue(5)
+    fireEvent.change(screen.getByLabelText('Low stock threshold'), { target: { value: threshold } })
+    expect(within(dialog).getByText(threshold === '0' ? 'Good' : 'Low Stock')).toBeVisible()
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(db.updateInventoryItem).toHaveBeenCalledWith('i1', { name: 'Milk', category: 'Dairy', unit: 'L', low_stock_threshold: threshold }, { baseStockQty: item.stock_quantity, expectedUnitVersion: '1', expectedUpdatedAt: item.updated_at }))
+    expect(db.updateInventoryItem.mock.calls[0][1]).not.toHaveProperty('stock_quantity')
+    await waitFor(() => expect(db.getLowStockItems.mock.calls.length).toBeGreaterThan(1))
+  })
+
+  it.each(['', '-1', '1e2', '9'.repeat(129)])('rejects invalid threshold %s before saving', async threshold => {
+    render(<InventoryPage userRole="admin" />)
+    fireEvent.doubleClick((await screen.findByText('Milk')).closest('tr'))
+    fireEvent.change(screen.getByLabelText('Low stock threshold'), { target: { value: threshold } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save', exact: true }))
+    expect(screen.getByRole('alert')).toHaveTextContent('Low stock threshold must be zero or a positive decimal')
+    expect(db.updateInventoryItem).not.toHaveBeenCalled()
+  })
+
+  it('creates an item with its chosen fractional threshold', async () => {
+    render(<InventoryPage userRole="admin" />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Add Item' }))
+    expect(screen.getByLabelText('Low stock threshold')).toHaveValue(5)
+    fireEvent.change(screen.getByLabelText('Item Name'), { target: { value: 'Cream' } })
+    fireEvent.change(screen.getByLabelText('Quantity'), { target: { value: '0' } })
+    fireEvent.change(screen.getByLabelText('Low stock threshold'), { target: { value: '0.25' } })
+    fireEvent.click(within(screen.getByRole('dialog', { name: 'Add Item' })).getByRole('button', { name: 'Add Item' }))
+    await waitFor(() => expect(db.createInventoryItem).toHaveBeenCalledWith(expect.objectContaining({ name: 'Cream', low_stock_threshold: '0.25' })))
+  })
+
+  it('queues a threshold edit with the original quantity, timestamp and unit version', async () => {
+    const item = { id: 'i1', name: 'Milk', unit: 'L', stock_quantity: '8.0000000000000001', low_stock_threshold: '5', unit_version: '1', updated_at: '2026-11-09T00:00:00Z' }
+    db.getInventory.mockResolvedValue([item]);isRetryableError.mockReturnValue(true)
+    db.updateInventoryItem.mockRejectedValueOnce(new TypeError('Failed to fetch'))
+    vi.spyOn(window, 'alert').mockImplementation(() => {})
+    render(<InventoryPage userRole="stockist" />)
+    fireEvent.doubleClick((await screen.findByText('Milk')).closest('tr'))
+    fireEvent.change(screen.getByLabelText('Low stock threshold'), { target: { value: '10.25' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save', exact: true }))
+    await waitFor(() => expect(db.queueInventoryUpdate).toHaveBeenCalledWith('i1', { name: 'Milk', category: 'Other', unit: 'L', low_stock_threshold: '10.25' }, { baseStockQty: item.stock_quantity, expectedUnitVersion: '1', expectedUpdatedAt: item.updated_at }))
+    expect(screen.getByTestId('status-filter-low')).toHaveTextContent('Low Stock (1)')
+  })
+
   it('should give admins toolbar edit, wastage, and delete controls', async () => {
     render(<InventoryPage userRole="admin" />)
 
@@ -238,7 +287,7 @@ describe('InventoryPage roles', () => {
     await user.type(screen.getByLabelText('Price per pcs (₱)'), '0')
     expect(screen.getByLabelText('Total Amount')).toHaveTextContent('₱0.00')
     await user.click(within(screen.getByRole('dialog', { name: 'Add Item' })).getByRole('button', { name: 'Add Item' }))
-    await waitFor(() => expect(db.createInventoryItem).toHaveBeenCalledWith({ name: 'Cups', category: 'Ingredients', stock_quantity: 0, unit: 'pcs', unit_price: 0 }))
+    await waitFor(() => expect(db.createInventoryItem).toHaveBeenCalledWith({ name: 'Cups', category: 'Ingredients', stock_quantity: 0, unit: 'pcs', unit_price: 0, low_stock_threshold: '5' }))
   })
 
   it.each(['-1', '1.001', '10000000000'])('rejects invalid unit price %s without sending an update', async price => {

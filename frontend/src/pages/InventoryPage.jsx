@@ -5,7 +5,7 @@ import LowStockBell from '../components/inventory/LowStockBell';
 import UnitConversionModal from '../components/inventory/UnitConversionModal';
 import LoadingSkeleton from '../components/analytics/LoadingSkeleton';
 import { saveStockCache, loadStockCache } from '../services/stockCache';
-import { formatStock, formatInventoryMoney, inventoryTotal, formatUnitPrice, inventoryStatus, compareStock, subtractStock } from '../utils/formatStock';
+import { formatStock, formatInventoryMoney, inventoryTotal, formatUnitPrice, inventoryStatus, lowStockThreshold, compareStock, subtractStock } from '../utils/formatStock';
 import { processQueue, offlineQueue } from '../services/offlineQueue';
 
 const PAGE_SIZE = 10;
@@ -48,6 +48,7 @@ export default function InventoryPage({ userRole }) {
   const [saving, setSaving] = useState(false);
   const saveBusy = useRef(false);
   const [formError, setFormError] = useState('');
+  const [alertRefreshKey, setAlertRefreshKey] = useState(0);
   const [inventoryData, setInventoryData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(null);
@@ -65,7 +66,7 @@ export default function InventoryPage({ userRole }) {
   const wastageReasons = ['spoiled', 'expired', 'damaged', 'overproduction', 'other'];
 
   const [formData, setFormData] = useState({
-    name: '', category: 'Ingredients', stock_quantity: '', unit: 'units', unit_price: ''
+    name: '', category: 'Ingredients', stock_quantity: '', unit: 'units', unit_price: '', low_stock_threshold: '5'
   });
 
   const categories = ['Ingredients', 'Dairy', 'Syrups', 'Packaging', 'Fruits', 'Other'];
@@ -185,7 +186,7 @@ export default function InventoryPage({ userRole }) {
   };
 
   const handleOpenAdd = () => {
-    setFormData({ name: '', category: 'Ingredients', stock_quantity: '', unit: 'units', unit_price: '' });
+    setFormData({ name: '', category: 'Ingredients', stock_quantity: '', unit: 'units', unit_price: '', low_stock_threshold: '5' });
     setFormError(''); setOriginalItem(null); setQuantityEdited(false);
     setIsEditing(false);
     setEditId(null);
@@ -195,7 +196,7 @@ export default function InventoryPage({ userRole }) {
   const handleOpenEdit = (item) => {
     if (!canManage || item._pendingSync || showModal) return;
     setSelectedId(item.id);
-    setFormData({ name: item.name, category: item.category || 'Other', stock_quantity: quantityInput(item.stock_quantity), unit: item.unit || 'units', unit_price: item.unit_price ?? '' });
+    setFormData({ name: item.name, category: item.category || 'Other', stock_quantity: quantityInput(item.stock_quantity), unit: item.unit || 'units', unit_price: item.unit_price ?? '', low_stock_threshold: String(lowStockThreshold(item)) });
     setFormError(''); setOriginalItem(item); setQuantityEdited(false);
     setIsEditing(true);
     setEditId(item.id);
@@ -265,9 +266,12 @@ export default function InventoryPage({ userRole }) {
     if (saveBusy.current || !canManage) return;
     const quantity = Number(isEditing && !quantityEdited ? originalItem?.stock_quantity : quantityInput(formData.stock_quantity));
     const priceText = String(formData.unit_price).trim();
+    const thresholdText = String(formData.low_stock_threshold).trim();
+    const thresholdUnchanged = isEditing && compareStock(thresholdText, lowStockThreshold(originalItem)) === 0;
     if (!formData.name.trim()) { setFormError('Item name is required.'); return; }
     if (String(formData.stock_quantity).trim() === '' || !Number.isFinite(quantity) || Number(formData.stock_quantity) < 0) { setFormError('Quantity must be zero or a positive number.'); return; }
     if (!formData.unit.trim() || formData.unit.trim().length > 32) { setFormError('Unit is required (up to 32 characters).'); return; }
+    if (!thresholdUnchanged && (!/^\d+(\.\d+)?$/.test(thresholdText) || thresholdText.length > 128 || !Number.isFinite(Number(thresholdText)))) { setFormError('Low stock threshold must be zero or a positive decimal number (up to 128 characters).'); return; }
     const priceUnchanged = isEditing && priceText === String(originalItem?.unit_price ?? '');
     const exactPrice = isEditing && Number(originalItem?.unit_version) > 0;
     if (!priceUnchanged && priceText !== '' && (!(exactPrice ? /^\d+(\.\d+)?$/ : /^\d+(\.\d{1,2})?$/).test(priceText) || priceText.length > 128 || compareStock(priceText, '9999999999.99') > 0)) { setFormError(exactPrice ? 'Enter a nonnegative unit price (maximum 9,999,999,999.99; up to 128 characters).' : 'Price must be nonnegative, with at most two decimal places (maximum 9,999,999,999.99).'); return; }
@@ -279,6 +283,7 @@ export default function InventoryPage({ userRole }) {
     }
     // Metadata-only edits must not rewrite high-precision stored balances.
     if (!isEditing || (quantityEdited && compareStock(quantity, originalItem?.stock_quantity) !== 0)) updates.stock_quantity = quantity;
+    if (!thresholdUnchanged) updates.low_stock_threshold = thresholdText;
     const unitPrice = priceText === '' ? null : exactPrice ? priceText : Number(priceText);
     if (!isEditing || (unitPrice === null ? originalItem?.unit_price != null : originalItem?.unit_price == null || compareStock(unitPrice, originalItem.unit_price) !== 0)) updates.unit_price = unitPrice;
     try {
@@ -297,6 +302,7 @@ export default function InventoryPage({ userRole }) {
       }
       setShowModal(false)
       await loadInventory()
+      if (Object.hasOwn(updates, 'low_stock_threshold')) setAlertRefreshKey(key => key + 1)
     } catch (err) {
       if (isRetryableError(err) && isEditing && editId) {
         try {
@@ -453,13 +459,19 @@ export default function InventoryPage({ userRole }) {
               <p className="text-sm text-muted">Quantity and price use this unit. Ordinary edits do not convert units. Admins can select the item and use Change unit to review a conversion.</p>
               {isEditing && <p className="text-sm text-muted">Exact balance: {formatStock(originalItem?.stock_quantity)} {originalItem?.unit}. The quantity input uses two decimal places; leaving it unchanged preserves this balance.</p>}
               <div className="form-group">
+                <label htmlFor="inventory-threshold">Low stock threshold</label>
+                <input id="inventory-threshold" type="number" className="form-input" min="0" step="any" aria-describedby="inventory-threshold-help"
+                  value={formData.low_stock_threshold} onChange={e => setFormData({ ...formData, low_stock_threshold: e.target.value })} />
+                <p id="inventory-threshold-help" className="text-sm text-muted">Alert when quantity is at or below this level in {formData.unit.trim() || 'the item\u2019s unit'}. Set to 0 for out-of-stock alerts only.</p>
+              </div>
+              <div className="form-group">
                 <label htmlFor="inventory-price">Price per {formData.unit.trim() || 'unit'} (₱)</label>
                 <input id="inventory-price" type="number" className="form-input" placeholder="Not recorded" min="0" max="9999999999.99" step={Number(originalItem?.unit_version) > 0 ? 'any' : '0.01'}
                   value={formData.unit_price} onChange={e => setFormData({ ...formData, unit_price: e.target.value })} />
                 <p className="text-sm text-muted">Leave blank if the price is not recorded.</p>
               </div>
               <div className="flex justify-between items-center">
-                <span>Status</span><span>{getStatus({ ...originalItem, stock_quantity: exactFormQuantity })}</span>
+                <span>Status</span><span>{getStatus({ ...originalItem, stock_quantity: exactFormQuantity, low_stock_threshold: formData.low_stock_threshold })}</span>
               </div>
               <div className="flex justify-between items-center mt-2">
                 <span>Total Amount</span><output aria-label="Total Amount">{formatInventoryMoney(inventoryTotal(exactFormQuantity, formData.unit_price))}</output>
@@ -591,7 +603,7 @@ export default function InventoryPage({ userRole }) {
               </button>
             </>
           )}
-          <LowStockBell />
+          <LowStockBell refreshKey={alertRefreshKey} />
         </div>
       </div>
 

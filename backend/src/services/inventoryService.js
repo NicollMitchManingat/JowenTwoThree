@@ -1,9 +1,9 @@
 const inventorySupabaseStore = require('./inventorySupabaseStore')
 
-function computeStatus(inStock) {
+function computeStatus(inStock, threshold = 5) {
   if (inStock === 0) return 'OutOfStock'
-  if (inStock <= 5) return 'Low'
-  if (inStock <= 10) return 'NearingExpiration'
+  if (inStock <= threshold) return 'Low'
+  if (inStock <= threshold * 2) return 'NearingExpiration'
   return 'Good'
 }
 
@@ -24,7 +24,7 @@ function mapInventoryRow(row) {
     unit: row.unit || 'units',
     unit_price: row.unit_price ?? null,
     total_amount: row.total_amount ?? null,
-    status: computeStatus(inStock),
+    status: computeStatus(inStock, Number(row.low_stock_threshold ?? 5)),
   }
 }
 

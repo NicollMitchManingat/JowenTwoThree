@@ -63,6 +63,22 @@ const inventoryStore = require('../src/services/inventorySupabaseStore')
 const { __setSupabaseClient, getAllInventory, getInventoryById } = inventoryStore
 
 describe('Supabase Inventory Store', () => {
+  test('keeps decimal strings and bigint versions exact in root and nested rows', () => {
+    const result = inventoryStore.exactUnitRow({ stock_quantity: 1, stock_quantity_text: '1.000000000000000001', unit_version_text: '9007199254740993',
+      qty_per_sale_text: '0.000000000000000123', inventory: { unit_price_text: '0.00000123', low_stock_threshold_text: '5000' } })
+    expect(result).toEqual({ stock_quantity: '1.000000000000000001', unit_version: '9007199254740993', qty_per_sale: '0.000000000000000123', inventory: { unit_price: '0.00000123', low_stock_threshold: '5000' } })
+  })
+  test('uses a compatible selection only when foundation columns are missing', async () => {
+    const build = vi.fn().mockResolvedValueOnce({ error: { code: '42703', message: 'column unit_version does not exist' } })
+      .mockResolvedValueOnce({ data: [{ stock_quantity_text: '0.1234567890123456789' }], error: null })
+    expect((await inventoryStore.readUnitRows(build)).data[0].stock_quantity).toBe('0.1234567890123456789')
+    expect(build.mock.calls).toEqual([[true], [false]])
+  })
+  test.each([{ code: '42501', message: 'permission denied' }, { code: '42703', message: 'column name does not exist' }])('does not weaken reads after error %j', async error => {
+    const build = vi.fn().mockResolvedValue({ error })
+    expect((await inventoryStore.readUnitRows(build)).error).toBe(error)
+    expect(build).toHaveBeenCalledTimes(1)
+  })
   test('calls supabase and returns all inventory rows', async () => {
     const mockData = [
       { id: 'I-001', name: 'Coffee Beans', category: 'Beverage', inStock: 25 },
@@ -145,6 +161,15 @@ describe('authenticated inventory command validation (mocked database)', () => {
     const body = { action: 'update', id: 'item', operationKey: 'versioned', expectedUnitVersion: '123456789012345678', values: { name: 'Flour' } }
     expect((await require('supertest')(app).post('/inventory').send(body)).status).toBe(200)
     expect(rpc).toHaveBeenCalledWith('jowen_inventory_command', { p_session_hash: 'test-session-hash', p_data: body })
+  })
+  test('preserves sub-cent prices for versioned items but rejects them for baseline items', async () => {
+    const request = require('supertest')
+    const body = { action: 'update', id: 'item', operationKey: 'precise-price', expectedUnitVersion: '1', values: { unit_price: '0.00000123456789' } }
+    expect((await request(app).post('/inventory').send(body)).status).toBe(200)
+    expect(rpc).toHaveBeenCalledWith('jowen_inventory_command', { p_session_hash: 'test-session-hash', p_data: body })
+    rpc.mockClear()
+    expect((await request(app).post('/inventory').send({ ...body, expectedUnitVersion: '0' })).status).toBe(400)
+    expect(rpc).not.toHaveBeenCalled()
   })
 
   test.each([null, -1, 0.5, '01', '9223372036854775808', Number.MAX_SAFE_INTEGER + 1])('rejects invalid unit versions: %s', async expectedUnitVersion => {

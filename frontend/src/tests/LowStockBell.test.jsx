@@ -121,7 +121,7 @@ describe('LowStockBell', () => {
 
   it('should derive alert counts from the snapshot when fetches fail', async () => {
     saveStockCache([
-      { id: 'i1', name: 'Milk', stock_quantity: 2 },
+      { id: 'i1', name: 'Milk', stock_quantity: 2000, low_stock_threshold: 5000, unit: 'mL' },
       { id: 'i2', name: 'Beans', stock_quantity: 0 },
     ])
     db.getLowStockItems.mockRejectedValueOnce(new Error('Request timed out after 8s.'))

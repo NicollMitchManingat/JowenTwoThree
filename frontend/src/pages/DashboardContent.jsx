@@ -4,7 +4,7 @@ import { TrendingUp, AlertTriangle, Package, BarChart3, ShoppingBag, Calendar, C
 import { db } from '../services/db';
 import { formatElapsed, loadSessionSummary, HISTORY_PAGE_SIZE } from '../services/sessionAnalytics';
 import { productAPI } from '../services/productAPI';
-import { formatStock } from '../utils/formatStock';
+import { formatStock, inventoryStatus } from '../utils/formatStock';
 import { netRevenue, paymentMix, voucherStats, refundSummary, customerTotals, bucketHourlySales, aggregateWeekdayPattern } from '../services/salesAnalytics';
 
 import SummaryCard from "../components/analytics/SummaryCard";
@@ -252,7 +252,7 @@ export default function DashboardContent({ activeTab, user, onNavigate }) {
     let cancelled = false;
     setInventoryLoading(true); setInventoryError(null);
     db.getInventoryStatus().then(items => {
-      if (!cancelled) setLowStock((items || []).filter(item => Number(item.stock_quantity) <= 5));
+      if (!cancelled) setLowStock((items || []).filter(item => inventoryStatus(item) !== 'good'));
     }).catch(err => {
       if (!cancelled) setInventoryError(err.message || 'Failed to load current inventory.');
     }).finally(() => { if (!cancelled) setInventoryLoading(false); });

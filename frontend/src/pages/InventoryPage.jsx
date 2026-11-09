@@ -1,10 +1,11 @@
 import { useState, useEffect, useRef } from 'react';
-import { Search, Plus, Edit, Trash2, X, AlertCircle } from 'lucide-react';
+import { Search, Plus, Edit, Trash2, X, AlertCircle, ArrowRightLeft } from 'lucide-react';
 import { db, isRetryableError, isQueuedRecord } from '../services/db';
 import LowStockBell from '../components/inventory/LowStockBell';
+import UnitConversionModal from '../components/inventory/UnitConversionModal';
 import LoadingSkeleton from '../components/analytics/LoadingSkeleton';
 import { saveStockCache, loadStockCache } from '../services/stockCache';
-import { formatStock, formatInventoryMoney, inventoryTotal } from '../utils/formatStock';
+import { formatStock, formatInventoryMoney, inventoryTotal, formatUnitPrice, inventoryStatus, compareStock, subtractStock } from '../utils/formatStock';
 import { processQueue, offlineQueue } from '../services/offlineQueue';
 
 const PAGE_SIZE = 10;
@@ -12,7 +13,7 @@ const quantityInput = value => Number(value).toLocaleString('en-US', {
   useGrouping: false, minimumFractionDigits: 2, maximumFractionDigits: 2,
 });
 const isRowControl = target => !!target.closest('input, button, select, textarea, a, [role="button"]');
-const stockVersion = item => ({ baseStockQty: Number(item?.stock_quantity),
+const stockVersion = item => ({ baseStockQty: item?.stock_quantity,
   ...(item?.unit_version != null ? { expectedUnitVersion: String(item.unit_version) } : {}),
   ...(item?.updated_at ? { expectedUpdatedAt: item.updated_at } : {}) });
 
@@ -23,18 +24,15 @@ const STATUS_OPTIONS = [
   { key: 'out', label: 'Out of Stock' },
 ];
 
-const statusKeyOf = (stock) => {
-  const s = Number(stock);
-  if (s <= 0) return 'out';
-  if (s <= 5) return 'low';
-  return 'good';
-};
+const statusKeyOf = inventoryStatus;
 
 export default function InventoryPage({ userRole }) {
   // Stockman staff manage stock day-to-day.
   // Archiving retains the item and its adjustment history.
   const canManage = userRole === 'admin' || userRole === 'stockist';
   const [deleteTarget, setDeleteTarget] = useState(null);
+  const [conversionItem, setConversionItem] = useState(null);
+  const [unitNotice, setUnitNotice] = useState('');
   const [deleting, setDeleting] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedId, setSelectedId] = useState(null);
@@ -79,6 +77,7 @@ export default function InventoryPage({ userRole }) {
       const snap = loadStockCache()
       if (snap) {
         setInventoryData(snap.items)
+        setStaleSince(snap.savedAt)
         // Painted: clear loading so the early return below doesn't keep
         // the skeleton over usable data while live revalidation runs.
         setLoading(false)
@@ -148,11 +147,11 @@ export default function InventoryPage({ userRole }) {
   // Pills count within the current search so "Low (3)" always matches
   // what the user is looking at.
   const statusCounts = { all: searchFiltered.length, good: 0, low: 0, out: 0 };
-  searchFiltered.forEach(item => { statusCounts[statusKeyOf(item.stock_quantity)] += 1; });
+  searchFiltered.forEach(item => { statusCounts[statusKeyOf(item)] += 1; });
 
   const filteredData = statusFilter === 'all'
     ? searchFiltered
-    : searchFiltered.filter(item => statusKeyOf(item.stock_quantity) === statusFilter);
+    : searchFiltered.filter(item => statusKeyOf(item) === statusFilter);
 
   const totalPages = Math.max(1, Math.ceil(filteredData.length / PAGE_SIZE));
   const safePage = Math.min(page, totalPages - 1);
@@ -270,7 +269,8 @@ export default function InventoryPage({ userRole }) {
     if (String(formData.stock_quantity).trim() === '' || !Number.isFinite(quantity) || Number(formData.stock_quantity) < 0) { setFormError('Quantity must be zero or a positive number.'); return; }
     if (!formData.unit.trim() || formData.unit.trim().length > 32) { setFormError('Unit is required (up to 32 characters).'); return; }
     const priceUnchanged = isEditing && priceText === String(originalItem?.unit_price ?? '');
-    if (!priceUnchanged && priceText !== '' && (!/^\d+(\.\d{1,2})?$/.test(priceText) || Number(priceText) > 9999999999.99)) { setFormError('Price must be nonnegative, with at most two decimal places (maximum 9,999,999,999.99).'); return; }
+    const exactPrice = isEditing && Number(originalItem?.unit_version) > 0;
+    if (!priceUnchanged && priceText !== '' && (!(exactPrice ? /^\d+(\.\d+)?$/ : /^\d+(\.\d{1,2})?$/).test(priceText) || priceText.length > 128 || compareStock(priceText, '9999999999.99') > 0)) { setFormError(exactPrice ? 'Enter a nonnegative unit price (maximum 9,999,999,999.99; up to 128 characters).' : 'Price must be nonnegative, with at most two decimal places (maximum 9,999,999,999.99).'); return; }
     saveBusy.current = true; setSaving(true); setFormError('');
     const updates = {
       name: formData.name.trim(),
@@ -278,9 +278,9 @@ export default function InventoryPage({ userRole }) {
       unit: formData.unit.trim(),
     }
     // Metadata-only edits must not rewrite high-precision stored balances.
-    if (!isEditing || quantity !== Number(originalItem?.stock_quantity)) updates.stock_quantity = quantity;
-    const unitPrice = priceText === '' ? null : Number(priceText);
-    if (!isEditing || unitPrice !== (originalItem?.unit_price == null ? null : Number(originalItem.unit_price))) updates.unit_price = unitPrice;
+    if (!isEditing || (quantityEdited && compareStock(quantity, originalItem?.stock_quantity) !== 0)) updates.stock_quantity = quantity;
+    const unitPrice = priceText === '' ? null : exactPrice ? priceText : Number(priceText);
+    if (!isEditing || (unitPrice === null ? originalItem?.unit_price != null : originalItem?.unit_price == null || compareStock(unitPrice, originalItem.unit_price) !== 0)) updates.unit_price = unitPrice;
     try {
       if (isEditing && editId) {
         await db.updateInventoryItem(editId, updates, editVersion)
@@ -358,8 +358,8 @@ export default function InventoryPage({ userRole }) {
     if (!wastageItem || wastageBusy.current || !canManage) return;
     const qty = Number(wastageQty);
     const prevQty = Number(wastageItem.stock_quantity);
-    if (!Number.isFinite(qty) || qty <= 0 || qty > prevQty) { setWastageError('Wasted quantity must be greater than zero and no more than the available quantity.'); return; }
-    const newQty = prevQty - qty;
+    if (!Number.isFinite(qty) || compareStock(wastageQty, 0) <= 0 || !Number.isFinite(compareStock(wastageQty, prevQty)) || compareStock(wastageQty, wastageItem.stock_quantity) > 0) { setWastageError('Wasted quantity must be greater than zero and no more than the available quantity.'); return; }
+    const newQty = typeof wastageItem.stock_quantity === 'string' ? subtractStock(wastageItem.stock_quantity, wastageQty) : prevQty - qty;
     wastageBusy.current = true; setLoggingWastage(true); setWastageError('');
     // The server commits the quantity and adjustment together.
     try {
@@ -396,11 +396,7 @@ export default function InventoryPage({ userRole }) {
     } finally { wastageBusy.current = false; setLoggingWastage(false); }
   };
 
-  const getStatus = (stock) => {
-    if (stock <= 0) return 'Out of Stock'
-    if (stock <= 5) return 'Low Stock'
-    return 'Good'
-  }
+  const getStatus = item => ({ out: 'Out of Stock', low: 'Low Stock', good: 'Good' })[inventoryStatus(item)]
 
   if (loading) {
     return <div className="page-content"><LoadingSkeleton variant="inventory" /><p className="text-sm text-muted">If this takes over 8s, Supabase timed out — it will fail fast with a retry.</p></div>
@@ -412,6 +408,9 @@ export default function InventoryPage({ userRole }) {
 
   return (
     <div className="page-content record-list-page inventory-list-page">
+      {unitNotice && <p role="status" className="text-success">{unitNotice}</p>}
+      {conversionItem && userRole === 'admin' && <UnitConversionModal key={conversionItem.id} item={conversionItem}
+        onClose={() => setConversionItem(null)} onSuccess={() => { setConversionItem(null); setUnitNotice('Unit change completed.'); loadInventory(); }} />}
       {showModal && (
         <div className="modal-overlay" onClick={() => !saving && setShowModal(false)}>
           <div className="modal-content card inventory-item-modal" role="dialog" aria-label={isEditing ? 'Edit Item' : 'Add Item'} onClick={(e) => e.stopPropagation()}>
@@ -451,15 +450,16 @@ export default function InventoryPage({ userRole }) {
                     onChange={e => setFormData({ ...formData, unit: e.target.value })} />
                 </div>
               </div>
-              <p className="text-sm text-muted">Quantity and price use this unit. Changing the unit does not convert quantities. Units used by recipes must stay unchanged until those recipes are reviewed.</p>
+              <p className="text-sm text-muted">Quantity and price use this unit. Ordinary edits do not convert units. Admins can select the item and use Change unit to review a conversion.</p>
+              {isEditing && <p className="text-sm text-muted">Exact balance: {formatStock(originalItem?.stock_quantity)} {originalItem?.unit}. The quantity input uses two decimal places; leaving it unchanged preserves this balance.</p>}
               <div className="form-group">
                 <label htmlFor="inventory-price">Price per {formData.unit.trim() || 'unit'} (₱)</label>
-                <input id="inventory-price" type="number" className="form-input" placeholder="Not recorded" min="0" max="9999999999.99" step="0.01"
+                <input id="inventory-price" type="number" className="form-input" placeholder="Not recorded" min="0" max="9999999999.99" step={Number(originalItem?.unit_version) > 0 ? 'any' : '0.01'}
                   value={formData.unit_price} onChange={e => setFormData({ ...formData, unit_price: e.target.value })} />
                 <p className="text-sm text-muted">Leave blank if the price is not recorded.</p>
               </div>
               <div className="flex justify-between items-center">
-                <span>Status</span><span>{getStatus(Number(exactFormQuantity))}</span>
+                <span>Status</span><span>{getStatus({ ...originalItem, stock_quantity: exactFormQuantity })}</span>
               </div>
               <div className="flex justify-between items-center mt-2">
                 <span>Total Amount</span><output aria-label="Total Amount">{formatInventoryMoney(inventoryTotal(exactFormQuantity, formData.unit_price))}</output>
@@ -581,6 +581,8 @@ export default function InventoryPage({ userRole }) {
               <button className="btn btn-secondary" onClick={() => selectedItem && handleOpenEdit(selectedItem)} disabled={!canActOnSelected} title={selectedTitle('edit')} data-testid="toolbar-edit-btn">
                 <Edit size={16} /> Edit
               </button>
+              {userRole === 'admin' && <button className="btn btn-secondary" disabled={!canActOnSelected || !!staleSince} title={staleSince ? 'Refresh live inventory before changing units' : selectedTitle('change unit')}
+                onClick={() => { setUnitNotice(''); setConversionItem(selectedItem) }} data-testid="toolbar-unit-change-btn"><ArrowRightLeft size={16} /> Change unit</button>}
               <button className="btn btn-secondary" onClick={() => selectedItem && handleOpenWastage(selectedItem)} disabled={!canActOnSelected} title={selectedTitle('log wastage')} data-testid="toolbar-wastage-btn">
                 <AlertCircle size={16} /> Wastage
               </button>
@@ -634,7 +636,7 @@ export default function InventoryPage({ userRole }) {
           <tbody role="rowgroup">
             {filteredData.length > 0 ? pagedData.map(item => {
               const isSelected = String(selectedId) === String(item.id);
-              const status = getStatus(item.stock_quantity);
+              const status = getStatus(item);
               return (
               <tr
                 role="row"
@@ -676,7 +678,7 @@ export default function InventoryPage({ userRole }) {
                 <td role="cell" data-label="Category">{item.category || '-'}</td>
                 <td role="cell" data-label="Quantity">{formatStock(item.stock_quantity, { wholeNumber: true })}</td>
                 <td role="cell" data-label="Unit">{item.unit || 'units'}</td>
-                <td role="cell" data-label="Price per Unit">{item.unit_price == null ? <span className="text-muted">Not recorded</span> : <span>{formatInventoryMoney(item.unit_price)} / {item.unit || 'units'}</span>}</td>
+                <td role="cell" data-label="Price per Unit">{item.unit_price == null ? <span className="text-muted">Not recorded</span> : <span>{formatUnitPrice(item.unit_price)} / {item.unit || 'units'}</span>}</td>
                 <td role="cell" data-label="Status">
                   <span className={`badge ${status === 'Good' ? 'badge-success' : status === 'Low Stock' ? 'badge-warning' : 'badge-danger'}`}>
                     {status}

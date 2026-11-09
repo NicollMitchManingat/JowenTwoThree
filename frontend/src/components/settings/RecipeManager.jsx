@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { CookingPot, Plus, Pencil, Trash2, X, AlertTriangle, Search, Minus, CopyPlus, Check, ChevronDown } from 'lucide-react'
 import { db } from '../../services/db'
-import { formatStock } from '../../utils/formatStock'
+import { formatStock, addStock, subtractStock } from '../../utils/formatStock'
 
 // Admin recipe management: which inventory (and how much of it, in the
 // inventory row's own unit) each sale of a product deducts.
@@ -226,10 +226,9 @@ export default function RecipeManager() {
 
   const bumpQty = (delta) => {
     setForm((f) => {
-      const cur = Number(f.qty)
-      const base = Number.isFinite(cur) && f.qty !== '' ? cur : 0
-      const next = Math.max(0, Math.round((base + delta) * 100) / 100)
-      return { ...f, qty: next === 0 ? '' : String(next) }
+      const base = formatStock(f.qty) === '-' ? '0' : f.qty
+      const next = delta < 0 ? subtractStock(base, String(-delta)) : addStock(base, String(delta))
+      return { ...f, qty: next == null || next === '0' ? '' : next }
     })
   }
 
@@ -662,7 +661,7 @@ export default function RecipeManager() {
                       <button type="button" className="btn-icon-small" onClick={() => bumpQty(-0.01)} disabled={saving} aria-label="Decrease quantity" data-testid="recipe-qty-dec">
                         <Minus size={14} />
                       </button>
-                      <input type="number" className="form-input" placeholder="e.g., 0.20" step="0.01" min="0"
+                      <input type="number" className="form-input" placeholder="e.g., 0.20" step="any" min="0"
                         value={form.qty} onChange={(e) => setForm((f) => ({ ...f, qty: e.target.value }))}
                         data-testid="recipe-qty-input" required style={{ flex: 1 }} />
                       <button type="button" className="btn-icon-small" onClick={() => bumpQty(0.01)} disabled={saving} aria-label="Increase quantity" data-testid="recipe-qty-inc">
@@ -764,7 +763,7 @@ export default function RecipeManager() {
                             </div>
                           </div>
                           <input
-                            type="number" className="form-input" placeholder="Qty" step="0.01" min="0"
+                            type="number" className="form-input" placeholder="Qty" step="any" min="0"
                             style={{ width: '110px' }}
                             value={qty}
                             disabled={already || saving}

@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { Bell, BellOff, Loader2, Package, AlertTriangle, X } from 'lucide-react'
 import { db } from '../../services/db'
 import { loadStockCache } from '../../services/stockCache'
-import { formatStock } from '../../utils/formatStock'
+import { formatStock, isLowStock } from '../../utils/formatStock'
 
 // Exit duration (ms) for the stock-alerts modal — kept in sync with the
 // `stockAlertsOut` keyframes in App.css so unmount lands as the fade ends.
@@ -67,7 +67,7 @@ export default function LowStockBell({ size = 'default', wholeNumberQuantities =
       const snapItems = snap ? snap.items : []
       setLowStockItems(lowRes.status === 'fulfilled'
         ? (lowRes.value || [])
-        : snapItems.filter((i) => Number(i.stock_quantity) > 0 && Number(i.stock_quantity) <= 5))
+        : snapItems.filter(i => isLowStock(i)))
       setOutOfStockItems(outRes.status === 'fulfilled'
         ? (outRes.value || [])
         : snapItems.filter((i) => Number(i.stock_quantity) <= 0))

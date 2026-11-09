@@ -3,6 +3,7 @@
 const router = require('express').Router()
 const a = require('../services/accessService')
 const recipes = require('../services/recipeService')
+const unitReads = require('../services/inventorySupabaseStore')
 const reads = {
   products: ['pos', 'inventory', 'analytics'], product_categories: ['pos', 'inventory', 'analytics'],
   inventory: ['inventory', 'pos', 'analytics'], product_recipes: ['pos', 'analytics'],
@@ -72,27 +73,30 @@ async function execute(user, body, context) {
     }
     query = action === 'delete' ? query.delete() : query[action](data)
   }
-  // Return recipe quantities as decimal text, including before the foundation
-  // is installed. A JS number cannot reliably echo an exact compare-and-swap.
-  const selected = table === 'product_recipes'
-    ? (columns.startsWith('*') ? columns.replace('*', '*,qty_per_sale_text:qty_per_sale::text') : columns.replace('qty_per_sale', 'qty_per_sale:qty_per_sale::text'))
-    : columns
-  query = query.select(selected)
-  if (table === 'inventory' && action === 'select') query = query.eq('is_active', true)
-  for (const f of filters) query = query[f.op](f.column, f.value)
-  for (const o of orders) query = query.order(o.column, { ascending: o.ascending !== false })
   const start = Number.isInteger(body.start) && body.start >= 0 ? body.start : 0
   const count = Number.isInteger(body.count) && body.count > 0 ? Math.min(body.count, 5000) : 1000
-  query = query.range(start, start + count - 1)
-  if (body.single === true) query = query.single()
-  const result = await query
-  if (result.error) throw a.httpError('Data operation failed. Please retry.', 400)
-  const exactRecipe = row => {
-    if (!row || !Object.hasOwn(row, 'qty_per_sale_text')) return row
-    const { qty_per_sale_text, ...rest } = row
-    return { ...rest, qty_per_sale: qty_per_sale_text }
+  const build = versioned => {
+    let selected = columns
+    if (table === 'inventory') selected = unitReads.inventoryColumns(versioned)
+    if (table === 'product_recipes') {
+      selected = columns.startsWith('*') ? columns.replace('*', '*,qty_per_sale_text:qty_per_sale::text' +
+        (versioned ? ',inventory_unit_version_text:inventory_unit_version::text' : ''))
+        : columns.replace('qty_per_sale', 'qty_per_sale:qty_per_sale::text')
+      selected = selected.replace('inventory(*)', 'inventory(' + unitReads.inventoryColumns(versioned) + ')')
+    }
+    // Rebuild only read builders on a metadata fallback; mutations never retry.
+    let read = action === 'select' ? a.database().from(table) : query
+    read = read.select(selected)
+    if (table === 'inventory' && action === 'select') read = read.eq('is_active', true)
+    for (const f of filters) read = read[f.op](f.column, f.value)
+    for (const o of orders) read = read.order(o.column, { ascending: o.ascending !== false })
+    read = read.range(start, start + count - 1)
+    return body.single === true ? read.single() : read
   }
-  return table === 'product_recipes' ? Array.isArray(result.data) ? result.data.map(exactRecipe) : exactRecipe(result.data) : result.data
+  const result = ['inventory','product_recipes'].includes(table) && action === 'select'
+    ? await unitReads.readUnitRows(build) : await build(false)
+  if (result.error) throw a.httpError('Data operation failed. Please retry.', 400)
+  return result.data
 }
 router.post('/', async (req, res, next) => {
   try { res.json({ data: await execute(req.user, req.body || {}, req.auth) }) } catch (err) { next(err) }

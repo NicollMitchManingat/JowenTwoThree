@@ -1,10 +1,12 @@
 import { describe, it, expect } from 'vitest'
-import { formatStock, inventoryTotal, formatInventoryMoney } from '../utils/formatStock'
+import { formatStock, inventoryTotal, formatInventoryMoney, formatUnitPrice, compareStock, subtractStock, addStock, isLowStock } from '../utils/formatStock'
 
 describe('formatStock', () => {
   it.each([
     [0, '0'], [12, '12'], ['12.00', '12'],
     [0.25, '0.25'], ['8.50', '8.5'], [7.125, '7.125'],
+    ['0.000000000000000123456789', '0.000000000000000123456789'],
+    ['12345678901234567890.001', '12345678901234567890.001'], ['1e-7', '0.0000001'], ['0e3', '0'],
   ])('displays %s without padding or rounding its quantity', (quantity, expected) => {
     expect(formatStock(quantity)).toBe(expected)
   })
@@ -19,6 +21,22 @@ describe('formatStock', () => {
       expect(formatStock(quantity, { wholeNumber: true })).toBe(expected)
       expect(formatStock(quantity)).toBe(String(Number(quantity)))
     })
+})
+
+describe('unit-aware decimal display and thresholds', () => {
+  it.each([['0.00123', '₱0.00123'], ['1.23000', '₱1.23'], ['0', '₱0.00'], ['1234.00000000000001', '₱1,234.00000000000001']])('preserves unit price %s', (value, expected) => expect(formatUnitPrice(value)).toBe(expected))
+  it('compares and subtracts exact decimal stock balances', () => {
+    expect(compareStock('1.00000000000000001', '1')).toBe(1)
+    expect(subtractStock('1.00000000000000001', '0.00000000000000001')).toBe('1')
+    expect(subtractStock('1', '2')).toBeNull()
+    expect(addStock('0.00000000000000001', '0.01')).toBe('0.01000000000000001')
+  })
+  it('compares quantities to their own unit threshold including zero', () => {
+    expect(isLowStock({ stock_quantity: '3000', low_stock_threshold: '5000' })).toBe(true)
+    expect(isLowStock({ stock_quantity: '0.006', low_stock_threshold: '0.005' })).toBe(false)
+    expect(isLowStock({ stock_quantity: '0.0001', low_stock_threshold: '0' })).toBe(false)
+    expect(isLowStock({ stock_quantity: 4 })).toBe(true)
+  })
 })
 
 describe('inventory valuation', () => {

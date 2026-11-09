@@ -15,17 +15,141 @@ vi.mock('../services/db', () => ({
     createAdjustment: vi.fn().mockResolvedValue({}),
     queueInventoryUpdate: vi.fn().mockResolvedValue({}),
     queueInventoryDelete: vi.fn().mockResolvedValue({}),
+    previewInventoryUnitChange: vi.fn(),
+    confirmInventoryUnitChange: vi.fn(),
   },
   isRetryableError: vi.fn().mockReturnValue(false),
   isQueuedRecord: vi.fn((rec) => !!rec && rec._queued === true),
 }))
 
 vi.mock('../services/offlineQueue', () => ({
-  offlineQueue: { enqueue: vi.fn(), size: vi.fn().mockResolvedValue(0) },
+  offlineQueue: { enqueue: vi.fn(), size: vi.fn().mockResolvedValue(0), dequeueAll: vi.fn().mockResolvedValue([]) },
   processQueue: vi.fn().mockResolvedValue(),
 }))
 
 import { db, isRetryableError } from '../services/db'
+
+describe('admin unit conversion flow', () => {
+  const item = { id: 'i1', name: 'Flour', stock_quantity: '10.0000000000000001', unit: 'kg', unit_price: '1.23', unit_version: '0' }
+  const receipt = () => ({
+    previewKey: 'unit-preview:00000000-0000-4000-8000-000000000001', previewDigest: 'a'.repeat(64),
+    expiresAt: new Date(Date.now() + 300000).toISOString(), confirmationAvailable: true,
+    quote: { inventoryId: 'i1', unitBefore: 'kg', unitAfter: 'g', factor: '1000',
+      quantityBefore: '10.0000000000000001', quantityAfter: '10000.0000000000001',
+      priceBefore: '1.23', priceAfter: '0.00123', thresholdBefore: '5', thresholdAfter: '5000',
+      valueBefore: '12.30', valueAfter: '12.30', recipeCount: 1,
+      recipes: [{ productId: 'p1', productName: 'Bread', quantityBefore: '0.000000000000123456789', quantityAfter: '0.000000000123456789' }] },
+  })
+  beforeEach(() => {
+    vi.clearAllMocks(); localStorage.clear()
+    db.getInventory.mockResolvedValue([item])
+    db.previewInventoryUnitChange.mockReset().mockResolvedValue(receipt())
+    db.confirmInventoryUnitChange.mockReset().mockResolvedValue({ inventory: { ...item, unit: 'g', unit_version: '1' } })
+    offlineQueue.dequeueAll.mockResolvedValue([])
+    offlineQueue.size.mockResolvedValue(0)
+  })
+  afterEach(() => vi.restoreAllMocks())
+  const open = async (override = item) => {
+    db.getInventory.mockResolvedValue([override])
+    render(<InventoryPage userRole="admin" />)
+    fireEvent.click(await screen.findByLabelText('Select Flour'))
+    fireEvent.click(screen.getByTestId('toolbar-unit-change-btn'))
+    return screen.getByRole('dialog', { name: 'Change unit' })
+  }
+  const preview = async () => {
+    fireEvent.change(screen.getByLabelText('Reason'), { target: { value: '  Standardize recipe units  ' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Preview change' }))
+    await screen.findByText('Linked recipes (1)')
+  }
+  it.each(['cashier', 'stockist'])('hides unit conversion from %s', async userRole => {
+    render(<InventoryPage userRole={userRole} />)
+    await screen.findByText('Flour')
+    expect(screen.queryByTestId('toolbar-unit-change-btn')).not.toBeInTheDocument()
+  })
+  it('does not guess generic units or call preview for them', async () => {
+    await open({ ...item, unit: 'units' })
+    expect(screen.getByText(/unclassified unit/)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Preview change' })).not.toBeInTheDocument()
+    expect(db.previewInventoryUnitChange).not.toHaveBeenCalled()
+  })
+  it('shows exact server values and confirms with receipt metadata only', async () => {
+    const dialog = await open(); await preview()
+    expect(dialog).toHaveTextContent('10000.0000000000001')
+    expect(dialog).toHaveTextContent('₱0.00123')
+    expect(dialog).toHaveTextContent('0.000000000000123456789')
+    expect(db.previewInventoryUnitChange).toHaveBeenCalledWith('i1', { targetUnit: 'g', kind: 'conversion', reason: 'Standardize recipe units' })
+    const confirm = screen.getByRole('button', { name: 'Confirm unit change' })
+    expect(confirm).toBeDisabled()
+    fireEvent.click(screen.getByLabelText(/I reviewed/)); fireEvent.click(confirm)
+    await screen.findByText('Unit change completed.')
+    expect(db.confirmInventoryUnitChange).toHaveBeenCalledWith('i1', {
+      previewKey: receipt().previewKey, previewDigest: 'a'.repeat(64), operationKey: expect.any(String),
+    })
+    expect(offlineQueue.enqueue).not.toHaveBeenCalled()
+  })
+  it('keeps confirmation disabled when the server readiness gate is false', async () => {
+    db.previewInventoryUnitChange.mockResolvedValue({ ...receipt(), confirmationAvailable: false })
+    await open(); await preview()
+    expect(screen.getByText(/not enabled yet/)).toBeInTheDocument()
+    expect(screen.getByLabelText(/I reviewed/)).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Confirm unit change' })).toBeDisabled()
+    expect(db.confirmInventoryUnitChange).not.toHaveBeenCalled()
+  })
+  it('rejects expired previews and clears the quote when the reason changes', async () => {
+    db.previewInventoryUnitChange.mockResolvedValue({ ...receipt(), expiresAt: new Date(Date.now() - 1000).toISOString() })
+    await open(); await preview()
+    expect(screen.getByText(/preview expired/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Confirm unit change' })).toBeDisabled()
+    fireEvent.change(screen.getByLabelText('Reason'), { target: { value: 'Changed reason' } })
+    expect(screen.queryByRole('button', { name: 'Confirm unit change' })).not.toBeInTheDocument()
+  })
+  it('clears a stale receipt on a version conflict without queuing it', async () => {
+    db.confirmInventoryUnitChange.mockRejectedValueOnce(Object.assign(new Error('Ingredient changed'), { status: 409 }))
+    await open(); await preview()
+    fireEvent.click(screen.getByLabelText(/I reviewed/))
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm unit change' }))
+    await screen.findByRole('alert')
+    expect(screen.queryByRole('button', { name: 'Confirm unit change' })).not.toBeInTheDocument()
+    expect(offlineQueue.enqueue).not.toHaveBeenCalled()
+  })
+  it('retries an unknown confirmation result with the same operation key', async () => {
+    db.confirmInventoryUnitChange.mockRejectedValueOnce(new Error('Network unavailable'))
+    await open(); await preview()
+    fireEvent.click(screen.getByLabelText(/I reviewed/))
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm unit change' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Retry confirmation' }))
+    await screen.findByText('Unit change completed.')
+    expect(db.confirmInventoryUnitChange.mock.calls[1]).toEqual(db.confirmInventoryUnitChange.mock.calls[0])
+    expect(offlineQueue.enqueue).not.toHaveBeenCalled()
+  })
+  it('blocks a conversion while a stock edit for that item is queued', async () => {
+    offlineQueue.dequeueAll.mockResolvedValue([{ method: 'authorized-inventory', body: { id: 'i1' } }])
+    await open()
+    fireEvent.change(screen.getByLabelText('Reason'), { target: { value: 'Review' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Preview change' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent(/pending stock changes/)
+    expect(db.previewInventoryUnitChange).not.toHaveBeenCalled()
+  })
+  it('uses label correction for an equivalent noncanonical label', async () => {
+    await open({ ...item, unit: 'kilograms' })
+    fireEvent.change(screen.getByLabelText('Reason'), { target: { value: 'Standard label' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Preview change' }))
+    await waitFor(() => expect(db.previewInventoryUnitChange).toHaveBeenCalledWith('i1', { targetUnit: 'kg', kind: 'label_correction', reason: 'Standard label' }))
+  })
+  it('shows per-item thresholds and preserves subcent prices on metadata edits', async () => {
+    db.getInventory.mockResolvedValue([{ ...item, stock_quantity: '3000', low_stock_threshold: '5000', unit: 'g', unit_version: '1', unit_price: '0.00123' }])
+    render(<InventoryPage userRole="admin" />)
+    const row = (await screen.findByText('Flour')).closest('tr')
+    expect(row).toHaveTextContent('Low Stock')
+    expect(row).toHaveTextContent('₱0.00123')
+    fireEvent.doubleClick(row)
+    fireEvent.change(screen.getByLabelText('Item Name'), { target: { value: 'Flour renamed' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(db.updateInventoryItem).toHaveBeenCalledWith('i1',
+      { name: 'Flour renamed', category: 'Other', unit: 'g' },
+      { baseStockQty: '3000', expectedUnitVersion: '1' }))
+  })
+})
 import { offlineQueue, processQueue } from '../services/offlineQueue'
 import { saveStockCache } from '../services/stockCache'
 import userEvent from '@testing-library/user-event'
@@ -44,6 +168,9 @@ describe('InventoryPage roles', () => {
     vi.clearAllMocks()
     localStorage.clear()
     // clearAllMocks keeps implementations: reset per-test overrides here.
+    db.getInventory.mockReset().mockResolvedValue([{ id: 'i1', name: 'Milk', category: 'Dairy', stock_quantity: 8 }])
+    offlineQueue.dequeueAll.mockResolvedValue([])
+    offlineQueue.size.mockResolvedValue(0)
     isRetryableError.mockReturnValue(false)
   })
 
@@ -95,8 +222,8 @@ describe('InventoryPage roles', () => {
     await user.type(screen.getByLabelText('Price per L (₱)'), '1.00')
     expect(screen.getByLabelText('Total Amount')).toHaveTextContent('₱1.01')
     await user.click(screen.getByRole('button', { name: 'Save', exact: true }))
-    await waitFor(() => expect(db.updateInventoryItem).toHaveBeenCalledWith('i1', { name: 'Milk', category: 'Other', unit: 'L', unit_price: 1 },
-      { baseStockQty: Number('1.0050000000000001'), expectedUnitVersion: '2', expectedUpdatedAt: '2026-11-08T10:00:00Z' }))
+    await waitFor(() => expect(db.updateInventoryItem).toHaveBeenCalledWith('i1', { name: 'Milk', category: 'Other', unit: 'L', unit_price: '1' },
+      { baseStockQty: '1.0050000000000001', expectedUnitVersion: '2', expectedUpdatedAt: '2026-11-08T10:00:00Z' }))
     expect(db.updateInventoryItem.mock.calls[0][1]).not.toHaveProperty('stock_quantity')
   })
 
@@ -431,7 +558,9 @@ describe('InventoryPage roles', () => {
       expect(screen.getByText('Cached Milk')).toBeInTheDocument()
     })
     expect(screen.queryByTestId('loading-skeleton')).not.toBeInTheDocument()
-    expect(screen.queryByTestId('stock-stale-banner')).not.toBeInTheDocument()
+    expect(screen.getByTestId('stock-stale-banner')).toBeInTheDocument()
+    fireEvent.click(screen.getByLabelText('Select Cached Milk'))
+    expect(screen.getByTestId('toolbar-unit-change-btn')).toBeDisabled()
   })
 
   it('should flag cached stock as stale when the live fetch fails', async () => {

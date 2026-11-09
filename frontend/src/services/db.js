@@ -1,5 +1,6 @@
 import { apiDatabase as supabase, apiRequest } from './apiClient'
 import { offlineQueue } from './offlineQueue'
+import { isLowStock } from '../utils/formatStock'
 
 const QUERY_TIMEOUT_MS = 8000
 
@@ -29,6 +30,20 @@ async function queryWithTimeout(build) {
   } finally {
     clearTimeout(timer)
   }
+}
+
+async function unitChangeRequest(id, action, body) {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), QUERY_TIMEOUT_MS)
+  try {
+    return (await apiRequest(`/api/commands/inventory/${encodeURIComponent(id)}/unit-change/${action}`, {
+      method: 'POST', body, signal: controller.signal,
+    })).data
+  } catch (err) {
+    // A timed-out confirmation may have committed; the dialog retains its key.
+    if (controller.signal.aborted) throw new Error('Unit-change request timed out. Retry to verify its result.')
+    throw err
+  } finally { clearTimeout(timer) }
 }
 
 // Retryable infrastructure failures: browser offline, hung Supabase (the 8s
@@ -754,6 +769,13 @@ export const db = {
     try { return (await apiRequest('/api/commands/inventory', { method: 'POST', body: command })).data }
     catch (err) { err.command = command; throw err }
   },
+  async previewInventoryUnitChange(id, input) {
+    return unitChangeRequest(id, 'preview', input)
+  },
+  async confirmInventoryUnitChange(id, input) {
+    // Receipts/operation keys belong to this exact preview; never queue a unit change.
+    return unitChangeRequest(id, 'confirm', input)
+  },
   async createInventoryItem(values) {
     try { return await this.inventoryCommand({ action: 'create', values }) }
     catch (err) { if (isRetryableError(err)) return offlineQueue.enqueueCommand(err.command); throw err }
@@ -764,14 +786,15 @@ export const db = {
   async queueInventoryDelete(id, options = {}) { return offlineQueue.enqueueCommand({ action: 'archive', id, ...options }) },
 
   async getLowStockItems(threshold = 5) {
-    return queryWithTimeout((signal) => supabase
+    const items = await queryWithTimeout((signal) => supabase
       .from('inventory')
       .select('*')
-      .lte('stock_quantity', threshold)
       .gt('stock_quantity', 0)
       .order('stock_quantity', { ascending: true })
-      .range(0, 49)
+      .range(0, 4999)
       .abortSignal(signal))
+    // Filter before the alert limit: grams and kilograms have different thresholds.
+    return (items || []).filter(item => isLowStock(item, threshold)).slice(0, 50)
   },
 
   async getOutOfStockItems() {
@@ -974,7 +997,7 @@ export const db = {
       .from('inventory')
       .select('*')
       .order('stock_quantity', { ascending: true })
-      .limit(10)
+      .range(0, 4999)
       .abortSignal(signal))
   },
 

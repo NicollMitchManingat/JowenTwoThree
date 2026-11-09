@@ -2,7 +2,26 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { saveMenuCache, loadMenuCache, clearMenuCache } from '../services/menuCache'
 import { saveStockCache, loadStockCache, clearStockCache } from '../services/stockCache'
 import { db, isRetryableError, isQueuedRecord } from '../services/db'
-import { apiDatabase as supabase } from '../services/apiClient'
+import { apiDatabase as supabase, apiRequest } from '../services/apiClient'
+
+describe('unit conversion client and threshold reads', () => {
+  beforeEach(() => vi.clearAllMocks())
+  it('forwards only the caller receipt and operation key for confirmation', async () => {
+    const input = { previewKey: 'unit-preview:key', previewDigest: 'a'.repeat(64), operationKey: 'same-retry-key' }
+    apiRequest.mockResolvedValue({ data: { inventory: { unit: 'g' } } })
+    await db.confirmInventoryUnitChange('ingredient', input)
+    expect(apiRequest).toHaveBeenCalledWith('/api/commands/inventory/ingredient/unit-change/confirm', { method: 'POST', body: input, signal: expect.any(AbortSignal) })
+  })
+  it('filters by each item threshold before limiting alerts', async () => {
+    const items = [
+      { id: 'grams', stock_quantity: '3000', low_stock_threshold: '5000' },
+      { id: 'kg', stock_quantity: '0.006', low_stock_threshold: '0.005' },
+      { id: 'legacy', stock_quantity: '4' },
+    ]
+    supabase.from.mockImplementation(() => chainable(() => ({ data: items, error: null })))
+    expect((await db.getLowStockItems()).map(item => item.id)).toEqual(['grams', 'legacy'])
+  })
+})
 
 vi.mock('../services/apiClient', () => ({
   apiDatabase: { from: vi.fn() },
@@ -13,7 +32,7 @@ vi.mock('../services/apiClient', () => ({
 // resolves the canned { data, error } via an optional gate promise.
 function chainable(resolveRows, onStart) {
   const builder = {}
-  for (const m of ['select', 'gte', 'lte', 'order', 'range', 'in', 'eq', 'limit', 'abortSignal', 'update', 'insert', 'delete', 'single']) {
+  for (const m of ['select', 'gt', 'gte', 'lte', 'order', 'range', 'in', 'eq', 'limit', 'abortSignal', 'update', 'insert', 'delete', 'single']) {
     builder[m] = vi.fn(() => builder)
   }
   builder.then = (resolve, reject) => {

@@ -5,6 +5,12 @@ import VoucherEffectivenessChart from '../components/analytics/VoucherEffectiven
 import RefundInsights from '../components/analytics/RefundInsights'
 import TrafficConversionChart from '../components/analytics/TrafficConversionChart'
 import { db } from '../services/db'
+import { Doughnut } from 'react-chartjs-2'
+
+vi.mock('react-chartjs-2', async importOriginal => ({
+  ...(await importOriginal()),
+  Doughnut: vi.fn(() => <canvas />),
+}))
 
 vi.mock('../services/db', () => ({
   db: { getHourlyTrafficSplit: vi.fn() },
@@ -18,6 +24,7 @@ describe('Tier-1 analytics widgets', () => {
   it('PaymentMixChart should show the top method share and empty state', () => {
     const { rerender } = render(
       <PaymentMixChart mix={[
+        { method: 'CARD', orders: 4, amount: 1000 },
         { method: 'CASH', orders: 3, amount: 600 },
         { method: 'GCASH', orders: 1, amount: 200 },
       ]} />
@@ -25,6 +32,14 @@ describe('Tier-1 analytics widgets', () => {
     expect(screen.getByTestId('payment-mix')).toBeInTheDocument()
     expect(screen.getByTestId('payment-mix-summary')).toHaveTextContent('CASH')
     expect(screen.getByTestId('payment-mix-summary')).toHaveTextContent('75%')
+    expect(screen.getByTestId('payment-mix-summary')).toHaveTextContent('800')
+    const { data } = Doughnut.mock.calls.at(-1)[0]
+    expect(data.labels).toEqual(['CASH', 'GCASH'])
+    expect(data.datasets[0].data).toEqual([600, 200])
+    expect(data.datasets[0].orders).toEqual([3, 1])
+
+    rerender(<PaymentMixChart mix={[{ method: 'card', orders: 4, amount: 1000 }]} />)
+    expect(screen.getByTestId('payment-mix-empty')).toHaveTextContent('No payments to display')
 
     rerender(<PaymentMixChart mix={[]} />)
     expect(screen.getByTestId('payment-mix-empty')).toHaveTextContent(/No payments/)

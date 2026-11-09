@@ -20,16 +20,16 @@ const doughnutOptions = {
   },
 };
 
-// Cash vs GCash vs Card mix. mix = [{ method, orders, amount }] from paymentMix().
+// Card is excluded from this chart only. mix = [{ method, orders, amount }].
 export default function PaymentMixChart({ mix }) {
-  const rows = Array.isArray(mix) ? mix.filter((m) => m.amount > 0) : [];
+  const rows = Array.isArray(mix) ? mix.filter((m) => String(m.method).trim().toUpperCase() !== 'CARD' && m.amount > 0) : [];
   const total = rows.reduce((s, m) => s + m.amount, 0);
   const top = rows[0] || null;
 
   if (rows.length === 0) {
     return (
       <div data-testid="payment-mix-empty" style={{ fontSize: "0.85rem", color: "var(--text-muted, #6b7280)", textAlign: "center", padding: "12px 0" }}>
-        No payments recorded for this period.
+        No payments to display for this period.
       </div>
     );
   }

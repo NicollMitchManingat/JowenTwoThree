@@ -3333,11 +3333,16 @@
 
 /* AI Insights — professional card system (replaces ad-hoc inline styles). */
 .insights-grid {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 19rem), 1fr));
   gap: 1rem;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .insight-card {
   position: relative;
+  min-width: 0;
+  max-width: 100%;
   gap: 0.6rem;
   padding: 1.1rem 1.15rem;
   border-top: 3px solid var(--border-color);
@@ -3357,6 +3362,7 @@
   display: flex;
   align-items: center;
   gap: 0.6rem;
+  min-width: 0;
 }
 
 .insight-icon {
@@ -3390,9 +3396,9 @@
   color: var(--text-main);
   flex: 1;
   min-width: 0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.35;
 }
 
 .insight-dismiss {
@@ -3403,6 +3409,12 @@
   color: var(--text-muted);
   cursor: pointer;
   line-height: 0;
+  flex-shrink: 0;
+  min-width: 32px;
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .insight-dismiss:hover {
@@ -3424,6 +3436,8 @@
   letter-spacing: -0.01em;
   color: var(--text-main);
   line-height: 1.3;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .insight-text {
@@ -3431,14 +3445,24 @@
   font-size: 0.85rem;
   line-height: 1.45;
   min-height: 2.4em;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .insight-footer {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 0.5rem;
   margin-top: auto;
   padding-top: 0.35rem;
+  min-width: 0;
+}
+
+.insight-footer > .badge {
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .insight-actions {
@@ -3446,6 +3470,10 @@
   display: inline-flex;
   align-items: center;
   gap: 0.5rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .insight-btn {
@@ -3461,6 +3489,10 @@
   align-items: center;
   gap: 0.3rem;
   font-family: inherit;
+  min-height: 40px;
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .insight-btn:hover:not(:disabled) {
@@ -3479,14 +3511,23 @@
 }
 
 .insight-resolve.btn {
-  min-height: 32px;
+  min-height: 40px;
   padding: 0.35rem 0.7rem;
   font-size: 0.8rem;
   border-radius: 8px;
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.insight-btn svg,
+.insight-resolve svg {
+  flex-shrink: 0;
 }
 
 .insights-dismissed-bar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 0.6rem;
   margin-bottom: 0.75rem;
@@ -3494,6 +3535,7 @@
 
 .insights-handled {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 0.6rem;
   padding: 1rem 0.25rem;
@@ -3501,11 +3543,14 @@
 
 .insights-handled p {
   margin: 0;
-  flex: 1;
+  flex: 1 1 12rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .insights-error-text {
   margin: 0 0 0.75rem 0;
+  overflow-wrap: anywhere;
 }
 
 .session-indicator {

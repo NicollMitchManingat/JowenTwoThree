@@ -35,12 +35,17 @@ function csrf(req, res, next) {
   next()
 }
 const attempts = new Map()
-function throttle(req, res, next) {
-  const now = Date.now(), key = `${req.ip}:${req.path}`
+function throttle(req, res, next, bucket = '') {
+  const now = Date.now(), key = bucket || `${req.ip}:${req.path}`
   if (attempts.size > 10000) for (const [k, v] of attempts) if (v.until < now) attempts.delete(k)
   const value = attempts.get(key)
   if (!value || value.until < now) attempts.set(key, { count: 1, until: now + 60000 })
   else if (++value.count > 10) return res.status(429).json({ success: false, error: 'Too many attempts. Try again in a minute.' })
   next()
 }
-module.exports = { authenticate, modules, admin, setCookie, csrf, throttle, allowedOrigin }
+function passwordChangeThrottle(req, res, next) {
+  if (!req.body?.password) return next()
+  // Account-scoped across sessions/IPs so signing in again cannot reset attempts.
+  return throttle(req, res, next, `password-change:${req.user.id}:${req.params.id.toLowerCase()}`)
+}
+module.exports = { authenticate, modules, admin, setCookie, csrf, throttle, passwordChangeThrottle, allowedOrigin }

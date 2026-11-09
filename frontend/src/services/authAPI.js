@@ -6,5 +6,9 @@ export const authAPI = {
   async verifyManager(password) { return apiRequest('/api/auth/verify-manager', { method: 'POST', body: { password } }) },
   async listUsers() { return (await apiRequest('/api/auth/users')).users },
   async createUser(account) { return (await apiRequest('/api/auth/users', { method: 'POST', body: account })).user },
-  async updateUser(id, updates) { return (await apiRequest(`/api/auth/users/${id}`, { method: 'PATCH', body: updates })).user },
+  async updateUser(id, updates) {
+    const result = await apiRequest(`/api/auth/users/${id}`, { method: 'PATCH', body: updates })
+    if (result.reauthenticate) { setCurrentActor(null); window.dispatchEvent(new Event('jowen-session-expired')) }
+    return result.user
+  },
 }

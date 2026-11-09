@@ -18,5 +18,10 @@ router.post('/logout', run(async (req, res) => {
 router.post('/verify-manager', auth.throttle, run(async (req, res) => res.json(await service.verifyManager(req.body || {}))))
 router.get('/users', auth.admin, run(async (req, res) => res.json({ success: true, users: await service.listAccounts(req.user) })))
 router.post('/users', auth.admin, run(async (req, res) => res.status(201).json({ success: true, user: await service.createAccount(req.body, req.auth) })))
-router.patch('/users/:id', auth.admin, run(async (req, res) => res.json({ success: true, user: await service.updateAccount(req.params.id, req.body, req.auth) })))
+router.patch('/users/:id', auth.admin, auth.passwordChangeThrottle, run(async (req, res) => {
+  const user = await service.updateAccount(req.params.id, req.body, req.auth)
+  const reauthenticate = req.params.id === req.user.id && !!req.body.password
+  if (reauthenticate) auth.setCookie(req, res, '')
+  res.json({ success: true, user, reauthenticate })
+}))
 module.exports = router

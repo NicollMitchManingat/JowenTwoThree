@@ -1197,6 +1197,26 @@
   gap: 0.5rem;
 }
 
+.account-password-field {
+  position: relative;
+  min-width: 0;
+}
+
+.account-password-field .form-input {
+  width: 100%;
+  min-width: 0;
+  padding-right: 3rem;
+}
+
+.account-password-toggle {
+  position: absolute;
+  right: 0.4rem;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 2.25rem;
+  height: 2.25rem;
+}
+
 .pos-grid {
   display: grid;
   grid-template-columns: 1fr 380px;

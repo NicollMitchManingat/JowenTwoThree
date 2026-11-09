@@ -591,7 +591,7 @@ export default function InventoryPage({ userRole }) {
               </button>
             </>
           )}
-          <LowStockBell wholeNumberQuantities />
+          <LowStockBell />
         </div>
       </div>
 

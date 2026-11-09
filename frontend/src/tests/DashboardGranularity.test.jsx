@@ -243,7 +243,7 @@ describe('DashboardContent granularity', () => {
 
   it('should mark out-of-stock rows danger and low rows warning', async () => {
     db.getInventoryStatus.mockResolvedValue([
-      { id: 'i1', name: 'Milk', category: 'Dairy', stock_quantity: 2 },
+      { id: 'i1', name: 'Milk', category: 'Dairy', stock_quantity: '2.756' },
       { id: 'i2', name: 'Beans', category: 'Dry', stock_quantity: 0 },
       { id: 'i3', name: 'Plenty', category: 'Dry', stock_quantity: 30 },
     ])
@@ -260,7 +260,7 @@ describe('DashboardContent granularity', () => {
     })
     const outBadge = screen.getByText('Out of stock')
     expect(outBadge).toHaveClass('badge-danger')
-    const lowBadge = screen.getByText('2 left')
+    const lowBadge = screen.getByText('2.76 left')
     expect(lowBadge).toHaveClass('badge-warning')
     // Critical rows sort first.
     expect(

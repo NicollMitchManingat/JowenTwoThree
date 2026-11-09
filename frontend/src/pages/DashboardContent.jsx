@@ -634,7 +634,7 @@ export default function DashboardContent({ activeTab, user, onNavigate }) {
                   {out ? (
                     <span className="badge badge-danger">Out of stock</span>
                   ) : (
-                    <span className="badge badge-warning">{formatStock(item.stock_quantity)} left</span>
+                    <span className="badge badge-warning">{formatStock(item.stock_quantity, { maximumFractionDigits: 2 })} left</span>
                   )}
                 </div>
               )

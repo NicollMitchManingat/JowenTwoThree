@@ -14,6 +14,15 @@ describe('formatStock', () => {
   it.each(['invalid', undefined, null, '', NaN, Infinity])('uses a placeholder for %s', (quantity) => {
     expect(formatStock(quantity)).toBe('-')
     expect(formatStock(quantity, { wholeNumber: true })).toBe('-')
+    expect(formatStock(quantity, { maximumFractionDigits: 2 })).toBe('-')
+  })
+
+  it.each([
+    ['2.756', '2.76'], ['1.005', '1.01'], ['4.999', '5'], ['2.7500', '2.75'],
+    ['12', '12'], ['0.004', '0'], ['1e-7', '0'], ['-0.004', '0'], ['-2.756', '-2.76'],
+    ['12345678901234567890.995', '12345678901234567891'],
+  ])('limits alert quantity %s to at most two decimal places', (quantity, expected) => {
+    expect(formatStock(quantity, { maximumFractionDigits: 2 })).toBe(expected)
   })
 
   it.each([[0, '0'], ['12.00', '12'], [7.125, '7'], ['8.50', '9'], [0.25, '0'], [7.875, '8']])(

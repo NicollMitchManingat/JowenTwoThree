@@ -31,14 +31,16 @@ describe('LowStockBell', () => {
     expect(db.getOutOfStockItems).toHaveBeenCalled()
   })
 
-  it('rounds alert quantities only when requested by the inventory page', async () => {
-    db.getLowStockItems.mockResolvedValue([{ id: 'i1', name: 'Milk', stock_quantity: 2.75, unit: 'L' }])
+  it('limits modal quantities to two decimal places in both bell sizes', async () => {
+    const item = { id: 'i1', name: 'Milk', stock_quantity: '2.756', unit: 'L' }
+    db.getLowStockItems.mockResolvedValue([item])
     const user = userEvent.setup()
-    const { rerender } = render(<LowStockBell wholeNumberQuantities />)
+    const { rerender } = render(<LowStockBell />)
     await user.click(screen.getByTestId('low-stock-bell'))
-    expect(await screen.findByText('3 L left')).toBeInTheDocument()
-    rerender(<LowStockBell />)
-    expect(screen.getByText('2.75 L left')).toBeInTheDocument()
+    expect(await screen.findByText('2.76 L left')).toBeInTheDocument()
+    rerender(<LowStockBell size="small" />)
+    expect(screen.getByText('2.76 L left')).toBeInTheDocument()
+    expect(item.stock_quantity).toBe('2.756')
   })
 
   it('should show split low/out badges and open the modal with sections', async () => {

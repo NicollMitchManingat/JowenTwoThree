@@ -1,18 +1,24 @@
-// Exact by default; wholeNumber is a presentation-only option for inventory lists.
+// Exact by default; rounding options affect presentation only.
 // Accepts numbers or numeric strings (Supabase returns numeric as string
 // in some cases). Non-numeric values fall back to '-'.
-export function formatStock(qty, { wholeNumber = false } = {}) {
+export function formatStock(qty, { wholeNumber = false, maximumFractionDigits } = {}) {
   if (qty == null || String(qty).trim() === '') return '-'
   const negative = String(qty).trim().startsWith('-')
   const parts = decimalParts(negative ? String(qty).trim().slice(1) : qty)
   if (!parts) return '-'
-  const { value, scale } = parts
+  let { value, scale } = parts
   if (value === 0n) return '0'
   if (wholeNumber) {
     const divisor = 10n ** BigInt(Math.max(0, scale))
     const scaled = scale < 0 ? value * 10n ** BigInt(-scale) : value
     const rounded = (scaled + divisor / 2n - (negative && divisor > 1n ? 1n : 0n)) / divisor
     return `${negative && rounded ? '-' : ''}${rounded}`
+  }
+  if (Number.isInteger(maximumFractionDigits) && maximumFractionDigits >= 0 && scale > maximumFractionDigits) {
+    const divisor = 10n ** BigInt(scale - maximumFractionDigits)
+    value = (value + divisor / 2n) / divisor
+    scale = maximumFractionDigits
+    if (value === 0n) return '0'
   }
   const digits = value.toString().padStart(Math.max(1, scale + 1), '0')
   const text = scale > 0 ? `${digits.slice(0, -scale)}.${digits.slice(-scale)}`.replace(/\.?0+$/, '')

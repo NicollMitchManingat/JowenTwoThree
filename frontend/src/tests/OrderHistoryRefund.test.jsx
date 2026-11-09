@@ -331,8 +331,7 @@ describe('OrderHistoryPage refunds', () => {
     expect(ascending[ascending.length - 1]).toBe('order-row-t1')
   })
 
-  it('retains every transaction column and full reference in the fitted table', async () => {
-    const reference = 'TXN-12345678-1234-4321-abcd-123456789012'
+  it.each(['TXN-1794222222222', 'TXN-12345678-1234-4321-abcd-123456789012'])('retains every transaction column and full reference %s in the fitted table', async reference => {
     db.getTransactions.mockResolvedValueOnce([{ ...ORDERS[0], transaction_number: reference, order_type: 'DELIVERY' }])
     render(<OrderHistoryPage user={{ role: 'admin' }} />)
     const row = await screen.findByTestId('order-row-t1')

@@ -80,8 +80,8 @@ describe('RecipeManager', () => {
       expect(db.createRecipeLine).toHaveBeenCalledWith({
         product_id: 'p1',
         inventory_id: 'i2',
-        qty_per_sale: 0.02,
-      })
+        qty_per_sale: '0.02',
+      }, {})
     })
   })
 
@@ -107,6 +107,7 @@ describe('RecipeManager', () => {
 
   it('should edit a line quantity', async () => {
     const user = userEvent.setup()
+    db.getAllRecipes.mockResolvedValueOnce([{ ...RECIPES[0], inventory_unit_version: '3' }])
     render(<RecipeManager />)
 
     await waitFor(() => {
@@ -118,7 +119,7 @@ describe('RecipeManager', () => {
     await user.click(screen.getByTestId('recipe-save-btn'))
 
     await waitFor(() => {
-      expect(db.updateRecipeLine).toHaveBeenCalledWith('p1', 'i1', 0.25)
+      expect(db.updateRecipeLine).toHaveBeenCalledWith('p1', 'i1', '0.25', { expectedUnitVersion: '3', baseRecipeQty: '0.2' })
     })
   })
 
@@ -148,7 +149,7 @@ describe('RecipeManager', () => {
     await user.click(screen.getByTestId('recipe-delete-confirm'))
 
     await waitFor(() => {
-      expect(db.deleteRecipeLine).toHaveBeenCalledWith('p1', 'i1')
+      expect(db.deleteRecipeLine).toHaveBeenCalledWith('p1', 'i1', { baseRecipeQty: '0.2' })
     })
   })
 
@@ -289,14 +290,14 @@ describe('RecipeManager', () => {
       expect(db.createRecipeLine).toHaveBeenCalledWith({
         product_id: 'p1',
         inventory_id: 'i1',
-        qty_per_sale: 0.2,
-      })
+        qty_per_sale: '0.2',
+      }, {})
     })
     expect(db.createRecipeLine).toHaveBeenCalledWith({
       product_id: 'p1',
       inventory_id: 'i2',
-      qty_per_sale: 0.02,
-    })
+      qty_per_sale: '0.02',
+    }, {})
   })
 
   it('should jump to a missing-recipe product via quick button', async () => {

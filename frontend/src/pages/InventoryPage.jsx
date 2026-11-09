@@ -13,6 +13,7 @@ const quantityInput = value => Number(value).toLocaleString('en-US', {
 });
 const isRowControl = target => !!target.closest('input, button, select, textarea, a, [role="button"]');
 const stockVersion = item => ({ baseStockQty: Number(item?.stock_quantity),
+  ...(item?.unit_version != null ? { expectedUnitVersion: String(item.unit_version) } : {}),
   ...(item?.updated_at ? { expectedUpdatedAt: item.updated_at } : {}) });
 
 const STATUS_OPTIONS = [
@@ -268,7 +269,8 @@ export default function InventoryPage({ userRole }) {
     if (!formData.name.trim()) { setFormError('Item name is required.'); return; }
     if (String(formData.stock_quantity).trim() === '' || !Number.isFinite(quantity) || Number(formData.stock_quantity) < 0) { setFormError('Quantity must be zero or a positive number.'); return; }
     if (!formData.unit.trim() || formData.unit.trim().length > 32) { setFormError('Unit is required (up to 32 characters).'); return; }
-    if (priceText !== '' && (!/^\d+(\.\d{1,2})?$/.test(priceText) || Number(priceText) > 9999999999.99)) { setFormError('Price must be nonnegative, with at most two decimal places (maximum 9,999,999,999.99).'); return; }
+    const priceUnchanged = isEditing && priceText === String(originalItem?.unit_price ?? '');
+    if (!priceUnchanged && priceText !== '' && (!/^\d+(\.\d{1,2})?$/.test(priceText) || Number(priceText) > 9999999999.99)) { setFormError('Price must be nonnegative, with at most two decimal places (maximum 9,999,999,999.99).'); return; }
     saveBusy.current = true; setSaving(true); setFormError('');
     const updates = {
       name: formData.name.trim(),
@@ -317,15 +319,14 @@ export default function InventoryPage({ userRole }) {
     if (!deleteTarget || deleting) return
     setDeleting(true)
     try {
-      await db.deleteInventoryItem(deleteTarget.id)
+      await db.deleteInventoryItem(deleteTarget.id, stockVersion(deleteTarget))
       setDeleteTarget(null)
       setSelectedId(null)
       await loadInventory()
     } catch (err) {
       if (isRetryableError(err)) {
         try {
-          if (err.command) await db.queueInventoryDelete(deleteTarget.id, { operationKey: err.command.operationKey })
-          else await db.queueInventoryDelete(deleteTarget.id)
+          await db.queueInventoryDelete(deleteTarget.id, err.command || stockVersion(deleteTarget))
           const id = deleteTarget.id
           applyOptimisticList(inventoryData.filter(i => String(i.id) !== String(id)))
           setDeleteTarget(null)

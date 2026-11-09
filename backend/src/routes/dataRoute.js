@@ -2,6 +2,7 @@
 // not a general Supabase proxy: resources, selections, filters and writes are fixed.
 const router = require('express').Router()
 const a = require('../services/accessService')
+const recipes = require('../services/recipeService')
 const reads = {
   products: ['pos', 'inventory', 'analytics'], product_categories: ['pos', 'inventory', 'analytics'],
   inventory: ['inventory', 'pos', 'analytics'], product_recipes: ['pos', 'analytics'],
@@ -13,6 +14,7 @@ const reads = {
 const selections = {
   products: ['*', '*,product_categories(name)'], product_categories: ['*'], inventory: ['*'],
   product_recipes: ['*', 'product_id,inventory_id,qty_per_sale,inventory(id,name,stock_quantity)',
+    '*,inventory(*)', '*,products(product_name),inventory(*)',
     'product_id,inventory_id,qty_per_sale,products(product_name),inventory(id,name,stock_quantity)'],
   transactions: ['*', 'id,created_at,subtotal,discount,total,payment_method,discount_type,discount_id,status,customer_count,male_count,female_count,unspecified_count',
     'created_at', 'id,created_at,total,status', 'created_at,total', 'created_at,cart',
@@ -44,10 +46,11 @@ function validateQuery(body) {
   if (!Array.isArray(body.orders) || body.orders.length > 3 || body.orders.some(o => !orderColumns.has(o.column))) throw a.httpError('Invalid sort')
   return columns
 }
-async function execute(user, body) {
+async function execute(user, body, context) {
   const columns = validateQuery(body), { table, action = 'select', filters, orders } = body
   a.requireModules(user, ...reads[table])
   if (!['select', 'insert', 'update', 'delete'].includes(action)) throw a.httpError('Invalid operation', 403)
+  if (table === 'product_recipes' && action !== 'select') return recipes.execute(context || { user }, body)
   let query = a.database().from(table)
   if (action !== 'select') {
     a.requireAdmin(user)
@@ -69,7 +72,12 @@ async function execute(user, body) {
     }
     query = action === 'delete' ? query.delete() : query[action](data)
   }
-  query = query.select(columns)
+  // Return recipe quantities as decimal text, including before the foundation
+  // is installed. A JS number cannot reliably echo an exact compare-and-swap.
+  const selected = table === 'product_recipes'
+    ? (columns.startsWith('*') ? columns.replace('*', '*,qty_per_sale_text:qty_per_sale::text') : columns.replace('qty_per_sale', 'qty_per_sale:qty_per_sale::text'))
+    : columns
+  query = query.select(selected)
   if (table === 'inventory' && action === 'select') query = query.eq('is_active', true)
   for (const f of filters) query = query[f.op](f.column, f.value)
   for (const o of orders) query = query.order(o.column, { ascending: o.ascending !== false })
@@ -79,10 +87,15 @@ async function execute(user, body) {
   if (body.single === true) query = query.single()
   const result = await query
   if (result.error) throw a.httpError('Data operation failed. Please retry.', 400)
-  return result.data
+  const exactRecipe = row => {
+    if (!row || !Object.hasOwn(row, 'qty_per_sale_text')) return row
+    const { qty_per_sale_text, ...rest } = row
+    return { ...rest, qty_per_sale: qty_per_sale_text }
+  }
+  return table === 'product_recipes' ? Array.isArray(result.data) ? result.data.map(exactRecipe) : exactRecipe(result.data) : result.data
 }
 router.post('/', async (req, res, next) => {
-  try { res.json({ data: await execute(req.user, req.body || {}) }) } catch (err) { next(err) }
+  try { res.json({ data: await execute(req.user, req.body || {}, req.auth) }) } catch (err) { next(err) }
 })
 module.exports = router
 module.exports.execute = execute

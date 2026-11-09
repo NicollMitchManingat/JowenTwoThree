@@ -2,7 +2,8 @@ const router = require('express').Router()
 const a = require('../services/accessService')
 const checkout = require('../services/checkoutService')
 const auth = require('../services/authService')
-const { modules, throttle } = require('../middleware/authentication')
+const unitChanges = require('../services/unitConversionService')
+const { modules, throttle, admin } = require('../middleware/authentication')
 const run = fn => (req, res, next) => Promise.resolve(fn(req, res)).catch(next)
 router.post('/discount-approval', modules('pos'), throttle, run(async (req, res) => res.json(await checkout.approveDiscount(req.auth, req.body))))
 router.post('/checkout', modules('pos'), run(async (req, res) => res.json(await checkout.checkout(req.auth, req.body))))
@@ -11,6 +12,10 @@ router.get('/saved-orders', modules('pos', 'transactions'), run(async (req, res)
 router.get('/saved-orders/count', modules('pos', 'transactions'), run(async (req, res) => res.json({ count: await checkout.countSavedOrders(req.user) })))
 router.get('/saved-orders/:id', modules('pos'), run(async (req, res) => res.json({ order: await checkout.getSavedOrder(req.user, req.params.id) })))
 router.post('/saved-orders/:id/remove', modules('pos', 'transactions'), run(async (req, res) => res.json({ removed: await checkout.removeSavedOrder(req.auth, req.params.id, req.body?.revision) })))
+router.post('/inventory/:id/unit-change/preview', modules('inventory'), admin, throttle,
+  run(async (req, res) => res.json({ data: await unitChanges.preview(req.auth, req.params.id, req.body) })))
+router.post('/inventory/:id/unit-change/confirm', modules('inventory'), admin,
+  run(async (req, res) => res.json({ data: await unitChanges.confirm(req.auth, req.params.id, req.body) })))
 router.post('/inventory', modules('inventory'), run(async (req, res) => {
   if (!['admin', 'stockist'].includes(req.user.role)) throw a.httpError('Stockman access is required', 403)
   const body = req.body || {}, fields = body.values || {}
@@ -23,6 +28,9 @@ router.post('/inventory', modules('inventory'), run(async (req, res) => {
   if (fields.stock_quantity !== undefined && !numericValue(fields.stock_quantity)) throw a.httpError('Quantity must be a nonnegative number')
   if (fields.unit_price !== undefined && fields.unit_price !== null && (!numericValue(fields.unit_price) || !/^\d+(\.\d{1,2})?$/.test(String(fields.unit_price)) || Number(fields.unit_price) > 9999999999.99)) throw a.httpError('Price must be nonnegative, with at most two decimal places (maximum 9,999,999,999.99)')
   if (fields.stock_quantity !== undefined && body.action === 'update' && !numericValue(body.baseStockQty)) throw a.httpError('The current quantity is required')
+  if (body.expectedUnitVersion !== undefined && (!['number','string'].includes(typeof body.expectedUnitVersion) ||
+    !/^(0|[1-9]\d{0,18})$/.test(String(body.expectedUnitVersion)) || BigInt(body.expectedUnitVersion) > 9223372036854775807n ||
+    (typeof body.expectedUnitVersion === 'number' && !Number.isSafeInteger(body.expectedUnitVersion)))) throw a.httpError('Invalid unit version')
   const result = await a.database().rpc('jowen_inventory_command', { p_session_hash: req.auth.tokenHash, p_data: req.body })
   if (result.error) throw checkout.rpcError(result.error)
   res.json({ data: result.data })

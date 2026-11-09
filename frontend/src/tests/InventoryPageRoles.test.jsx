@@ -87,7 +87,7 @@ describe('InventoryPage roles', () => {
 
   it('saves a unit price without rewriting a high-precision quantity and previews exact cents', async () => {
     const user = userEvent.setup()
-    db.getInventory.mockResolvedValueOnce([{ id: 'i1', name: 'Milk', stock_quantity: '1.0050000000000001', unit: 'L', unit_price: null, updated_at: '2026-11-08T10:00:00Z' }])
+    db.getInventory.mockResolvedValueOnce([{ id: 'i1', name: 'Milk', stock_quantity: '1.0050000000000001', unit: 'L', unit_price: null, unit_version: '2', updated_at: '2026-11-08T10:00:00Z' }])
     render(<InventoryPage userRole="stockist" />)
     await user.dblClick((await screen.findByText('Milk')).closest('tr'))
     expect(screen.getByLabelText('Quantity').value).toBe('1.01')
@@ -96,7 +96,7 @@ describe('InventoryPage roles', () => {
     expect(screen.getByLabelText('Total Amount')).toHaveTextContent('₱1.01')
     await user.click(screen.getByRole('button', { name: 'Save', exact: true }))
     await waitFor(() => expect(db.updateInventoryItem).toHaveBeenCalledWith('i1', { name: 'Milk', category: 'Other', unit: 'L', unit_price: 1 },
-      { baseStockQty: Number('1.0050000000000001'), expectedUpdatedAt: '2026-11-08T10:00:00Z' }))
+      { baseStockQty: Number('1.0050000000000001'), expectedUnitVersion: '2', expectedUpdatedAt: '2026-11-08T10:00:00Z' }))
     expect(db.updateInventoryItem.mock.calls[0][1]).not.toHaveProperty('stock_quantity')
   })
 
@@ -377,7 +377,7 @@ describe('InventoryPage roles', () => {
     await user.click(screen.getByTestId('delete-confirm-btn'))
 
     await waitFor(() => {
-      expect(db.deleteInventoryItem).toHaveBeenCalledWith('i1')
+      expect(db.deleteInventoryItem).toHaveBeenCalledWith('i1', { baseStockQty: 8 })
     })
   })
 
@@ -557,7 +557,7 @@ describe('InventoryPage roles', () => {
     await user.click(screen.getByTestId('delete-confirm-btn'))
 
     await waitFor(() => {
-      expect(db.queueInventoryDelete).toHaveBeenCalledWith('i1')
+      expect(db.queueInventoryDelete).toHaveBeenCalledWith('i1', { baseStockQty: 8 })
     })
     expect(screen.queryByText('Milk')).not.toBeInTheDocument()
     expect(alertSpy).toHaveBeenCalledWith(expect.stringMatching(/queued/i))

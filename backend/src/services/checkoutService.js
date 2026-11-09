@@ -76,8 +76,10 @@ async function approveDiscount(context, input) {
 }
 function rpcError(error) {
   const message = error.message || 'Operation failed'
-  const status = /AUTH_REQUIRED/.test(message) ? 401 : /FORBIDDEN|APPROVAL/.test(message) ? 403 : /SAVED_ORDER_NOT_FOUND/.test(message) ? 404 : /STOCK|CONFLICT|CHANGED|REMOVED|ALREADY_PAID/.test(message) ? 409 : 400
+  const status = /AUTH_REQUIRED/.test(message) ? 401 : /FORBIDDEN|APPROVAL/.test(message) ? 403 : /SAVED_ORDER_NOT_FOUND/.test(message) ? 404 : /STOCK|CONFLICT|CHANGED|REMOVED|ALREADY_PAID|UNIT_VERSION/.test(message) || ['55P03','40P01','40001'].includes(error.code) ? 409 : 400
   const messages = [
+    [/UNIT_VERSION/, 'This ingredient’s unit changed. Reload it before editing; queued changes must be reviewed.'],
+    [/CONFLICT_RECIPE/, 'This recipe changed. Reload recipes before editing.'],
     [/SAVED_ORDER_REMOVED/, 'This unpaid transaction has been removed. Start a new order.'],
     [/SAVED_ORDER_NOT_FOUND/, 'Saved order not found. Refresh the list.'],
     [/AUTH_REQUIRED/, 'Your session has expired. Please sign in again.'],
@@ -92,7 +94,7 @@ function rpcError(error) {
     [/ALREADY_PAID/, 'This saved order has already been paid. Refresh the transactions list.'],
     [/CONFLICT_SAVED/, 'This saved order was changed by another user. Reload it before continuing.'],
   ]
-  const friendly = messages.find(([pattern]) => pattern.test(message))?.[1] || message
+  const friendly = ['55P03','40P01','40001'].includes(error.code) ? 'Inventory is busy. Please retry.' : messages.find(([pattern]) => pattern.test(message))?.[1] || message
   const err = a.httpError(friendly, status, /INSUFFICIENT_STOCK/.test(message) ? 'INSUFFICIENT_STOCK' : undefined)
   if (err.code) { try { err.shortfalls = JSON.parse(error.details) } catch { err.shortfalls = [] } }
   return err

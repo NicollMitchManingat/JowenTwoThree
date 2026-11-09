@@ -29,6 +29,11 @@ export const apiDatabase = {
       range(start, end) { state.start = start; state.count = end - start + 1; return this },
       limit(count) { state.count = count; return this },
       single() { state.single = true; return this },
+      unitVersion(version, baseRecipeQty) {
+        if (version !== undefined) state.expectedUnitVersion = String(version)
+        if (baseRecipeQty !== undefined) state.baseRecipeQty = String(baseRecipeQty)
+        return this
+      },
       abortSignal(value) { signal = value; return this },
       async then(resolve, reject) {
         try { const result = await apiRequest('/api/data', { method: 'POST', body: state, signal }); return resolve({ data: result.data, error: null }) }

@@ -235,7 +235,7 @@ export const db = {
     try {
       return await queryWithTimeout((signal) => supabase
         .from('product_recipes')
-        .select('product_id, inventory_id, qty_per_sale, inventory(id, name, stock_quantity)')
+        .select('*, inventory(*)')
         .in('product_id', ids)
         .abortSignal(signal))
     } catch (err) {
@@ -252,13 +252,11 @@ export const db = {
   // is delete + add; edits touch qty_per_sale only.
   async getAllRecipes() {
     try {
-      // NOTE: no `unit` in the embedded select — older databases predate
-      // the inventory.unit column and PostgREST hard-fails the whole query
-      // ("column inventory_1.unit does not exist"). Unit displays fall back
-      // to '' via `inv?.unit || ...` at every call site.
+      // Wildcards retain compatibility before the unit-version foundation is
+      // installed, and include its version/decimal-string fields afterwards.
       return await queryWithTimeout((signal) => supabase
         .from('product_recipes')
-        .select('product_id, inventory_id, qty_per_sale, products(product_name), inventory(id, name, stock_quantity)')
+        .select('*, products(product_name), inventory(*)')
         .order('product_id')
         .range(0, 499)
         .abortSignal(signal))
@@ -275,13 +273,15 @@ export const db = {
     if (!inventory_id) throw new Error('Select an ingredient')
     const qty = Number(qty_per_sale)
     if (!Number.isFinite(qty) || qty <= 0) throw new Error('Quantity per sale must be greater than 0')
-    return { product_id, inventory_id, qty_per_sale: qty }
+    return { product_id, inventory_id, qty_per_sale: String(qty_per_sale).trim() }
   },
 
-  async createRecipeLine({ product_id, inventory_id, qty_per_sale }) {
+  async createRecipeLine({ product_id, inventory_id, qty_per_sale }, options = {}) {
     const clean = this.validateRecipeLine({ product_id, inventory_id, qty_per_sale })
     try {
-      return await offlineWrite('product_recipes', clean)
+      const { data } = await supabase.from('product_recipes').insert(clean)
+        .unitVersion(options.expectedUnitVersion).select()
+      return data[0]
     } catch (err) {
       const msg = `${err?.message || ''} ${err?.details || ''} ${err?.code || ''}`
       if (/duplicate|unique|already exists|23505/i.test(msg)) {
@@ -291,14 +291,15 @@ export const db = {
     }
   },
 
-  async updateRecipeLine(product_id, inventory_id, qty_per_sale) {
+  async updateRecipeLine(product_id, inventory_id, qty_per_sale, options = {}) {
     if (!product_id || !inventory_id) throw new Error('Product and ingredient are required')
     const qty = Number(qty_per_sale)
     if (!Number.isFinite(qty) || qty <= 0) throw new Error('Quantity per sale must be greater than 0')
     return offlineSafe(async () => {
       const { data, error } = await supabase
         .from('product_recipes')
-        .update({ qty_per_sale: qty })
+        .update({ qty_per_sale: String(qty_per_sale).trim() })
+        .unitVersion(options.expectedUnitVersion, options.baseRecipeQty)
         .eq('product_id', product_id)
         .eq('inventory_id', inventory_id)
         .select()
@@ -308,12 +309,13 @@ export const db = {
     })
   },
 
-  async deleteRecipeLine(product_id, inventory_id) {
+  async deleteRecipeLine(product_id, inventory_id, options = {}) {
     if (!product_id || !inventory_id) throw new Error('Product and ingredient are required')
     return offlineSafe(async () => {
       const { error } = await supabase
         .from('product_recipes')
         .delete()
+        .unitVersion(options.expectedUnitVersion, options.baseRecipeQty)
         .eq('product_id', product_id)
         .eq('inventory_id', inventory_id)
       if (error) throw error
@@ -757,7 +759,7 @@ export const db = {
     catch (err) { if (isRetryableError(err)) return offlineQueue.enqueueCommand(err.command); throw err }
   },
   async updateInventoryItem(id, values, options = {}) { return this.inventoryCommand({ action: 'update', id, values, ...options }) },
-  async deleteInventoryItem(id) { return this.inventoryCommand({ action: 'archive', id }) },
+  async deleteInventoryItem(id, options = {}) { return this.inventoryCommand({ action: 'archive', id, ...options }) },
   async queueInventoryUpdate(id, values, options = {}) { return offlineQueue.enqueueCommand({ action: 'update', id, values, ...options }) },
   async queueInventoryDelete(id, options = {}) { return offlineQueue.enqueueCommand({ action: 'archive', id, ...options }) },
 

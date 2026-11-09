@@ -235,15 +235,23 @@ export default function RecipeManager() {
 
   const persistSingle = async ({ inventory_id, qty }) => {
     if (editing) {
-      await db.updateRecipeLine(editing.product_id, editing.inventory_id, Number(qty))
+      await db.updateRecipeLine(editing.product_id, editing.inventory_id, qty, recipeVersion(editing))
     } else {
       await db.createRecipeLine({
         product_id: selectedProduct,
         inventory_id,
-        qty_per_sale: Number(qty),
-      })
+        qty_per_sale: qty,
+      }, ingredientVersion(inventoryById.get(String(inventory_id))))
     }
   }
+
+  const ingredientVersion = item => item?.unit_version == null ? {} : { expectedUnitVersion: String(item.unit_version) }
+  // Bind edits/deletes to the quantity and unit seen in the recipe response,
+  // rather than silently fetching a new version when Save is pressed.
+  const recipeVersion = line => ({
+    ...(line?.inventory_unit_version == null ? {} : { expectedUnitVersion: String(line.inventory_unit_version) }),
+    baseRecipeQty: String(line.qty_per_sale),
+  })
 
   const handleSave = async (e, { keepOpen = false } = {}) => {
     e?.preventDefault()
@@ -281,8 +289,8 @@ export default function RecipeManager() {
     setBulkError('')
     setFormError('')
     const entries = bulkSelectedIds
-      .map((id) => ({ id, qty: Number(bulkQty[id]) }))
-      .filter((r) => r.qty > 0 && Number.isFinite(r.qty))
+      .map((id) => ({ id, qty: bulkQty[id] }))
+      .filter((r) => Number(r.qty) > 0 && Number.isFinite(Number(r.qty)))
     if (entries.length === 0) {
       setBulkError('Tick at least one ingredient and set a qty per sale greater than 0.')
       return
@@ -296,7 +304,7 @@ export default function RecipeManager() {
             product_id: selectedProduct,
             inventory_id: row.id,
             qty_per_sale: row.qty,
-          })
+          }, ingredientVersion(inventoryById.get(String(row.id))))
         } catch (err) {
           failures.push(`${inventoryById.get(String(row.id))?.name || row.id}: ${err?.message || 'failed'}`)
         }
@@ -821,7 +829,7 @@ export default function RecipeManager() {
     if (!deleteTarget) return
     setSaving(true)
     try {
-      await db.deleteRecipeLine(deleteTarget.product_id, deleteTarget.inventory_id)
+      await db.deleteRecipeLine(deleteTarget.product_id, deleteTarget.inventory_id, recipeVersion(deleteTarget))
       setDeleteTarget(null)
       await load()
     } catch (err) {

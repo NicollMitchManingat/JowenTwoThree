@@ -23,6 +23,7 @@ function displayValue(row) {
   return value + (row.unit ? ' ' + row.unit : '')
 }
 const displayStatus = status => {
+  if (status === 'insufficient_training') return 'Insufficient history'
   const label = String(status || 'Recorded').replace(/_/g, ' ')
   return label.charAt(0).toUpperCase() + label.slice(1)
 }
@@ -78,7 +79,7 @@ export default function PredictiveReportPanel({ start, end }) {
     <div className="card-body">
       {loading || (!data && !error) ? <p role="status">Loading predictive report...</p> : error ? <div role="alert"><p>{error}</p>
         <button type="button" className="btn btn-secondary" onClick={() => setRetry(value => value + 1)}>Retry predictive report</button></div> : data && <>
-        <p className="text-sm">Generated {new Date(data.generatedAt).toLocaleString('en-PH', { timeZone: 'Asia/Manila' })} (Manila). Forecast training through {data.forecastThrough}.</p>
+        <p className="text-sm">Generated {new Date(data.generatedAt).toLocaleString('en-PH', { timeZone: 'Asia/Manila' })} (Manila). Forecasts use recorded history through {data.forecastThrough}.</p>
         <div className="predictive-report-summary">
           <p><strong>Sales forecast</strong><span>{data.summary.salesStatus === 'ready' ? data.summary.salesTotal.toLocaleString('en-PH') + ' PHP / next 7 days' : 'Insufficient history'}</span></p>
           <p><strong>Customer forecast</strong><span>{data.summary.trafficStatus === 'ready' ? data.summary.trafficTotal.toLocaleString('en-PH') + ' customers / next 7 days' : 'Insufficient history'}</span></p>
@@ -98,7 +99,7 @@ export default function PredictiveReportPanel({ start, end }) {
           <thead><tr><th>Metric / method</th><th>Date / item</th><th>Value / unit</th><th>Basis / status</th></tr></thead>
           <tbody>{rows.slice(currentPage * PAGE_SIZE, (currentPage + 1) * PAGE_SIZE).map((row, index) => <tr key={currentPage * PAGE_SIZE + index}>
             <td><strong>{row.metric}</strong><small>{row.method}</small><details><summary>Details</summary><p>{row.note || 'No additional notes.'}</p>
-              {row.trainingFrom && <p>Training: {row.trainingFrom} to {row.trainingThrough}. Recorded days: {row.observedDays ?? 'Unknown'}.</p>}</details></td>
+              {row.trainingFrom && <p>Data period: {row.trainingFrom} to {row.trainingThrough}. Recorded days: {row.observedDays ?? 'Unknown'}.</p>}</details></td>
             <td>{row.date || 'Current scenario'}{row.through && <> to {row.through}</>}{row.hour !== undefined && <small>{String(row.hour).padStart(2, '0')}:00 (Manila)</small>}
               {row.item && <small>{row.item}{row.unitVersion != null && <> · unit version {row.unitVersion}</>}</small>}</td>
             <td>{displayValue(row)}</td><td>{row.basis}<small>{displayStatus(row.status)}</small></td>

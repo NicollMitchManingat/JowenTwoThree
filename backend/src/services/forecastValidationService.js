@@ -88,7 +88,7 @@ function buildForecastValidation({ metric, through, transactions = [], refunds =
   const modelError = commonModel.reduce((sum, pair) => sum + Math.abs(pair.actual - pair.predicted), 0)
   const baselineError = commonBaseline.reduce((sum, pair) => sum + Math.abs(pair.actual - pair.predicted), 0)
   return { metric, status: allPairs.length ? 'replay_available' : 'insufficient_history',
-    method: { id: 'rolling_weekly_holdouts', label: 'Four rolling weekly holdouts', folds: FOLDS, trainingDays, horizonDays: horizon,
+    method: { id: 'rolling_weekly_holdouts', label: 'Four weekly historical comparisons', folds: FOLDS, trainingDays, horizonDays: horizon,
       forecastModel: 'Same-weekday moving average', minimumSamplesPerWeekday: config.FORECAST_MIN_WEEKDAY_SAMPLES },
     readWindow: { from: dayKey(from), through },
     evaluation: { from: folds[0].from, through }, folds,
@@ -102,11 +102,11 @@ function buildForecastValidation({ metric, through, transactions = [], refunds =
       basis: 'current_record_replay', currentDayExcluded: true },
     limitations: [
       'Retrospective check using current records, not frozen historical forecasts. Later edits can affect the results; this does not prove future accuracy.',
-      ...(metric === 'sales' ? ['Current refund statuses can reflect later events in historical training. Sales results are revised-record comparisons, not the forecasts staff actually saw.'] : []),
-      'Only complete seven-day holdouts with enough earlier training and recorded results for every day are scored. Missing recordings are unknown, not zero; coverage is not verified.',
+      ...(metric === 'sales' ? ['Current refund statuses can reflect later events in the historical data used for calculations. Sales results are revised-record comparisons, not the forecasts staff actually saw.'] : []),
+      'Only complete seven-day comparison periods with enough earlier recorded history and results for every day are scored. Missing recordings are unknown, not zero; coverage is not verified.',
       'MAE is the average absolute daily error. WAPE is total absolute error divided by total recorded amount, as a percentage; it is unavailable when that total is zero. Lower error is better. WAPE is not an accuracy percentage.',
       'WAPE depends on the recorded volume in the scored period. Do not compare it across different periods or treat it as a guarantee of performance.',
-      'The last-week benchmark is compared on the same complete weeks only. No automatic model switching, confidence percentage or prediction interval is inferred.',
+      'The last-week benchmark is compared on the same complete weeks only. The calculation method stays the same; no confidence percentage or prediction interval is inferred.',
       ...(metric === 'traffic' ? ['This checks daily customer forecasts only. Hourly peaks, lean periods and staffing advice have not been validated.'] : []),
     ] }
 }

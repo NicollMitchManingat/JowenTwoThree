@@ -115,6 +115,8 @@ describe('retrospective sales forecast checks',()=>{
   expect(result.comparison).toMatchObject({days:28,lowerError:'baseline',baseline:{mae:25,wape:12.5}})
   expect(result.dataQuality).toMatchObject({historicalSnapshots:false,basis:'current_record_replay'})
   expect(result.limitations.join(' ')).toMatch(/Current refund statuses/)
+  expect(result.limitations.join(' ')).not.toMatch(/training|model switching/i)
+  expect(result.method.label).toBe('Four weekly historical comparisons')
  })
  it('never scores the same actual date twice or uses later dated sales/refunds',()=>{
   const run=rows=>buildForecastValidation({metric:'sales',through:'2026-11-09',transactions:rows})

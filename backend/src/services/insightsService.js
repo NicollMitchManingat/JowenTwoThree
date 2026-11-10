@@ -556,7 +556,7 @@ async function getInsights({ start, end, client } = {}, cfg = insightsConfig) {
     dataQuality: {
       complete: true, timeZone: 'Asia/Manila', forecastThrough: forecastEnd.toISOString(),
       recordingCoverage: 'unknown', forecastFrom: forecastStart,
-      notice: 'Forecast training uses complete Manila days only. Missing recording days are not assumed to be zero. Traffic uses recorded customer counts only; transactions are not added again.',
+      notice: 'Forecast calculations use recorded history from complete Manila days only. Missing recording days are not assumed to be zero. Traffic uses recorded customer counts only; transactions are not added again.',
     },
     windowDays,
     range: { start: rangeStart, end: endISO },

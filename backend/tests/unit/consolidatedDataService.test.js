@@ -411,6 +411,9 @@ describe('predictive business report and CSV',()=>{
   expect(result.rows.filter(row=>row.section==='Sales'&&row.metric==='Daily forecast')).toHaveLength(7)
   expect(result.export.csv).toBe(predictiveCsv(result.rows));expect(result.export.filename).toBe('predictive-report-2026-11-10.csv')
   expect(result.notes.join(' ')).toMatch(/not one transactional database snapshot/)
+  expect(result.export.csv).not.toMatch(/training|Paired model/i)
+  expect(result.export.csv).toContain('history_from')
+  expect(result.export.csv).toContain('history_through')
  })
  it('exports unknown values and insufficient history as empty values with explicit statuses',async()=>{
   const result=await getPredictiveReport({now,client:makeSupabase()})
@@ -419,6 +422,7 @@ describe('predictive business report and CSV',()=>{
   expect(result.rows.find(row=>row.metric==='Daily forecast MAE')).toMatchObject({value:null,status:'insufficient_history'})
   expect(result.rows.find(row=>row.metric==='Hourly customer forecast')).toMatchObject({value:null,status:'Unknown'})
   expect(result.export.csv).not.toContain('NaN');expect(result.export.csv).not.toContain('Infinity')
+  expect(result.export.csv).not.toMatch(/training/i)
  })
  it('preserves exact ingredient decimals and recorded unit/version separation',async()=>{
   const result=await getPredictiveReport({now,client:makeSupabase({

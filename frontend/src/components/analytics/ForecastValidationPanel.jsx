@@ -52,11 +52,11 @@ export default function ForecastValidationPanel({ metric, asOf }) {
   const format = value => metric === 'sales'
     ? new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP', minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(value)
     : value.toLocaleString('en-PH', { maximumFractionDigits: 2 }) + ' customers'
-  const statusLabel = { scored: 'Scored', missing_actuals: 'Missing daily results', insufficient_training: 'Insufficient training' }
+  const statusLabel = { scored: 'Scored', missing_actuals: 'Missing daily results', insufficient_training: 'Insufficient history' }
   return <div className="card analytics-validation-card" data-testid={metric + '-forecast-validation'}>
     <div className="card-header"><h3 className="m-0">Historical Forecast Check</h3><span className="badge badge-warning">Retrospective only</span></div>
     <div className="card-body analytics-validation-body">
-      <p className="text-sm text-muted">Compare the daily {metric === 'sales' ? 'sales' : 'customer'} model with recorded results over four weekly holdouts. Each uses the preceding 28 complete Manila days. These are revised-record checks, not proven future accuracy.</p>
+      <p className="text-sm text-muted">Compare daily {metric === 'sales' ? 'sales' : 'customer'} estimates from same-weekday averages with recorded results over four past weeks. Each calculation uses the preceding 28 complete Manila days. These are revised-record checks, not proven future accuracy.</p>
       {!enabled ? <button type="button" className="btn btn-secondary" onClick={() => setEnabled(true)}>Run historical check</button> : <>
         {loading ? <p role="status">Checking historical forecasts...</p> : error ? <div role="alert"><p>{error}</p></div> : data && <>
           <p className="text-sm">Results: {data.evaluation.from} to {data.evaluation.through}. Scored {data.coverage.scoredFolds}/4 complete weeks ({data.coverage.scoredDays} days). Generated {new Date(data.generatedAt).toLocaleString('en-PH', { timeZone: 'Asia/Manila' })} (Manila).</p>
@@ -64,11 +64,11 @@ export default function ForecastValidationPanel({ metric, asOf }) {
             <p><span>Average daily error (MAE)</span><strong data-testid="validation-mae">{format(data.metrics.mae)}</strong></p>
             <p><span>Weighted absolute percentage error (WAPE)</span><strong>{data.metrics.wape === null ? 'Not defined (zero recorded total)' : data.metrics.wape.toLocaleString('en-PH', { maximumFractionDigits: 2 }) + '%'}</strong></p>
           </div>}
-          {data.comparison.days > 0 ? <p data-testid="validation-comparison">Same weekday last week comparison on the same {data.comparison.days} days: model MAE {format(data.comparison.model.mae)}; benchmark MAE {format(data.comparison.baseline.mae)}. {data.comparison.lowerError === 'tie' ? 'Both have the same error.' : data.comparison.lowerError === 'model' ? 'The model has lower historical error on these days.' : 'The benchmark has lower historical error on these days.'} This does not select or change the forecast model.</p>
+          {data.comparison.days > 0 ? <p data-testid="validation-comparison">Same weekday last week comparison on the same {data.comparison.days} days: same-weekday average MAE {format(data.comparison.model.mae)}; benchmark MAE {format(data.comparison.baseline.mae)}. {data.comparison.lowerError === 'tie' ? 'Both have the same error.' : data.comparison.lowerError === 'model' ? 'The same-weekday average has lower historical error on these days.' : 'The benchmark has lower historical error on these days.'} This comparison does not change the calculation method.</p>
             : <p className="text-sm text-muted">No comparable complete weeks for the same-weekday-last-week benchmark.</p>}
           <table className="data-table analytics-validation-table" aria-label="Historical forecast checks">
             <colgroup><col style={{ width: '27%' }} /><col style={{ width: '23%' }} /><col style={{ width: '16%' }} /><col style={{ width: '18%' }} /><col style={{ width: '16%' }} /></colgroup>
-            <thead><tr><th>Result period</th><th>Training through</th><th>Recorded days</th><th>Check</th><th>Daily MAE</th></tr></thead>
+            <thead><tr><th>Result period</th><th>History through</th><th>Recorded days</th><th>Check</th><th>Daily MAE</th></tr></thead>
             <tbody>{data.folds.map(fold => <tr key={fold.origin}><td>{fold.from} to {fold.through}</td><td>{fold.origin}<small className="text-muted">{fold.trainingObservedDays}/28 days recorded</small></td><td>{fold.observedActualDays}/7</td><td>{statusLabel[fold.status]}</td><td>{fold.metrics ? format(fold.metrics.mae) : 'Not available'}</td></tr>)}</tbody>
           </table>
           <ul className="text-sm text-muted analytics-validation-limits">{data.limitations.map((text, index) => <li key={index}>{text}</li>)}</ul>

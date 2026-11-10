@@ -271,6 +271,8 @@ describe('Historical forecast check panel',()=>{
   expect(screen.getByText('Retrospective only')).toBeInTheDocument()
   expect(screen.getByText(/not proof of future accuracy/)).toBeInTheDocument()
   expect(screen.getAllByRole('row')).toHaveLength(5)
+  expect(screen.getByRole('columnheader',{name:'History through'})).toBeInTheDocument()
+  expect(screen.getByTestId('sales-forecast-validation')).not.toHaveTextContent(/training|forecast model/i)
  })
  it('does not turn missing scores into zero error or perfect accuracy',async()=>{
   apiRequest.mockResolvedValue({data:replayPayload('traffic',false)})
@@ -279,6 +281,8 @@ describe('Historical forecast check panel',()=>{
   await screen.findByText('Insufficient history for a complete weekly check. No error score is available.')
   expect(screen.queryByTestId('validation-mae')).not.toBeInTheDocument()
   expect(apiRequest.mock.calls[0][0]).toBe('/api/customer-traffic/validation?')
+  expect(screen.getByTestId('traffic-forecast-validation')).not.toHaveTextContent(/training/i)
+  expect(screen.getAllByText('Insufficient history')).toHaveLength(4)
  })
  it('leaves percentage error undefined for zero recorded totals',async()=>{
   const data=replayPayload();data.metrics.wape=null;data.metrics.mae=0

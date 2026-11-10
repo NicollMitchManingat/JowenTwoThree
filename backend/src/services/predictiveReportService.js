@@ -11,7 +11,7 @@ const MAX_REPORT_ROWS = 10000
 const tooLarge = () => Object.assign(new Error('Predictive report exceeds the safe export limit. Review reporting data volume before retrying.'), { statusCode: 503 })
 
 const HEADERS = ['section', 'basis', 'metric', 'date', 'through', 'item', 'hour', 'unit', 'unit_version', 'value',
-  'status', 'method', 'training_from', 'training_through', 'observed_days', 'horizon_days', 'note']
+  'status', 'method', 'history_from', 'history_through', 'observed_days', 'horizon_days', 'note']
 const KEYS = ['section', 'basis', 'metric', 'date', 'through', 'item', 'hour', 'unit', 'unitVersion', 'value',
   'status', 'method', 'trainingFrom', 'trainingThrough', 'observedDays', 'horizonDays', 'note']
 function csvCell(value) {
@@ -94,11 +94,12 @@ function reportRows({ generatedAt, period, sales, traffic, inventory, validation
       observedDays: check.coverage.scoredDays, horizonDays: 7, status: check.status, note: 'Revised-current-record comparison; not frozen past forecasts or proof of future accuracy.' }
     add({ ...meta, metric: 'Daily forecast MAE', value: check.metrics?.mae, unit })
     add({ ...meta, metric: 'WAPE', value: check.metrics?.wape, unit: '%', note: meta.note + ' Undefined if actual total is zero; not an accuracy/confidence percentage.' })
-    for (const [metric, result] of [['Paired model MAE', check.comparison.model], ['Paired last-week benchmark MAE', check.comparison.baseline]])
+    for (const [metric, result] of [['Paired forecast MAE', check.comparison.model], ['Paired last-week benchmark MAE', check.comparison.baseline]])
       add({ ...meta, metric, unit, value: result?.mae, observedDays: check.comparison.days, note: meta.note + ' Both compared on identical complete weeks only.' })
-    for (const fold of check.folds) add({ ...meta, metric: 'Weekly holdout daily MAE', date: fold.from, through: fold.through,
+    for (const fold of check.folds) add({ ...meta, metric: 'Weekly comparison daily MAE', date: fold.from, through: fold.through,
       trainingFrom: fold.trainingFrom, trainingThrough: fold.origin, observedDays: fold.observedActualDays,
-      value: fold.metrics?.mae, unit, status: fold.status, note: meta.note + ' Recorded training days: ' + fold.trainingObservedDays + '/28.' })
+      value: fold.metrics?.mae, unit, status: fold.status === 'insufficient_training' ? 'Insufficient history' : fold.status,
+      note: meta.note + ' Recorded history days: ' + fold.trainingObservedDays + '/28.' })
     for (const note of check.limitations) add({ section, basis: 'Limitation', metric: 'Historical check limitation', status: 'Retrospective only', note })
   }
   return rows
@@ -127,7 +128,7 @@ async function getPredictiveReport({ start, end, client, now = new Date() } = {}
     'Forecasts use complete days anchored to the selected end calendar date, independently of the selected period start or session duration. Inventory usage has its own complete-day window shown on each scenario.',
     'Inventory balances are current, even when viewing a historical period. Wastage is recorded history within the selected timestamps; unknown units have entry counts but no guessed quantities.',
     'Inventory scenarios use current recipes and recorded sales days, not exact past consumption. They do not include future receipts; unit mismatches/unmapped sales withhold estimates.',
-    'Historical checks use revised current records, not stored issued forecasts. Current refund statuses and later edits can affect historical training. They do not prove future accuracy.',
+    'Historical checks use revised current records, not stored issued forecasts. Current refund statuses and later edits can affect historical calculations. They do not prove future accuracy.',
     'Hourly traffic and staffing advice are unvalidated; unknown hours are not lean periods. No staffing headcount or confidence percentage is inferred.',
     'All sources must finish their bounded reads. These parallel/paginated reads are not one transactional database snapshot; refresh after concurrent edits.',
     'The CSV exports every section from this loaded report. Preview filters do not change its contents. Text cells that could be spreadsheet formulas are escaped.',

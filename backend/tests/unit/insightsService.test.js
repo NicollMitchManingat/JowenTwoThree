@@ -480,6 +480,8 @@ describe('analytics read reliability', () => {
     const result = await getInsights({ client, end: '2026-11-09T12:00:00+08:00' })
     expect(result.insights.some(row => row.key === 'forecast')).toBe(false)
     expect(result.dataQuality).toMatchObject({ complete:true, recordingCoverage:'unknown', forecastThrough:'2026-11-08T15:59:59.999Z' })
+    expect(result.dataQuality.notice).toMatch(/Forecast calculations use recorded history/)
+    expect(result.dataQuality.notice).not.toMatch(/training/i)
   })
 })
 

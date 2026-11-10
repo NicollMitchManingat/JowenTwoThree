@@ -34,7 +34,7 @@ function buildSalesForecast(daily, through, cfg = {}) {
     history, forecast,
     total: ready ? forecast.reduce((sum, row) => sum + row.predictedRevenue, 0) : null,
     notice: ready
-      ? 'Estimate based on recorded days only. Missing days are unknown. Forecast accuracy has not yet been evaluated.'
+      ? 'Estimate based on recorded days only. Missing days are unknown. Future forecast performance is unverified; see the separate retrospective check.'
       : `Insufficient history: record at least ${minimum} days for each weekday within the last ${windowDays} complete days. Missing days are not treated as zero sales.`,
   }
 }

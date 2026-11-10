@@ -1,3 +1,4 @@
+const validation = require('../services/forecastValidationService')
 const customerTrafficService = require('../services/customerTrafficService')
 async function getCustomerTraffic(req, res) {
   try {
@@ -9,4 +10,12 @@ async function getTrafficForecast(req, res) {
     res.json({ data: await customerTrafficService.getTrafficForecast({ asOf: req.query.asOf }) })
   } catch (err) { res.status(err.statusCode || 500).json({ error: err.message }) }
 }
-module.exports = { getCustomerTraffic, getTrafficForecast }
+
+async function getTrafficValidation(req, res) {
+  try {
+    const data = await validation.getForecastValidation({ metric: 'traffic', asOf: req.query.asOf })
+    res.json({ data })
+  } catch (err) { res.status(err.statusCode || 500).json({ error: err.message }) }
+}
+
+module.exports = { getCustomerTraffic, getTrafficForecast, getTrafficValidation }

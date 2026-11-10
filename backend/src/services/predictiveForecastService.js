@@ -3,15 +3,7 @@ const { buildSalesForecast } = require('./salesForecastMath')
 const { netDailySales } = require('./insightsService')
 const config = require('./insightsConfig')
 
-async function getSalesForecast({ asOf, client, now = new Date() } = {}) {
-  const today = dayStart(now)
-  if (!today) throw new Error('Forecast clock is unavailable.')
-  const requested = asOf === undefined ? today : calendarStart(asOf)
-  if (!requested) throw Object.assign(new Error('Use a valid asOf date in YYYY-MM-DD format.'), { statusCode: 400 })
-  // Historical dates are complete. Today/future dates use yesterday.
-  const end = requested < today ? requested : new Date(today.getTime() - DAY_MS)
-  const from = new Date(end.getTime() - (config.TRAILING_DAYS - 1) * DAY_MS)
-  const until = new Date(end.getTime() + DAY_MS)
+async function readSalesHistory(client, from, until) {
   const supabase = client !== undefined ? client : require('../config/supabaseClient').supabase
   if (!supabase) throw Object.assign(new Error('Sales forecast data is unavailable. Please retry.'), { statusCode: 503 })
   const read = (table, columns) => readAll((start, stop) => supabase.from(table).select(columns)
@@ -22,11 +14,25 @@ async function getSalesForecast({ asOf, client, now = new Date() } = {}) {
     read('refunds', 'id,transaction_id,created_at,refund_amount'),
   ])
   const inWindow = rows => rows.filter(row => {
-    const time = new Date(row.created_at).getTime()
+    const time = typeof row?.created_at === 'string' ? new Date(row.created_at).getTime() : NaN
+    if (!Number.isFinite(time)) throw Object.assign(new Error('Sales history contains an invalid timestamp.'), { statusCode: 503 })
     return time >= from.getTime() && time < until.getTime()
   })
+  return { transactions: inWindow(transactions), refunds: inWindow(refunds) }
+}
+
+async function getSalesForecast({ asOf, client, now = new Date() } = {}) {
+  const today = dayStart(now)
+  if (!today) throw new Error('Forecast clock is unavailable.')
+  const requested = asOf === undefined ? today : calendarStart(asOf)
+  if (!requested) throw Object.assign(new Error('Use a valid asOf date in YYYY-MM-DD format.'), { statusCode: 400 })
+  // Historical dates are complete. Today/future dates use yesterday.
+  const end = requested < today ? requested : new Date(today.getTime() - DAY_MS)
+  const from = new Date(end.getTime() - (config.TRAILING_DAYS - 1) * DAY_MS)
+  const until = new Date(end.getTime() + DAY_MS)
+  const { transactions, refunds } = await readSalesHistory(client, from, until)
   return {
-    ...buildSalesForecast(netDailySales(inWindow(transactions), inWindow(refunds)), dayKey(end), config),
+    ...buildSalesForecast(netDailySales(transactions, refunds), dayKey(end), config),
     generatedAt: new Date(now).toISOString(),
     requestedAsOf: asOf || dayKey(today), historical: requested < today,
     dataQuality: { complete: true, timeZone: 'Asia/Manila', recordingCoverage: 'unknown',
@@ -34,4 +40,4 @@ async function getSalesForecast({ asOf, client, now = new Date() } = {}) {
   }
 }
 
-module.exports = { getSalesForecast }
+module.exports = { getSalesForecast, readSalesHistory }

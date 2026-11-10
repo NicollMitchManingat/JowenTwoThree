@@ -75,3 +75,25 @@ describe('live customer traffic and forecasts', () => {
     expect(result[8].customers).toBe(1201)
   })
 })
+
+const {buildForecastValidation,getForecastValidation}=require('../../src/services/forecastValidationService')
+describe('retrospective daily customer forecast checks',()=>{
+ const rows=Array.from({length:56},(_,i)=>({created_at:new Date(Date.parse('2026-09-15T04:00:00Z')+i*86400000).toISOString(),number_of_customer:String(i<28?10:20)}))
+ it('evaluates actual daily headcounts without transaction duplication or hourly accuracy claims',async()=>{
+  const result=await getForecastValidation({metric:'traffic',client:clientFor(rows),now:new Date('2026-11-10T08:00:00Z')})
+  expect(result.status).toBe('replay_available');expect(result.coverage.scoredDays).toBe(28)
+  expect(result.metrics).toEqual({days:28,mae:6,wape:30})
+  expect(result.comparison.baseline.mae).toBe(2.5)
+  expect(result.limitations.join(' ')).toMatch(/Hourly peaks, lean periods and staffing advice have not been validated/)
+ })
+ it('leaves unknown customer days unscored and fails invalid counts',()=>{
+  const result=buildForecastValidation({metric:'traffic',through:'2026-11-09',trafficRows:rows.filter((_,i)=>i!==29)})
+  expect(result.folds[0].status).toBe('missing_actuals');expect(result.folds[0].metrics).toBeNull()
+  expect(()=>buildForecastValidation({metric:'traffic',through:'2026-11-09',trafficRows:[{...rows[0],number_of_customer:'1.5'}]})).toThrow(/counts/)
+ })
+ it('keeps the ordinary forecast independent of validation history source failures',async()=>{
+  await expect(getForecastValidation({metric:'traffic',client:clientFor([], {message:'offline'}),now})).rejects.toMatchObject({statusCode:503})
+  const result=await getTrafficForecast({client:clientFor(history()),now})
+  expect(result.status).toBe('ready')
+ })
+})

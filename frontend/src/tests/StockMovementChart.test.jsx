@@ -124,6 +124,7 @@ describe('Inventory analytics panel',()=>{
   expect(screen.getAllByText('<0.01').length).toBeGreaterThan(0)
   expect(screen.getByTitle('0.00001')).toHaveTextContent('<0.01')
   expect(screen.getByText(/Current recipe estimate, not exact historical consumption/)).toBeInTheDocument()
+  expect(screen.getByText(/Validation limit: this is a current-recipe scenario/)).toBeInTheDocument()
   expect(screen.getByText(/3 wastage entries have unrecorded units/)).toBeInTheDocument()
   expect(screen.getByText('Archived ingredient')).toBeInTheDocument()
   expect(screen.getByText('Earlier unit/version; kept separate')).toBeInTheDocument()

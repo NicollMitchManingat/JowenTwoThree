@@ -76,7 +76,7 @@ function buildTrafficForecast(rows, through, cfg = {}) {
     training: { from: history[0].date, through, observedDays: history.filter(row => row.customers !== null).length,
       missingDays: history.filter(row => row.customers === null).length, samplesByWeekday },
     history, forecast, hourlyForecast, total,
-    notice: ready ? 'Estimates use recorded customer counts only. Recording coverage is unknown; forecast accuracy has not yet been evaluated.'
+    notice: ready ? 'Estimates use recorded customer counts only. Recording coverage is unknown; future forecast performance is unverified; see the separate retrospective check.'
       : 'Insufficient daily history: at least ' + minimum + ' recorded days per weekday are required. Missing recordings are unknown, not zero.',
     hourlyNotice: 'Hourly estimates require ' + minimum + ' matching weekdays with recordings in that hour. Daily and hourly estimates use different coverage and may not add up. Peak and lean periods compare supported trading hours only; unknown hours are excluded. Staffing numbers require service-capacity data.' }
 }

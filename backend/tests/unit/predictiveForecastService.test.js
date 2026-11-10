@@ -102,3 +102,72 @@ describe('live sales forecast service',()=>{
   expect(new Date(days.at(-1)+'T00:00:00Z')-new Date(days[0]+'T00:00:00Z')).toBe(27*DAY_MS)
  })
 })
+
+const {buildForecastValidation,getForecastValidation,validationWindow}=require('../../src/services/forecastValidationService')
+const replayDays=Array.from({length:56},(_,i)=>new Date(Date.parse('2026-09-15T04:00:00Z')+i*DAY_MS).toISOString())
+const replaySales=replayDays.map((created_at,i)=>({id:'replay-'+i,created_at,total:i<28?100:200,status:'COMPLETED'}))
+describe('retrospective sales forecast checks',()=>{
+ it('uses four past-only rolling holdouts with exact known error and an honest benchmark loss',()=>{
+  const result=buildForecastValidation({metric:'sales',through:'2026-11-09',transactions:replaySales})
+  expect(result.metrics).toEqual({days:28,mae:62.5,wape:31.25})
+  expect(result.folds.map(fold=>fold.metrics.mae)).toEqual([100,75,50,25])
+  expect(result.folds[0]).toMatchObject({origin:'2026-10-12',trainingFrom:'2026-09-15',from:'2026-10-13',through:'2026-10-19'})
+  expect(result.comparison).toMatchObject({days:28,lowerError:'baseline',baseline:{mae:25,wape:12.5}})
+  expect(result.dataQuality).toMatchObject({historicalSnapshots:false,basis:'current_record_replay'})
+  expect(result.limitations.join(' ')).toMatch(/Current refund statuses/)
+ })
+ it('never scores the same actual date twice or uses later dated sales/refunds',()=>{
+  const run=rows=>buildForecastValidation({metric:'sales',through:'2026-11-09',transactions:rows})
+  const result=run([...replaySales,{id:'future',created_at:'2026-11-09T16:00:00Z',total:999999,status:'COMPLETED'}])
+  expect(result.metrics).toEqual(run(replaySales).metrics)
+  const dates=result.folds.flatMap(fold=>Array.from({length:7},(_,i)=>new Date(Date.parse(fold.from+'T04:00:00Z')+i*DAY_MS).toISOString().slice(0,10)))
+  expect(new Set(dates).size).toBe(28)
+ })
+ it('excludes incomplete actual weeks without zero filling',()=>{
+  const rows=replaySales.filter((_,i)=>i!==29)
+  const result=buildForecastValidation({metric:'sales',through:'2026-11-09',transactions:rows})
+  expect(result.folds[0].status).toBe('missing_actuals');expect(result.folds[0].metrics).toBeNull()
+  expect(result.coverage.scoredDays).toBe(21);expect(result.coverage.missingActualDays).toBe(1)
+  // The following holdout scores, but its last-week benchmark lacks that day.
+  expect(result.folds[1].status).toBe('scored');expect(result.folds[1].baselineAvailable).toBe(false)
+  expect(result.comparison.days).toBe(14)
+ })
+ it('keeps explicit zero days and leaves WAPE undefined for zero totals',()=>{
+  const result=buildForecastValidation({metric:'sales',through:'2026-11-09',transactions:replaySales.map(row=>({...row,total:0}))})
+  expect(result.status).toBe('replay_available');expect(result.metrics).toEqual({days:28,mae:0,wape:null})
+  expect(result.comparison.lowerError).toBe('tie')
+ })
+ it('withholds all scores for sparse history, without claiming perfect accuracy',()=>{
+  const result=buildForecastValidation({metric:'sales',through:'2026-11-09',transactions:replaySales.slice(-7)})
+  expect(result.status).toBe('insufficient_history');expect(result.metrics).toBeNull();expect(result.comparison.model).toBeNull()
+  expect(result.coverage.scoredFolds).toBe(0)
+ })
+ it('shares production refund semantics and exposes the revised-status limitation',()=>{
+  const refunded=replaySales.map(row=>({...row}));refunded[35].status='REFUNDED'
+  const result=buildForecastValidation({metric:'sales',through:'2026-11-09',transactions:refunded,refunds:[{transaction_id:refunded[35].id,created_at:refunded[35].created_at,refund_amount:200}]})
+  expect(result.folds[1].observedActualDays).toBe(6);expect(result.folds[1].status).toBe('missing_actuals')
+  expect(result.limitations.join(' ')).toMatch(/not the forecasts staff actually saw/)
+ })
+ it('uses a bounded 56-day live read and caps today/future at yesterday',async()=>{
+  const client=clientFor(replaySales),now=new Date('2026-11-10T08:00:00Z')
+  const result=await getForecastValidation({metric:'sales',client,now,asOf:'2027-01-01'})
+  expect(result.readWindow).toEqual({from:'2026-09-15',through:'2026-11-09'})
+  expect(result.metrics.mae).toBe(62.5);expect(result.historical).toBe(false)
+  expect(validationWindow('2026-11-02',now).through.toISOString()).toBe('2026-11-01T16:00:00.000Z')
+ })
+ it.each(['transactions','refunds'])('fails the independent check on a failed %s source',async failOn=>{
+  await expect(getForecastValidation({metric:'sales',client:clientFor(replaySales,[],{failOn}),now:NOW})).rejects.toMatchObject({statusCode:503})
+ })
+ it('rejects malformed dates, unsupported metrics and invalid amounts',async()=>{
+  const client={from:vi.fn()}
+  await expect(getForecastValidation({metric:'sales',asOf:'2026-02-30',client})).rejects.toMatchObject({statusCode:400})
+  await expect(getForecastValidation({metric:'inventory',client})).rejects.toMatchObject({statusCode:400})
+  expect(client.from).not.toHaveBeenCalled()
+  expect(()=>buildForecastValidation({metric:'sales',through:'2026-11-09',transactions:[{...replaySales[0],total:null}]})).toThrow(/invalid/)
+ })
+})
+
+ it('fails an oversized validation source rather than computing a partial score',async()=>{
+  const rows=Array.from({length:20001},(_,i)=>({...replaySales[0],id:'oversized-'+i}))
+  await expect(getForecastValidation({metric:'sales',client:clientFor(rows,[],{cap:1000}),now:new Date('2026-11-10T08:00:00Z')})).rejects.toMatchObject({statusCode:503})
+ })

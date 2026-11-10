@@ -4270,3 +4270,16 @@
 .analytics-page .analytics-traffic-forecast-hour.is-lean { border-color: #16a34a; background: rgba(22, 163, 74, .08); }
 .analytics-page .analytics-traffic-advice { padding: .75rem 1rem; border-left: 3px solid #2563eb; background: rgba(37, 99, 235, .05); overflow-wrap: anywhere; }
 .analytics-page .analytics-traffic-advice p { margin: .35rem 0; }
+
+/* Historical checks use fitted native rows and wrap at tablet widths. */
+.analytics-page .analytics-validation-card, .analytics-validation-body { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
+.analytics-validation-card .card-header { display: flex; align-items: center; flex-wrap: wrap; gap: .75rem; }
+.analytics-validation-metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 15rem), 1fr)); gap: .75rem; margin: 1rem 0; }
+.analytics-validation-metrics p { margin: 0; padding: .75rem; background: var(--bg-secondary, rgba(37, 99, 235, .05)); border-radius: .5rem; min-width: 0; }
+.analytics-validation-metrics span, .analytics-validation-metrics strong { display: block; }
+.analytics-validation-metrics strong { font-size: 1.3rem; margin-top: .4rem; }
+.analytics-page .analytics-validation-table { table-layout: fixed; width: 100%; min-width: 0; }
+.analytics-page .analytics-validation-table th, .analytics-page .analytics-validation-table td { padding: .65rem .45rem; white-space: normal; overflow-wrap: anywhere; vertical-align: top; font-size: .8rem; }
+.analytics-validation-table small { display: block; margin-top: .25rem; }
+.analytics-validation-limits { padding-left: 1.25rem; line-height: 1.5; }
+.analytics-validation-limits li + li { margin-top: .4rem; }

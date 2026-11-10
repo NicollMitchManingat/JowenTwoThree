@@ -56,6 +56,7 @@ export default function InventoryAnalyticsPanel({ start, end }) {
         <div className="card-body inventory-analytics-notes">
           <p>Current quantities with sales from {data.usageWindow.from} to {data.usageWindow.through}: {data.usageWindow.recordedSalesDays} recorded sales days.</p>
           <p className="text-sm text-muted">Current recipe estimate, not exact historical consumption. Daily usage averages recorded sales days only; missing days are unknown. The seven-day scenario assumes that rate repeats each day. Purchases, deliveries and future adjustments are not included.</p>
+          <p className="text-sm text-muted">Validation limit: this is a current-recipe scenario, not a backtested forecast. Complete historical recipe and stock snapshots are unavailable, so no accuracy score or confidence percentage is assigned.</p>
           {data.dataQuality.unmappedLines > 0 && <p role="status">Some sale lines cannot be linked to products. Usage estimates are withheld until those records are reviewed.</p>}
         </div>
         <table className="inventory-analytics-table" aria-label="Ingredient usage estimates">

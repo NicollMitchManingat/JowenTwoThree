@@ -36,4 +36,4 @@ async function getTrafficForecast({ asOf, client, now = new Date() } = {}) {
     generatedAt: new Date(now).toISOString(), requestedAsOf: asOf || dayKey(today), historical: requested < today,
     dataQuality: { complete: true, timeZone: 'Asia/Manila', currentDayExcluded: true, recordingCoverage: 'unknown', source: 'customer_traffic' } }
 }
-module.exports = { getCustomerTrafficData, getTrafficForecast }
+module.exports = { getCustomerTrafficData, getTrafficForecast, readTraffic }

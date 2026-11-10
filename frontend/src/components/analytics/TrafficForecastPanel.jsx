@@ -1,3 +1,4 @@
+import ForecastValidationPanel from './ForecastValidationPanel'
 import { useEffect, useMemo, useState } from 'react'
 import { apiRequest } from '../../services/apiClient'
 import { manilaStart, manilaDay } from '../../utils/analyticsTime'
@@ -49,7 +50,7 @@ export default function TrafficForecastPanel({ asOf }) {
   }), [result])
   const day = result?.hourlyForecast.find(row => row.date === selected)
   const hoursLabel = hours => hours.map(formatHour).join(', ')
-  return <div className="card analytics-forecast-card" data-testid="traffic-forecast-panel">
+  return <><div className="card analytics-forecast-card" data-testid="traffic-forecast-panel">
     <div className="card-header"><h3 className="m-0">Customer Traffic Forecast</h3>
       {result?.historical && <span className="badge badge-warning">Historical forecast</span>}</div>
     <div className="card-body analytics-forecast-body">
@@ -88,5 +89,5 @@ export default function TrafficForecastPanel({ asOf }) {
         {result.historical && <p className="text-sm text-muted">Recomputed from current recordings as of {result.training.through}; later dated recordings are excluded. Past edits can revise this estimate.</p>}
       </>}
     </div>
-  </div>
+  </div><ForecastValidationPanel metric="traffic" asOf={asOf} /></>
 }

@@ -40,3 +40,29 @@ describe('protected customer traffic routes', () => {
     expect((await request(app).get('/api/customer-traffic/forecast')).status).toBe(200)
   })
 })
+
+const validation=require('../../src/services/forecastValidationService')
+describe('protected traffic historical-check route',()=>{
+ beforeEach(()=>{vi.restoreAllMocks();vi.spyOn(access,'authenticate').mockResolvedValue({user:{id:'fixture',role:'admin',isActive:true}})})
+ afterEach(()=>vi.restoreAllMocks())
+ it('passes the anchor and returns a private no-store response',async()=>{
+  vi.spyOn(validation,'getForecastValidation').mockResolvedValue({metric:'traffic',status:'insufficient_history',metrics:null})
+  const res=await request(app).get('/api/customer-traffic/validation?asOf=2026-11-09')
+  expect(res.status).toBe(200);expect(res.headers['cache-control']).toBe('private, no-store')
+  expect(validation.getForecastValidation).toHaveBeenCalledWith({metric:'traffic',asOf:'2026-11-09'})
+ })
+ it.each([400,503])('preserves check errors (%s)',async statusCode=>{
+  vi.spyOn(validation,'getForecastValidation').mockRejectedValue(Object.assign(new Error('Check unavailable'),{statusCode}))
+  const res=await request(app).get('/api/customer-traffic/validation');expect(res.status).toBe(statusCode);expect(res.body.data).toBeUndefined()
+ })
+ it('requires a session and Analytics permission before querying history',async()=>{
+  const spy=vi.spyOn(validation,'getForecastValidation')
+  access.authenticate.mockRejectedValue(access.httpError('Sign in',401))
+  expect((await request(app).get('/api/customer-traffic/validation')).status).toBe(401)
+  for(const role of ['cashier','stockist']){
+   access.authenticate.mockResolvedValue({user:{role,isActive:true,permissions:['inventory']}})
+   expect((await request(app).get('/api/customer-traffic/validation')).status).toBe(403)
+  }
+  expect(spy).not.toHaveBeenCalled()
+ })
+})

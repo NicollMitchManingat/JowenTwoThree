@@ -1,3 +1,4 @@
+import ForecastValidationPanel from './ForecastValidationPanel'
 import { useEffect, useMemo, useState } from 'react'
 import { apiRequest } from '../../services/apiClient'
 import { manilaStart } from '../../utils/analyticsTime'
@@ -60,7 +61,7 @@ export default function SalesForecastPanel({ asOf }) {
     }
   }, [result])
 
-  return <div className="card analytics-forecast-card" data-testid="sales-forecast-panel">
+  return <><div className="card analytics-forecast-card" data-testid="sales-forecast-panel">
     <div className="card-header"><h3 className="m-0">Sales Forecast</h3>
       {result?.historical && <span className="badge badge-warning">Historical forecast</span>}
     </div>
@@ -87,5 +88,5 @@ export default function SalesForecastPanel({ asOf }) {
           {result.historical && <p className="text-sm text-muted">Historical forecast as of {result.training.through}. Later dated transactions and refunds are excluded. This is recomputed from current records; refund status changes can revise prior revenue.</p>}
         </>}
     </div>
-  </div>
+  </div><ForecastValidationPanel metric="sales" asOf={asOf} /></>
 }

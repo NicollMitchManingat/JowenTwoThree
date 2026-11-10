@@ -66,7 +66,7 @@ const mockData = {
       inventoryStatus: "Low",
     },
   ],
-  meta: { from: null, to: null, category: null, dataSource: "mock" },
+  meta: { from: null, to: null, category: null, dataSource: "live", complete: true },
 };
 
 function mockFetchSuccess(data = mockData) {
@@ -131,7 +131,7 @@ describe("ConsolidatedDataTable", () => {
     mockFetchSuccess();
     render(<ConsolidatedDataTable />);
     await waitFor(() => {
-      expect(screen.getByTestId("consolidated-source-badge")).toHaveTextContent("Demo data");
+      expect(screen.getByTestId("consolidated-source-badge")).toHaveTextContent("Live data");
     });
   });
 
@@ -314,19 +314,21 @@ describe("ConsolidatedDataTable", () => {
     });
   });
 
-  it("should fall back to local data when fetch fails", async () => {
+  it("should show an error and retry without sample rows when fetch fails", async () => {
     vi.spyOn(global, "fetch").mockResolvedValue({ ok: false, status: 500 });
     render(<ConsolidatedDataTable />);
     await waitFor(() => {
-      expect(screen.getByTestId("consolidated-table")).toBeInTheDocument();
+      expect(screen.getByTestId("consolidated-load-error")).toBeInTheDocument();
+      expect(screen.queryByTestId("consolidated-export-btn")).not.toBeInTheDocument();
     });
   });
 
-  it("should fall back to local data on network error", async () => {
+  it("should show an error without sample rows on network error", async () => {
     vi.spyOn(global, "fetch").mockRejectedValue(new Error("Network error"));
     render(<ConsolidatedDataTable />);
     await waitFor(() => {
-      expect(screen.getByTestId("consolidated-table")).toBeInTheDocument();
+      expect(screen.getByTestId("consolidated-load-error")).toBeInTheDocument();
+      expect(screen.queryByTestId("consolidated-export-btn")).not.toBeInTheDocument();
     });
   });
 

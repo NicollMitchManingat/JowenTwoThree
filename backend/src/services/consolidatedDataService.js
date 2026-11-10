@@ -3,17 +3,13 @@
 // Data strategy (layered, most-reliable first):
 //   1. live      — Supabase `transaction_items` joined to transactions/products.
 //   2. cart      — `transactions.cart` JSONB lines when item rows are missing.
-//   3. mock      — bundled mock models when Supabase is unreachable.
+//   Failed reads are reported; sample rows are never substituted.
 // The resolved layer is reported in `meta.dataSource` so the UI can badge it.
 //
 // Net-revenue rule (consistent with Order History): REFUNDED transactions are
 // excluded from revenue/units/customers; partial refunds are subtracted.
 
-const salesModel = require("../models/salesModel")
-const { inventory } = require("./inventoryStore")
-const customerTrafficModel = require("../models/customerTrafficModel")
-
-const DEFAULT_PAGE_LIMIT = 5000
+const { DAY_MS, dayKey, hourOf, calendarStart, readAll } = require("./analyticsReadService")
 
 function defaultSupabase() {
   try {
@@ -26,41 +22,21 @@ function defaultSupabase() {
 function defaultFetchInventory() {
   const store = require("./inventorySupabaseStore")
   const { mapInventoryRow } = require("./inventoryService")
-  return store.getAllInventory().then((rows) => rows.map(mapInventoryRow))
+  const client = defaultSupabase()
+  return readAll((a, b) => store.readUnitRows(versioned => client.from('inventory')
+    .select(store.inventoryColumns(versioned)).eq('is_active', true).order('id').range(a, b)), { label: 'Inventory' })
+    .then(rows => rows.map(mapInventoryRow))
 }
 
-function startOfDayISO(dateStr) {
-  if (!dateStr) return null
-  const d = new Date(`${dateStr}T00:00:00`)
-  if (Number.isNaN(d.getTime())) return null
-  return d
-}
-
+function startOfDayISO(dateStr) { return calendarStart(dateStr) }
 function endOfDayExclusiveISO(dateStr) {
-  if (!dateStr) return null
-  const d = new Date(`${dateStr}T00:00:00`)
-  if (Number.isNaN(d.getTime())) return null
-  return new Date(d.getTime() + 86400000)
+  const start = calendarStart(dateStr)
+  return start ? new Date(start.getTime() + DAY_MS) : null
 }
-
-/** Refund totals keyed by transaction id. Missing table/records → {}. */
 async function fetchRefundsByTxn(supabase, txnIds) {
+  const rows = await readForIds(supabase, 'refunds', 'id,transaction_id,refund_amount', txnIds)
   const grouped = {}
-  if (!supabase || !txnIds.length) return grouped
-  try {
-    const { data, error } = await supabase
-      .from("refunds")
-      .select("transaction_id, refund_amount")
-      .in("transaction_id", txnIds)
-    if (error || !Array.isArray(data)) return grouped
-    data.forEach((r) => {
-      if (!r || !r.transaction_id) return
-      grouped[r.transaction_id] =
-        (grouped[r.transaction_id] || 0) + (Number(r.refund_amount) || 0)
-    })
-  } catch {
-    // Refunds are best-effort; revenue still nets REFUNDED transactions to 0.
-  }
+  rows.forEach(r => { grouped[r.transaction_id] = (grouped[r.transaction_id] || 0) + Number(r.refund_amount || 0) })
   return grouped
 }
 
@@ -76,7 +52,7 @@ function dayOf(iso) {
   if (!iso) return "N/A"
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return "N/A"
-  return d.toISOString().slice(0, 10)
+  return dayKey(d)
 }
 
 function matchInventory(invIndex, productName) {
@@ -186,49 +162,35 @@ function summarize(rows, transactions) {
   }
 }
 
-function trafficByHourFrom(transactions, fallbackRecords) {
-  const buckets = {}
-  for (let hour = 0; hour < 24; hour += 1) buckets[hour] = 0
-  const stamps = (transactions || [])
-    .map((t) => t.created_at || t.timestamp)
-    .filter(Boolean)
-  const source = stamps.length > 0 ? stamps : (fallbackRecords || []).map((r) => r.timestamp).filter(Boolean)
-  source.forEach((ts) => {
-    const d = new Date(ts)
-    if (!Number.isNaN(d.getTime())) buckets[d.getHours()] += 1
+function trafficByHourFrom(records) {
+  const buckets = Array.from({ length: 24 }, (_, hour) => ({ hour, customers: 0 }))
+  records.forEach(row => {
+    const hour = hourOf(row.created_at)
+    if (hour !== null) buckets[hour].customers += Number(row.number_of_customer || 0)
   })
-  return Object.keys(buckets).map((hour) => ({
-    hour: Number(hour),
-    customers: buckets[hour],
-  }))
+  return buckets
 }
-
-// ---- Live Supabase path ----
-
+function boundedQuery(supabase, table, columns, fromDate, toExclusive, toInclusive) {
+  let query = supabase.from(table).select(columns).order('created_at').order('id')
+  if (fromDate) query = query.gte('created_at', fromDate.toISOString())
+  if (toExclusive) query = query.lt('created_at', toExclusive.toISOString())
+  if (toInclusive) query = query.lte('created_at', toInclusive.toISOString())
+  return query
+}
 async function fetchLiveTransactions(supabase, fromDate, toExclusive, toInclusive) {
-  let query = supabase
-    .from("transactions")
-    .select("id, transaction_number, created_at, customer_count, status, total, cart")
-    .order("created_at", { ascending: false })
-    .limit(DEFAULT_PAGE_LIMIT)
-  if (fromDate) query = query.gte("created_at", fromDate.toISOString())
-  if (toExclusive) query = query.lt("created_at", toExclusive.toISOString())
-  if (toInclusive) query = query.lte("created_at", toInclusive.toISOString())
-  const { data, error } = await query
-  if (error) throw new Error(error.message || "Failed to fetch transactions")
-  return Array.isArray(data) ? data : []
+  return readAll((a, b) => boundedQuery(supabase, 'transactions', 'id,transaction_number,created_at,customer_count,status,total,cart', fromDate, toExclusive, toInclusive).range(a, b), { label: 'Sales' })
 }
-
+async function readForIds(supabase, table, columns, ids) {
+  const rows = []
+  for (let offset = 0; offset < ids.length; offset += 100) {
+    rows.push(...await readAll((a, b) => supabase.from(table).select(columns)
+      .in('transaction_id', ids.slice(offset, offset + 100)).order('id').range(a, b), { label: table }))
+    if (rows.length > 20000) throw Object.assign(new Error('Report exceeds the safe reporting limit. Select a shorter period.'), { statusCode: 503 })
+  }
+  return rows
+}
 async function fetchLiveItems(supabase, txnIds) {
-  if (!txnIds.length) return []
-  const { data, error } = await supabase
-    .from("transaction_items")
-    .select(
-      "transaction_id, quantity, unit_price, subtotal, products(product_name, product_categories(name))"
-    )
-    .in("transaction_id", txnIds)
-  if (error) throw new Error(error.message || "Failed to fetch transaction items")
-  return Array.isArray(data) ? data : []
+  return readForIds(supabase, 'transaction_items', 'id,transaction_id,quantity,unit_price,subtotal,products(product_name,product_categories(name))', txnIds)
 }
 
 function rowsFromLiveItems(transactions, items, invIndex) {
@@ -307,110 +269,6 @@ function rowsFromCart(transactions, refundsByTxn, invIndex) {
   return rows
 }
 
-// ---- Mock fallback path (previous behavior, corrected shape) ----
-
-function mockPayload({ from, to, category } = {}) {
-  const salesData = salesModel.getSales()
-  const trafficData = customerTrafficModel.getCustomerTraffic()
-
-  const inRange = (iso) => {
-    const t = new Date(iso).getTime()
-    if (Number.isNaN(t)) return false
-    if (from && t < startOfDayISO(from)?.getTime()) return false
-    if (to && t >= endOfDayExclusiveISO(to)?.getTime()) return false
-    return true
-  }
-
-  const sales = salesData.filter((s) => inRange(s.date))
-  const inventorySummary = inventory.map((item) => ({
-    id: item.id,
-    name: item.name,
-    category: item.category,
-    inStock: item.inStock,
-    status: item.status,
-  }))
-  const invIndex = buildInventoryIndex(inventorySummary)
-
-  const rows = []
-  sales.forEach((sale) => {
-    const inv = invIndex.get(String(sale.itemId || "").toLowerCase())
-      || matchInventory(invIndex, sale.itemName)
-    rows.push(
-      toRow({
-        date: sale.date.split("T")[0],
-        orderId: sale.orderId,
-        itemName: sale.itemName,
-        category: inv ? inv.category : "N/A",
-        quantitySold: sale.quantitySold,
-        totalAmount: sale.totalAmount,
-        txnStatus: "COMPLETED",
-        refunded: 0,
-        inv: inv || null,
-      })
-    )
-  })
-
-  inventorySummary.forEach((inv) => {
-    const alreadyListed = rows.some(
-      (r) => r.itemName.toLowerCase() === String(inv.name).toLowerCase()
-    )
-    if (!alreadyListed) {
-      rows.push(
-        toRow({
-          date: "N/A",
-          orderId: "N/A",
-          itemName: inv.name,
-          category: inv.category,
-          quantitySold: 0,
-          totalAmount: 0,
-          txnStatus: "N/A",
-          refunded: 0,
-          inv,
-        })
-      )
-    }
-  })
-
-  const filtered = applyCategoryFilter(rows, category)
-  const { summary, categories } = summarize(
-    filtered,
-    sales.map((s, i) => ({
-      id: s.orderId || i,
-      transaction_number: s.orderId,
-      created_at: s.date,
-      customer_count: 0,
-      status: "COMPLETED",
-    }))
-  )
-  summary.totalCustomers = trafficData.filter((r) => {
-    if (!from && !to) return true
-    return inRange(r.timestamp)
-  }).length
-  summary.totalInventoryItems = inventorySummary.length
-
-  return {
-    summary,
-    categories,
-    salesByItem: sales.map((sale) => ({
-      orderId: sale.orderId,
-      itemId: sale.itemId,
-      itemName: sale.itemName,
-      quantitySold: sale.quantitySold,
-      totalAmount: sale.totalAmount,
-      date: sale.date,
-    })),
-    inventorySummary,
-    trafficByHour: trafficByHourFrom([], trafficData),
-    rows: filtered,
-    meta: {
-      from: from || null,
-      to: to || null,
-      category: category || null,
-      dataSource: "mock",
-    },
-  }
-}
-
 async function getConsolidatedData({ from, to, category, rangeStart, rangeEnd } = {}, deps = {}) {
   let fromDate = from ? startOfDayISO(from) : null
   let toExclusive = to ? endOfDayExclusiveISO(to) : null
@@ -441,108 +299,87 @@ async function getConsolidatedData({ from, to, category, rangeStart, rangeEnd } 
   const fetchInventory =
     deps.fetchInventory !== undefined ? deps.fetchInventory : defaultFetchInventory
 
-  let inventorySummary
-  try {
-    inventorySummary = (await fetchInventory()) || []
-  } catch {
-    inventorySummary = inventory.map((item) => ({
-      id: item.id,
-      name: item.name,
-      category: item.category,
-      inStock: item.inStock,
-      status: item.status,
-    }))
+  if (!supabase) throw Object.assign(new Error('Report data is unavailable. Please retry.'), { statusCode: 503 })
+  if (fromDate && (toExclusive || toInclusive) && fromDate > (toExclusive || toInclusive)) {
+    throw Object.assign(new Error('Invalid date range.'), { statusCode: 400 })
   }
+  const [inventorySummary, transactions, trafficRows] = await Promise.all([
+    fetchInventory(), fetchLiveTransactions(supabase, fromDate, toExclusive, toInclusive),
+    readAll((a, b) => boundedQuery(supabase, 'customer_traffic', 'id,created_at,number_of_customer', fromDate, toExclusive, toInclusive).range(a, b), { label: 'Customer traffic', maxRows: 100000 }),
+  ])
+  if (!Array.isArray(inventorySummary)) throw new Error('Inventory data is unavailable.')
   const invIndex = buildInventoryIndex(inventorySummary)
+  const txnIds = transactions.map(t => t.id).filter(Boolean)
+  const [items, refundsByTxn] = await Promise.all([
+    fetchLiveItems(supabase, txnIds), fetchRefundsByTxn(supabase, txnIds),
+  ])
+  let rows
+  let dataSource
+  const represented = new Set(items.map(item => item.transaction_id))
+  const missing = transactions.filter(txn => !represented.has(txn.id))
+  rows = rowsFromLiveItems(transactions, items, invIndex)
+  const seen = new Set()
+  const byReference = new Map(transactions.map(txn => [txn.transaction_number || 'N/A', txn]))
+  rows.forEach(row => {
+    if (seen.has(row.orderId)) return
+    seen.add(row.orderId)
+    const txn = byReference.get(row.orderId)
+    if (txn) row.refunded = refundedForTxn(txn, refundsByTxn)
+  })
+  rows.push(...rowsFromCart(missing, refundsByTxn, invIndex))
+  dataSource = missing.length ? 'cart' : 'live'
 
-  // Live path — any failure drops to the mock payload so the endpoint
-  // stays available offline / without credentials.
-  if (supabase) {
-    try {
-      const transactions = await fetchLiveTransactions(supabase, fromDate, toExclusive, toInclusive)
-      const txnIds = transactions.map((t) => t.id).filter(Boolean)
-      const [items, refundsByTxn] = await Promise.all([
-        fetchLiveItems(supabase, txnIds).catch(() => []),
-        fetchRefundsByTxn(supabase, txnIds),
-      ])
-
-      let rows
-      let dataSource
-      if (items.length > 0) {
-        rows = rowsFromLiveItems(transactions, items, invIndex)
-        // Attribute each transaction's refund total to its first row once.
-        const seen = new Set()
-        rows.forEach((row) => {
-          if (seen.has(row.orderId)) return
-          seen.add(row.orderId)
-          const txn = transactions.find(
-            (t) => (t.transaction_number || "N/A") === row.orderId
-          )
-          if (txn) row.refunded = refundedForTxn(txn, refundsByTxn)
+  // Append unsold inventory items (zero rows) so dead stock stays visible.
+  inventorySummary.forEach((inv) => {
+    const alreadyListed = rows.some(
+      (r) => r.itemName.toLowerCase() === String(inv.name).toLowerCase()
+    )
+    if (!alreadyListed) {
+      rows.push(
+        toRow({
+          date: "N/A",
+          orderId: "N/A",
+          itemName: inv.name,
+          category: inv.category,
+          quantitySold: 0,
+          totalAmount: 0,
+          txnStatus: "N/A",
+          refunded: 0,
+          inv,
         })
-        dataSource = "live"
-      } else if (transactions.length > 0) {
-        rows = rowsFromCart(transactions, refundsByTxn, invIndex)
-        dataSource = "cart"
-      } else {
-        throw new Error("No transactions found")
-      }
-
-      // Append unsold inventory items (zero rows) so dead stock stays visible.
-      inventorySummary.forEach((inv) => {
-        const alreadyListed = rows.some(
-          (r) => r.itemName.toLowerCase() === String(inv.name).toLowerCase()
-        )
-        if (!alreadyListed) {
-          rows.push(
-            toRow({
-              date: "N/A",
-              orderId: "N/A",
-              itemName: inv.name,
-              category: inv.category,
-              quantitySold: 0,
-              totalAmount: 0,
-              txnStatus: "N/A",
-              refunded: 0,
-              inv,
-            })
-          )
-        }
-      })
-
-      const filtered = applyCategoryFilter(rows, category)
-      const { summary, categories } = summarize(filtered, transactions)
-      summary.totalInventoryItems = inventorySummary.length
-
-      return {
-        summary,
-        categories,
-        salesByItem: filtered
-          .filter((r) => r.orderId !== "N/A")
-          .map((r) => ({
-            orderId: r.orderId,
-            itemName: r.itemName,
-            quantitySold: r.quantitySold,
-            totalAmount: r.totalAmount,
-            date: r.date,
-          })),
-        inventorySummary,
-        trafficByHour: trafficByHourFrom(transactions, []),
-        rows: filtered,
-        meta: {
-          from: from || null,
-          to: to || null,
-          category: category || null,
-          dataSource,
-          ...(rangeStart !== undefined ? { rangeStart, rangeEnd } : {}),
-        },
-      }
-    } catch {
-      // Fall through to mock payload.
+      )
     }
-  }
+  })
 
-  return mockPayload({ from, to, category })
+  const filtered = applyCategoryFilter(rows, category)
+  const { summary, categories } = summarize(filtered, transactions)
+  summary.totalInventoryItems = inventorySummary.length
+
+  return {
+    summary,
+    categories,
+    salesByItem: filtered
+      .filter((r) => r.orderId !== "N/A")
+      .map((r) => ({
+        orderId: r.orderId,
+        itemName: r.itemName,
+        quantitySold: r.quantitySold,
+        totalAmount: r.totalAmount,
+        date: r.date,
+      })),
+    inventorySummary,
+    trafficByHour: trafficByHourFrom(trafficRows),
+    rows: filtered,
+    meta: {
+      from: from || null,
+      to: to || null,
+      category: category || null,
+      dataSource,
+      complete: true, timeZone: 'Asia/Manila',
+      trafficSource: 'customer_traffic', recordingCoverage: 'unknown',
+      ...(rangeStart !== undefined ? { rangeStart, rangeEnd } : {}),
+    },
+  }
 }
 
 module.exports = {

@@ -98,6 +98,9 @@ export default function SalesTrendChart({
   summaryPrefix = "Peak",
   avgLabel = "Avg/day",
   maxTicksLimit = 8,
+  showLegend = false,
+  showSummary = true,
+  allowZeroValues = false,
 }) {
   if (loading) {
     return <div data-testid="sales-loading">Loading sales chart...</div>;
@@ -106,7 +109,9 @@ export default function SalesTrendChart({
   const chartData = data && data.labels && data.labels.length > 0 ? data : defaultLineData;
   const isEmpty =
     !data || !data.labels || data.labels.length === 0 ||
-    (chartData.datasets?.[0]?.data || []).every((v) => !(Number(v) > 0));
+    (allowZeroValues
+      ? !(chartData.datasets || []).some(ds => (ds.data || []).some(v => v != null && Number.isFinite(Number(v))))
+      : (chartData.datasets?.[0]?.data || []).every((v) => !(Number(v) > 0)));
   const { total, max, avg, peakLabel } = summarize(chartData);
   const isBar = variant === "bar";
   const ChartComponent = isBar ? Bar : Line;
@@ -156,6 +161,7 @@ export default function SalesTrendChart({
     ...chartOptions.scales.x,
     ticks: { ...chartOptions.scales.x.ticks, maxTicksLimit },
   };
+  chartOptions.plugins = { ...baseOptions.plugins, legend: { display: showLegend, position: 'bottom' } };
 
   return (
     <div
@@ -175,7 +181,7 @@ export default function SalesTrendChart({
         boxSizing: "border-box",
       }}
     >
-      <div
+      {showSummary && !error && !isEmpty && <div
         data-testid="sales-summary"
         style={{
           display: "flex",
@@ -199,7 +205,7 @@ export default function SalesTrendChart({
         <span>
           {avgLabel}: <strong style={{ color: "var(--text-main, #111827)" }}>{formatPeso(Math.round(avg))}</strong>
         </span>
-      </div>
+      </div>}
 
       {error && (
         <div
@@ -227,7 +233,7 @@ export default function SalesTrendChart({
         </div>
       )}
 
-      {isEmpty ? (
+      {!error && isEmpty ? (
         <div
           data-testid="sales-empty"
           style={{ fontSize: "0.85rem", color: "var(--text-muted, #6b7280)", textAlign: "center", padding: "12px 0" }}
@@ -236,9 +242,9 @@ export default function SalesTrendChart({
         </div>
       ) : null}
 
-      <div style={{ flex: 1, minHeight: 0, minWidth: 0, maxWidth: "100%", position: "relative" }}>
+      {!error && !isEmpty && <div style={{ flex: 1, minHeight: 0, minWidth: 0, maxWidth: "100%", position: "relative" }}>
         <ChartComponent data={themedData} options={chartOptions} />
-      </div>
+      </div>}
     </div>
   );
 }

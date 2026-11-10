@@ -1,3 +1,5 @@
+import { manilaDay, manilaHour } from '../utils/analyticsTime'
+
 // Pure aggregation helpers for the Analytics tab. No Supabase calls here —
 // callers fetch once per date range and pass rows in, so every widget shares
 // one narrow-column query instead of firing its own 500-row scan.
@@ -119,7 +121,7 @@ export function hourKeyLocal(timestamp) {
   const d = timestamp instanceof Date ? timestamp : new Date(timestamp)
   if (Number.isNaN(d.getTime())) return null
   const pad = (n) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:00`
+  return `${manilaDay(d)}T${pad(manilaHour(d))}:00`
 }
 
 export function bucketHourlySales(txns, refunds) {

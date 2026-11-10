@@ -19,16 +19,9 @@ ChartJS.register(
   Legend
 );
 
-export const FALLBACK_STOCK = [
-  { name: "Espresso", sold: 45 },
-  { name: "Latte", sold: 38 },
-  { name: "Cappuccino", sold: 32 },
-  { name: "Americano", sold: 28 },
-  { name: "Mocha", sold: 22 },
-];
-
 export function stockColor(stockQty) {
   const n = Number(stockQty);
+  if (stockQty == null) return "#3b82f6";
   if (!Number.isFinite(n) || n <= 0) return "#dc2626";
   if (n <= 5) return "#f59e0b";
   return "#3b82f6";
@@ -45,7 +38,7 @@ function normalizeItems(input) {
       .filter((i) => i.name)
       .slice(0, 5);
   }
-  return FALLBACK_STOCK.map((i) => ({ ...i, stock: null }));
+  return [];
 }
 
 export default function StockMovementChart({ data, startDate, endDate }) {
@@ -56,8 +49,8 @@ export default function StockMovementChart({ data, startDate, endDate }) {
   const [retryKey, setRetryKey] = useState(0);
 
   useEffect(() => {
-    if (data && data.length > 0) {
-      setLoading(false);
+    if (Array.isArray(data)) {
+      setLoading(false); setError(null);
       return;
     }
     let cancelled = false;
@@ -67,7 +60,7 @@ export default function StockMovementChart({ data, startDate, endDate }) {
       try {
         const [top, inventory] = await Promise.all([
           db.getTopSellingItems(startDate, endDate, 5),
-          db.getInventoryStatus().catch(() => []),
+          db.getInventoryStatus(),
         ]);
         if (cancelled) return;
         setLiveItems(top && top.length > 0 ? top : null);
@@ -80,7 +73,7 @@ export default function StockMovementChart({ data, startDate, endDate }) {
       } catch (err) {
         if (cancelled) return;
         setLiveItems(null);
-        setError(err?.message || "Failed to load stock data — showing sample data.");
+        setError(err?.message || "Failed to load stock data. Please retry.");
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -92,7 +85,7 @@ export default function StockMovementChart({ data, startDate, endDate }) {
   }, [data, startDate, endDate, retryKey]);
 
   const items = useMemo(() => {
-    const base = normalizeItems(data && data.length > 0 ? data : liveItems);
+    const base = normalizeItems(Array.isArray(data) ? data : liveItems);
     return base.map((i) => ({
       ...i,
       stock: i.stock ?? stockByName[i.name] ?? null,
@@ -125,7 +118,7 @@ export default function StockMovementChart({ data, startDate, endDate }) {
     });
     const low = items.filter((i) => {
       const n = Number(i.stock);
-      return Number.isFinite(n) && n <= 5;
+      return i.stock != null && Number.isFinite(n) && n <= 5;
     }).length;
     return {
       topSeller: top,
@@ -166,7 +159,7 @@ export default function StockMovementChart({ data, startDate, endDate }) {
     },
   };
 
-  if (loading && (!data || data.length === 0) && liveItems === null && !error) {
+  if (loading) {
     return <div data-testid="stock-loading">Loading stock chart...</div>;
   }
 
@@ -187,7 +180,7 @@ export default function StockMovementChart({ data, startDate, endDate }) {
         boxSizing: "border-box",
       }}
     >
-      <div
+      {!error && <div
         data-testid="stock-summary"
         style={{
           display: "flex",
@@ -211,7 +204,7 @@ export default function StockMovementChart({ data, startDate, endDate }) {
             {lowStockCount}
           </strong>
         </span>
-      </div>
+      </div>}
 
       {error && (
         <div
@@ -237,7 +230,7 @@ export default function StockMovementChart({ data, startDate, endDate }) {
         </div>
       )}
 
-      {isEmpty ? (
+      {!error && isEmpty ? (
         <div
           data-testid="stock-empty"
           style={{ fontSize: "0.85rem", color: "var(--text-muted, #6b7280)", textAlign: "center", padding: "12px 0" }}
@@ -246,9 +239,9 @@ export default function StockMovementChart({ data, startDate, endDate }) {
         </div>
       ) : null}
 
-      <div style={{ flex: 1, minHeight: 0, minWidth: 0, maxWidth: "100%", position: "relative" }}>
+      {!error && !isEmpty && <div style={{ flex: 1, minHeight: 0, minWidth: 0, maxWidth: "100%", position: "relative" }}>
         <Bar data={chartData} options={options} />
-      </div>
+      </div>}
     </div>
   );
 }

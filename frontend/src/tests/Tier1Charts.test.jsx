@@ -76,7 +76,7 @@ describe('Tier-1 analytics widgets', () => {
     expect(screen.getByTestId('refund-empty')).toHaveTextContent(/No refunds/)
   })
 
-  it('TrafficConversionChart should split walk-ins vs buyers with conversion', async () => {
+  it('TrafficConversionChart should compare recorded customers and transactions without claiming conversion', async () => {
     db.getHourlyTrafficSplit.mockResolvedValue(
       Array.from({ length: 24 }, (_, hour) => ({
         hour,
@@ -90,9 +90,9 @@ describe('Tier-1 analytics widgets', () => {
       expect(screen.getByTestId('conversion-chart')).toBeInTheDocument()
     })
     expect(db.getHourlyTrafficSplit).toHaveBeenCalledWith('2026-09-01', '2026-09-02')
-    expect(screen.getByTestId('conversion-summary')).toHaveTextContent('40%')
-    expect(screen.getByTestId('conversion-summary')).toHaveTextContent('Walk-ins')
-    expect(screen.getByTestId('conversion-summary')).toHaveTextContent('Buyers')
+    expect(screen.getByTestId('conversion-summary')).not.toHaveTextContent('%')
+    expect(screen.getByTestId('conversion-summary')).toHaveTextContent('Recorded customers')
+    expect(screen.getByTestId('conversion-summary')).toHaveTextContent('Transactions')
   })
 
   it('TrafficConversionChart should offer retry on failure and empty state', async () => {

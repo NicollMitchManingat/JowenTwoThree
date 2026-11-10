@@ -6,11 +6,12 @@ const {
 
 // Minimal chainable Supabase fake: supports the select/gte/lt/in/order/limit
 // chain used by the service and resolves like a real query result.
-function makeSupabase({ transactions = [], items = [], refunds = [], errorOn = null } = {}) {
+function makeSupabase({ transactions = [], items = [], refunds = [], traffic = [], errorOn = null } = {}) {
   const sources = {
     transactions,
     transaction_items: items,
     refunds,
+    customer_traffic: traffic,
   }
   const from = (name) => {
     const q = {
@@ -22,6 +23,7 @@ function makeSupabase({ transactions = [], items = [], refunds = [], errorOn = n
       in(col, vals) { q._filters.push(["in", col, vals]); return q },
       order() { return q },
       limit() { return q },
+      range(start, end) { q._range = [start, end]; return q },
       then(resolve) {
         if (errorOn === name || errorOn === "all") {
           resolve({ data: null, error: { message: "boom" } })
@@ -34,6 +36,7 @@ function makeSupabase({ transactions = [], items = [], refunds = [], errorOn = n
           if (op === "lt") rows = rows.filter((r) => String(r[col]) < String(val))
           if (op === "lte") rows = rows.filter((r) => String(r[col]) <= String(val))
         })
+        if (q._range) rows = rows.slice(q._range[0], q._range[1] + 1)
         resolve({ data: rows, error: null })
       },
     }
@@ -164,12 +167,12 @@ describe("Consolidated Data Service (real-data rewrite)", () => {
     })
 
     it("returns 24-bucket traffic hours", async () => {
-      const supabase = makeSupabase({ transactions: liveTransactions, items: liveItems })
+      const supabase = makeSupabase({ transactions: liveTransactions, items: liveItems, traffic: [{ created_at: '2026-10-10T10:00:00.000Z', number_of_customer: 2 }] })
       const data = await getConsolidatedData({}, { supabase, fetchInventory: inventoryStub })
 
       expect(data.trafficByHour).toHaveLength(24)
-      const expectedHour = new Date("2026-10-10T10:00:00.000Z").getHours()
-      expect(data.trafficByHour.find((b) => b.hour === expectedHour).customers).toBe(1)
+      const expectedHour = 18
+      expect(data.trafficByHour.find((b) => b.hour === expectedHour).customers).toBe(2)
     })
   })
 
@@ -233,27 +236,26 @@ describe("Consolidated Data Service (real-data rewrite)", () => {
     })
   })
 
-  describe("mock fallback", () => {
-    it("uses bundled mocks when Supabase is unavailable", async () => {
-      const data = await getConsolidatedData({}, { supabase: null, fetchInventory: () => Promise.reject(new Error("down")) })
-
-      expect(data.meta.dataSource).toBe("mock")
-      expect(data.summary.totalRevenue).toBe(4908)
-      expect(data.summary.totalUnitsSold).toBe(40)
-      expect(data.summary.totalCustomers).toBe(5)
-      expect(data.summary.totalInventoryItems).toBe(2)
-      expect(data.trafficByHour).toHaveLength(24)
-      data.rows.forEach((row) => {
-        expect(row).toHaveProperty("inventoryStatus")
-      })
+  describe('unavailable operational data', () => {
+    it('rejects missing database configuration instead of substituting samples', async () => {
+      await expect(getConsolidatedData({}, { supabase: null, fetchInventory: inventoryStub })).rejects.toMatchObject({ statusCode: 503 })
     })
-
-    it("uses mocks when live queries fail", async () => {
-      const supabase = makeSupabase({ errorOn: "all" })
-      const data = await getConsolidatedData({}, { supabase, fetchInventory: inventoryStub })
-
-      expect(data.meta.dataSource).toBe("mock")
-      expect(data.rows.length).toBeGreaterThan(0)
+    it.each(['transactions', 'transaction_items', 'refunds', 'customer_traffic'])('rejects failed %s reads', async errorOn => {
+      await expect(getConsolidatedData({}, { supabase: makeSupabase({ transactions: liveTransactions, items: liveItems, errorOn }), fetchInventory: inventoryStub })).rejects.toMatchObject({ statusCode: 503 })
+    })
+    it('rejects inventory failures instead of substituting sample balances', async () => {
+      await expect(getConsolidatedData({}, { supabase: makeSupabase(), fetchInventory: async () => { throw new Error('Inventory unavailable') } })).rejects.toThrow('Inventory unavailable')
+    })
+    it('returns genuine zero sales for an empty period', async () => {
+      const data = await getConsolidatedData({}, { supabase: makeSupabase(), fetchInventory: inventoryStub })
+      expect(data.meta).toMatchObject({ dataSource: 'live', complete: true })
+      expect(data.summary.totalRevenue).toBe(0)
+      expect(data.rows.every(row => row.orderId === 'N/A')).toBe(true)
+    })
+    it('retains legacy cart sales alongside transactions with line items', async () => {
+      const data = await getConsolidatedData({}, { supabase: makeSupabase({ transactions: liveTransactions, items: [liveItems[0]] }), fetchInventory: inventoryStub })
+      expect(data.summary.totalTransactions).toBe(2)
+      expect(data.rows.filter(row => row.orderId !== 'N/A')).toHaveLength(2)
     })
   })
 

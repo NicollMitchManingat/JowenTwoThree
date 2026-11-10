@@ -6,29 +6,16 @@
 // getInsights touch the network.
 const insightsConfig = require("./insightsConfig")
 const unitReads = require("./inventorySupabaseStore")
+const { buildSalesForecast } = require("./salesForecastMath")
 
-const DAY_MS = 24 * 3600 * 1000
+const { DAY_MS, dayKey, hourOf, dayStart, readAll } = require("./analyticsReadService")
 
 function toNum(n) {
   const v = Number(n)
   return Number.isFinite(v) ? v : 0
 }
 
-function pad(n) {
-  return String(n).padStart(2, "0")
-}
-
-function dayKeyLocal(d) {
-  const t = d instanceof Date ? d : new Date(d)
-  if (Number.isNaN(t.getTime())) return null
-  return `${t.getFullYear()}-${pad(t.getMonth() + 1)}-${pad(t.getDate())}`
-}
-
-function addDays(date, n) {
-  const t = new Date(date)
-  t.setDate(t.getDate() + n)
-  return t
-}
+function dayKeyLocal(value) { return dayKey(value) }
 
 function fmtPeso(n) {
   const safe = Number.isFinite(Number(n)) ? Number(n) : 0
@@ -85,16 +72,15 @@ function trafficBins(txns, trafficRows) {
   ;(Array.isArray(txns) ? txns : []).forEach((t) => {
     const d = new Date(t && t.created_at)
     if (Number.isNaN(d.getTime())) return
-    hourly[d.getHours()].buyers += 1
-    hourly[d.getHours()].customers += toNum(t.customer_count > 0 ? t.customer_count : 1)
+    hourly[hourOf(d)].buyers += 1
   })
   ;(Array.isArray(trafficRows) ? trafficRows : []).forEach((r) => {
     const d = new Date(r && r.created_at)
     if (Number.isNaN(d.getTime())) return
     const n = Number(r.number_of_customer)
     if (!(n > 0)) return
-    hourly[d.getHours()].walkIns += n
-    hourly[d.getHours()].customers += n
+    hourly[hourOf(d)].walkIns += n
+    hourly[hourOf(d)].customers += n
   })
   const split = hourly.map(({ hour, walkIns, buyers }) => ({ hour, walkIns, buyers }))
   return { hourly, split }
@@ -114,8 +100,10 @@ function unitsSoldByProduct(itemRows, txns) {
   ;(Array.isArray(itemRows) ? itemRows : []).forEach((r) => {
     add(r && (r.product_id ?? r.productId), r && (r.quantity ?? r.qty))
   })
-  if (totals.size === 0) {
+  const represented = new Set((Array.isArray(itemRows) ? itemRows : []).map(row => row.transaction_id).filter(Boolean))
+  if (totals.size === 0 || represented.size > 0) {
     ;(Array.isArray(txns) ? txns : []).forEach((t) => {
+      if (represented.has(t?.id)) return
       const cart = Array.isArray(t && t.cart) ? t.cart : []
       cart.forEach((line) => {
         add(line && (line.product_id ?? line.productId ?? line.id), line && (line.qty ?? line.quantity))
@@ -158,47 +146,24 @@ function voucherStats(txns, discounts) {
   return [...map.values()].sort((a, b) => b.pesos - a.pesos)
 }
 
-// 1. Demand forecast — each of the next FORECAST_DAYS averaged over the
-// last SAME_WEEKDAY_OCCURRENCES same-weekday occurrences (trailing window).
-// Falls back to the overall daily mean when a weekday never occurred;
-// suppressed entirely when history is empty (no fake precision).
+// 1. Shared complete-day forecast. Sparse history suppresses this card.
 function forecastDemand(dailyTrailing, endISO, cfg = insightsConfig) {
-  const values = Object.values(dailyTrailing || {})
-  const historyTotal = values.reduce((s, v) => s + toNum(v), 0)
-  if (values.length === 0 || !(historyTotal > 0)) return null
-  const byWeekday = new Map()
-  Object.entries(dailyTrailing).forEach(([day, amount]) => {
-    const d = new Date(`${day}T12:00:00`)
-    if (Number.isNaN(d.getTime())) return
-    const list = byWeekday.get(d.getDay()) || []
-    list.push(toNum(amount))
-    byWeekday.set(d.getDay(), list)
-  })
-  const overallMean = historyTotal / values.length
-  const end = new Date(endISO)
-  const days = []
-  for (let i = 1; i <= (cfg.FORECAST_DAYS || 7); i++) {
-    const target = addDays(end, i)
-    const same = (byWeekday.get(target.getDay()) || []).slice(-(cfg.SAME_WEEKDAY_OCCURRENCES || 4))
-    const revenue = same.length > 0
-      ? Math.round(same.reduce((s, v) => s + v, 0) / same.length)
-      : Math.round(overallMean)
-    days.push({ date: dayKeyLocal(target), revenue })
-  }
-  const total = days.reduce((s, d) => s + d.revenue, 0)
-  const trailingKeys = Object.keys(dailyTrailing).sort().slice(-7)
-  const trailingTotal = trailingKeys.reduce((s, k) => s + toNum(dailyTrailing[k]), 0)
-  const pct = trailingTotal > 0 ? ((total - trailingTotal) / trailingTotal) * 100 : 0
+  const result = buildSalesForecast(dailyTrailing, dayKey(endISO), cfg)
+  if (result.status !== 'ready') return null
+  const lastWeek = result.history.slice(-7)
+  const completeWeek = lastWeek.every(day => day.revenue !== null)
+  const trailingTotal = completeWeek ? lastWeek.reduce((sum, day) => sum + day.revenue, 0) : null
+  const pct = trailingTotal > 0 ? ((result.total - trailingTotal) / trailingTotal) * 100 : null
   return {
-    key: "forecast",
-    metric: "Forecast Revenue",
-    value: `${fmtPeso(total)} next 7 days`,
-    insight: pct >= 0
-      ? `Stock and staff for ${fmtPct(pct)} vs last 7 days`
-      : `Plan lighter prep — ${fmtPct(pct)} vs last 7 days`,
-    impact: pct >= 0 ? "Positive" : "Medium",
-    numbers: [total, Math.round(pct * 10) / 10, trailingTotal],
-    detail: { days, total },
+    key: 'forecast', metric: 'Forecast Revenue',
+    value: fmtPeso(result.total) + ' next 7 days',
+    insight: pct === null ? 'Plan prep using matching weekdays. Missing days are unknown; forecast accuracy is not yet evaluated.'
+      : pct >= 0 ? 'Stock and staff for ' + fmtPct(pct) + ' vs last 7 days'
+        : 'Plan lighter prep: ' + fmtPct(pct) + ' vs last 7 days',
+    impact: pct !== null && pct >= 0 ? 'Positive' : 'Medium',
+    numbers: pct === null ? [result.total] : [result.total, Math.round(pct * 10) / 10, trailingTotal],
+    detail: { days: result.forecast.map(day => ({ date: day.date, revenue: day.predictedRevenue })),
+      total: result.total, method: result.method, training: result.training },
   }
 }
 
@@ -465,36 +430,24 @@ function summarizeTxns(txns) {
   )
 }
 
-// Reads every source the six insights need in one parallel batch.
-// Partial failures degrade to [] (insights that need missing data return
-// null) — only a missing client throws, surfacing as HTTP 500.
-async function fetchContext(client, { spanStart, end }, limits) {
+// Each source must be fully read. A failed/capped source cannot become zero
+// activity, a forecast, or an "all clear" recommendation.
+async function fetchContext(client, { spanStart, end }, limits = {}) {
   if (!client) throw new Error("Supabase is not configured")
-  const L = limits || {}
-  const txnCols = "id,created_at,subtotal,discount,total,payment_method,discount_type,discount_id,status,customer_count,cart"
-  const get = async (build, fallback) => {
-    try {
-      const res = await build()
-      if (res.error) throw res.error
-      return res.data || fallback
-    } catch {
-      return fallback
-    }
-  }
-  const [
-    txns, trafficRows, inventory, recipes, adjustments, refunds, discounts, products, itemRows,
-  ] = await Promise.all([
-    get(() => client.from("transactions").select(txnCols).gte("created_at", spanStart).lte("created_at", end).order("created_at", { ascending: true }).range(0, L.transactions || 999), []),
-    get(() => client.from("customer_traffic").select("created_at,number_of_customer").gte("created_at", spanStart).lte("created_at", end).order("created_at", { ascending: true }).range(0, L.traffic || 499), []),
-    get(() => unitReads.readUnitRows(versioned => client.from("inventory").select(unitReads.inventoryColumns(versioned)).order("name").range(0, L.inventory || 100)), []),
-    get(() => client.from("product_recipes").select("product_id,inventory_id,qty_per_sale").range(0, L.recipes || 499), []),
-    get(() => unitReads.readUnitRows(versioned => client.from("inventory_adjustments").select("*,change_amount_text:change_amount::text" + (versioned ? ",unit_version_text:unit_version::text" : "")).gte("created_at", spanStart).lte("created_at", end).order("created_at", { ascending: true }).range(0, L.adjustments || 499)), []),
-    get(() => client.from("refunds").select("refund_amount,created_at,transaction_id").gte("created_at", spanStart).lte("created_at", end).order("created_at", { ascending: true }).range(0, L.refunds || 499), []),
-    get(() => client.from("discounts").select("*").order("name").range(0, L.discounts || 99), []),
-    get(() => client.from("products").select("id,product_name").order("product_name").range(0, L.products || 100), []),
-    // Item dates live on the parent transaction (same join the POS uses),
-    // with cart-JSONB fallback applied later when items yield nothing.
-    get(() => client.from("transaction_items").select("quantity,product_id,transactions!inner(created_at)").gte("transactions.created_at", spanStart).range(0, L.items || 999), []),
+  const get = (label, build, maxRows = limits.maxRows || 20000) => readAll(build, { label, maxRows })
+  const timed = (table, columns, start, stop) => client.from(table).select(columns)
+    .gte("created_at", spanStart).lte("created_at", end).order("created_at").order("id").range(start, stop)
+  const [txns, trafficRows, inventory, recipes, adjustments, refunds, discounts, products, itemRows] = await Promise.all([
+    get('Sales', (a, b) => timed('transactions', 'id,created_at,subtotal,discount,total,payment_method,discount_type,discount_id,status,customer_count,cart', a, b)),
+    get('Customer traffic', (a, b) => timed('customer_traffic', 'id,created_at,number_of_customer', a, b), limits.trafficRows || 100000),
+    get('Inventory', (a, b) => unitReads.readUnitRows(versioned => client.from('inventory').select(unitReads.inventoryColumns(versioned)).eq('is_active', true).order('id').range(a, b))),
+    get('Recipes', (a, b) => client.from('product_recipes').select('product_id,inventory_id,qty_per_sale').order('product_id').order('inventory_id').range(a, b)),
+    get('Adjustments', (a, b) => unitReads.readUnitRows(versioned => timed('inventory_adjustments', '*,change_amount_text:change_amount::text' + (versioned ? ',unit_version_text:unit_version::text' : ''), a, b))),
+    get('Refunds', (a, b) => timed('refunds', 'id,refund_amount,created_at,transaction_id', a, b)),
+    get('Discounts', (a, b) => client.from('discounts').select('*').order('id').range(a, b)),
+    get('Products', (a, b) => client.from('products').select('id,product_name').order('id').range(a, b)),
+    get('Sold items', (a, b) => client.from('transaction_items').select('id,transaction_id,quantity,product_id,transactions!inner(created_at)')
+      .gte('transactions.created_at', spanStart).lte('transactions.created_at', end).order('id').range(a, b)),
   ])
   return { txns, trafficRows, inventory, recipes, adjustments, refunds, discounts, products, itemRows }
 }
@@ -522,9 +475,9 @@ function buildInsights(ctx, cfg = insightsConfig) {
     endISO, rangeStartISO, trailingTxns, rangeTxns,
     trailingRefunds, rangeRefunds, trafficRows,
     inventory, recipes, itemRows, adjustments, discounts, products,
-    windowDays,
+    windowDays, forecastTxns = trailingTxns, forecastRefunds = trailingRefunds, forecastEndISO = endISO,
   } = ctx
-  const dailyTrailing = netDailySales(trailingTxns, trailingRefunds)
+  const dailyTrailing = netDailySales(forecastTxns, forecastRefunds)
   const { hourly, split } = trafficBins(trailingTxns, trafficRows)
   const units = unitsSoldByProduct(itemRows, trailingTxns)
   const hourlyRevenue = Array.from({ length: 24 }, () => 0)
@@ -532,7 +485,7 @@ function buildInsights(ctx, cfg = insightsConfig) {
     if (t && t.status === "REFUNDED") return
     const d = new Date(t && t.created_at)
     if (Number.isNaN(d.getTime())) return
-    hourlyRevenue[d.getHours()] += toNum(t && t.total)
+    hourlyRevenue[hourOf(d)] += toNum(t && t.total)
   })
   const range = summarizeTxns(rangeTxns)
   range.refunds = (Array.isArray(rangeRefunds) ? rangeRefunds : []).reduce((s, r) => s + toNum(r && r.refund_amount), 0)
@@ -553,7 +506,7 @@ function buildInsights(ctx, cfg = insightsConfig) {
   })
 
   const insights = sortInsightsBySeverity([
-    forecastDemand(dailyTrailing, endISO, cfg),
+    forecastDemand(dailyTrailing, forecastEndISO, cfg),
     peakStaffing(hourly, split, cfg),
     reorderCover({ inventory, recipes, unitsByProduct: units, windowDays }, cfg),
     wastageRisk({ adjustments, inventory, recipeLinks, slowProducts }, cfg),
@@ -578,21 +531,29 @@ function buildInsights(ctx, cfg = insightsConfig) {
 
 // Full pipeline: windows → live fetch → compose. Trends anchor on a
 // trailing window ending at `end`; descriptives use [start, end].
-// Throws when Supabase isn't configured (HTTP 500); partial fetch
-// failures degrade to fewer insights, never a crash.
+// Failed or incomplete reads stop recommendations instead of implying zero activity.
 async function getInsights({ start, end, client } = {}, cfg = insightsConfig) {
   // Explicit client:null means misconfigured (used by tests); an absent
   // key falls back to the configured Supabase client.
   const supabase = client !== undefined ? client : require("../config/supabaseClient").supabase
   if (!supabase) throw new Error("Supabase is not configured")
-  const endDate = end ? new Date(end) : new Date()
-  if (Number.isNaN(endDate.getTime())) throw new Error("Invalid end date")
+  const now = new Date()
+  const endDate = end ? new Date(end) : now
+  if (Number.isNaN(endDate.getTime())) throw Object.assign(new Error("Invalid end date"), { statusCode: 400 })
+  if (endDate > now) endDate.setTime(now.getTime())
   const windowDays = cfg.TRAILING_DAYS || 28
   const endISO = endDate.toISOString()
+  const anchorStart = dayStart(endDate).getTime()
+  const anchorEnd = anchorStart + DAY_MS - 1
+  const completeAnchor = endDate.getTime() === anchorEnd && endDate < dayStart(now)
+  const forecastEnd = new Date(completeAnchor ? anchorEnd : anchorStart - 1)
   const trailingStart = new Date(endDate.getTime() - windowDays * DAY_MS).toISOString()
-  const rangeStart = start ? new Date(start).toISOString() : trailingStart
-  if (Number.isNaN(new Date(rangeStart).getTime())) throw new Error("Invalid start date")
-  const spanStart = rangeStart < trailingStart ? rangeStart : trailingStart
+  const forecastStart = new Date(dayStart(forecastEnd).getTime() + DAY_MS - windowDays * DAY_MS).toISOString()
+  const startDate = start ? new Date(start) : new Date(trailingStart)
+  if (!Number.isFinite(startDate.getTime())) throw Object.assign(new Error('Invalid start date'), { statusCode: 400 })
+  const rangeStart = startDate.toISOString()
+  if (Number.isNaN(new Date(rangeStart).getTime()) || new Date(rangeStart) > endDate) throw Object.assign(new Error("Invalid start date"), { statusCode: 400 })
+  const spanStart = [rangeStart, trailingStart, forecastStart].sort()[0]
   const L = cfg.FETCH_LIMITS || {}
   const rows = await fetchContext(supabase, { spanStart, end: endISO, rangeStart }, L)
   const inWindow = (list, from) => (Array.isArray(list) ? list : []).filter((r) => {
@@ -605,7 +566,10 @@ async function getInsights({ start, end, client } = {}, cfg = insightsConfig) {
   const rangeRefunds = inWindow(rows.refunds, rangeStart)
   const trailingTraffic = inWindow(rows.trafficRows, trailingStart)
   const trailingAdjustments = inWindow(rows.adjustments, trailingStart)
-  const trailingItems = Array.isArray(rows.itemRows) ? rows.itemRows : []
+  const trailingItems = (rows.itemRows || []).filter(row => {
+    const stamp = row.transactions?.created_at
+    return stamp && new Date(stamp) >= new Date(trailingStart) && new Date(stamp) <= endDate
+  })
   const insights = buildInsights({
     endISO,
     rangeStartISO: rangeStart,
@@ -621,9 +585,17 @@ async function getInsights({ start, end, client } = {}, cfg = insightsConfig) {
     discounts: rows.discounts,
     products: rows.products,
     windowDays,
+    forecastTxns: inWindow(rows.txns, forecastStart).filter(row => new Date(row.created_at) <= forecastEnd),
+    forecastRefunds: inWindow(rows.refunds, forecastStart).filter(row => new Date(row.created_at) <= forecastEnd),
+    forecastEndISO: forecastEnd.toISOString(),
   }, cfg)
   return {
-    generatedAt: new Date().toISOString(),
+    generatedAt: now.toISOString(),
+    dataQuality: {
+      complete: true, timeZone: 'Asia/Manila', forecastThrough: forecastEnd.toISOString(),
+      recordingCoverage: 'unknown', forecastFrom: forecastStart,
+      notice: 'Forecast training uses complete Manila days only. Missing recording days are not assumed to be zero. Traffic uses recorded customer counts only; transactions are not added again.',
+    },
     windowDays,
     range: { start: rangeStart, end: endISO },
     insights,

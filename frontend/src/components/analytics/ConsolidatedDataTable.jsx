@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from "react"
 import { Search, FileSpreadsheet } from "lucide-react"
+import { manilaDay, DAY_MS } from "../../utils/analyticsTime"
 import {
   downloadConsolidatedExcel,
   netForConsolidatedRow,
@@ -41,37 +42,7 @@ const COLUMNS = [
   { key: "inventoryStatus", label: "Inv Status" },
 ]
 
-const toISODate = (d) =>
-  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
-
-// Demo data when the backend is unreachable — same shape as the API.
-const fallbackData = {
-  summary: {
-    totalRevenue: 2250,
-    grossRevenue: 2250,
-    totalRefunded: 0,
-    totalUnitsSold: 14,
-    totalCustomers: 6,
-    totalTransactions: 6,
-    avgTicket: 375,
-    totalInventoryItems: 6,
-  },
-  categories: [
-    { name: "Drinks", revenue: 1250, units: 7, transactions: 3 },
-    { name: "Pastries", revenue: 600, units: 5, transactions: 1 },
-    { name: "Meals", revenue: 250, units: 1, transactions: 1 },
-    { name: "Desserts", revenue: 150, units: 1, transactions: 1 },
-  ],
-  rows: [
-    { date: "2026-07-22", orderId: "TXN-001", itemName: "Espresso", category: "Drinks", quantitySold: 3, totalAmount: 450, refunded: 0, status: "COMPLETED", inStock: 50, inventoryStatus: "Good" },
-    { date: "2026-07-22", orderId: "TXN-002", itemName: "Latte", category: "Drinks", quantitySold: 2, totalAmount: 360, refunded: 0, status: "COMPLETED", inStock: 40, inventoryStatus: "Good" },
-    { date: "2026-07-22", orderId: "TXN-003", itemName: "Club Sandwich", category: "Meals", quantitySold: 1, totalAmount: 250, refunded: 0, status: "COMPLETED", inStock: 15, inventoryStatus: "Good" },
-    { date: "2026-07-22", orderId: "TXN-004", itemName: "Croissant", category: "Pastries", quantitySold: 5, totalAmount: 600, refunded: 0, status: "COMPLETED", inStock: 8, inventoryStatus: "Low" },
-    { date: "2026-07-22", orderId: "TXN-005", itemName: "Iced Matcha", category: "Drinks", quantitySold: 2, totalAmount: 440, refunded: 0, status: "COMPLETED", inStock: 20, inventoryStatus: "Good" },
-    { date: "2026-07-22", orderId: "TXN-006", itemName: "Chocolate Cake", category: "Desserts", quantitySold: 1, totalAmount: 150, refunded: 0, status: "COMPLETED", inStock: 3, inventoryStatus: "NearingExpiration" },
-  ],
-  meta: { from: null, to: null, category: null, dataSource: "mock" },
-}
+const toISODate = manilaDay
 
 const statusColor = (status) => {
   switch (status) {
@@ -129,7 +100,7 @@ export default function ConsolidatedDataTable({ sharedRange } = {}) {
     if (datePreset === "7d" || datePreset === "30d") {
       const days = datePreset === "7d" ? 6 : 29
       const start = new Date(today)
-      start.setDate(start.getDate() - days)
+      start.setTime(start.getTime() - days * DAY_MS)
       return { from: toISODate(start), to: toISODate(today) }
     }
     return { from: null, to: null }
@@ -150,12 +121,16 @@ export default function ConsolidatedDataTable({ sharedRange } = {}) {
     const qs = params.toString() ? `?${params.toString()}` : ""
 
     fetch(`${API_BASE}/api/consolidated-data${qs}`, { credentials: 'include', signal: controller.signal })
-      .then((res) => {
-        if (!res.ok) throw Object.assign(new Error(`Backend answered ${res.status}`), { status: res.status })
-        return res.json()
+      .then(async (res) => {
+        const json = await res.json().catch(() => ({}))
+        if (!res.ok) throw Object.assign(new Error(json.error || 'Report data is unavailable. Please retry.'), { status: res.status })
+        return json
       })
       .then((json) => {
         if (cancelled) return
+        if (!json.data || !['live', 'cart'].includes(json.data.meta?.dataSource) || json.data.meta?.complete === false) {
+          throw new Error('Report data is unavailable or incomplete. Please retry.')
+        }
         setData(json.data)
         setLoadError(null)
         setLoading(false)
@@ -169,11 +144,11 @@ export default function ConsolidatedDataTable({ sharedRange } = {}) {
           return
         }
         if (err?.name === "AbortError") {
-          setLoadError("Request timed out after 8s — backend unreachable. Showing demo rows.")
+          setLoadError("Request timed out after 8s — backend unreachable. Please retry.")
         } else {
-          setLoadError(`${err?.message || "Could not reach backend."} Showing demo rows.`)
+          setLoadError(`${err?.message || "Could not reach backend."} Please retry.`)
         }
-        setData(fallbackData)
+        setData(null)
         setLoading(false)
       })
       .finally(() => clearTimeout(timeout))
@@ -238,7 +213,7 @@ export default function ConsolidatedDataTable({ sharedRange } = {}) {
     : (DATE_PRESETS.find((o) => o.key === datePreset) || {}).label || datePreset
 
   const handleExportExcel = async () => {
-    if (exporting) return
+    if (exporting || !data || loadError) return
     setExporting(true)
     setExportError(null)
     try {
@@ -252,7 +227,7 @@ export default function ConsolidatedDataTable({ sharedRange } = {}) {
           category: category === "all" ? "" : category,
           status: (STATUS_OPTIONS.find((o) => o.key === statusFilter) || {}).label || statusFilter,
           generatedAt: new Date(),
-          dataSource: data?.meta?.dataSource || "mock",
+          dataSource: data?.meta?.dataSource || "live",
         },
       })
     } catch (err) {
@@ -266,14 +241,12 @@ export default function ConsolidatedDataTable({ sharedRange } = {}) {
   if (loading) {
     return <div data-testid="consolidated-loading">Loading consolidated data...</div>
   }
-  if (!data && loadError) return <p role="alert">{loadError}</p>
+  if (!data && loadError) return <div role="alert" data-testid="consolidated-load-error">
+    <p>{loadError}</p><button type="button" className="btn btn-secondary" data-testid="consolidated-retry" onClick={() => setRetryCount(c => c + 1)}>Retry</button>
+  </div>
 
   const summary = data?.summary || {}
-  const sourceLabel = DATA_SOURCE_LABELS[data?.meta?.dataSource] || "Demo data"
-  const isOfflineFallback = !!loadError
-  // Backend answered OK but reports its own mock layer (Supabase down / no
-  // transactions) — different from the frontend offline fallback above.
-  const isBackendMock = !isOfflineFallback && data?.meta?.dataSource === "mock"
+  const sourceLabel = DATA_SOURCE_LABELS[data?.meta?.dataSource] || "Recorded data"
   const peso = (n) => `₱${Number(n || 0).toLocaleString()}`
 
   const cards = [
@@ -289,8 +262,8 @@ export default function ConsolidatedDataTable({ sharedRange } = {}) {
     <div className="consolidated-table" data-testid="consolidated-table">
       <div className="table-header">
         <h3>Consolidated System Data</h3>
-        <span className="text-sm text-muted" data-testid="consolidated-source-badge" title={isOfflineFallback ? loadError : "Where the numbers come from"}>
-          {isOfflineFallback ? "Demo data (offline)" : sourceLabel}
+        <span className="text-sm text-muted" data-testid="consolidated-source-badge" title="Where the numbers come from">
+          {sourceLabel}
         </span>
         <button
           data-testid="consolidated-export-btn"
@@ -302,26 +275,9 @@ export default function ConsolidatedDataTable({ sharedRange } = {}) {
           <FileSpreadsheet size={16} /> {exporting ? "Exporting…" : "Export"}
         </button>
       </div>
-      {isOfflineFallback && (
-        <p className="text-sm text-danger" role="alert" data-testid="consolidated-load-error">
-          {loadError}{" "}
-          <button
-            type="button"
-            className="btn btn-secondary"
-            data-testid="consolidated-retry"
-            onClick={() => setRetryCount((c) => c + 1)}
-          >
-            Retry
-          </button>
-        </p>
-      )}
-      {isBackendMock && (
-        <p className="text-sm text-muted" data-testid="consolidated-mock-notice">
-          Backend returned demo rows (Supabase unreachable or no transactions yet) — not live sales.
-        </p>
-      )}
       {exportError && <p className="text-sm text-danger" role="alert">{exportError}</p>}
 
+      <p className="text-sm text-muted">Customer totals are from transactions. Inventory quantities show current balances.</p>
       <div className="summary-row" data-testid="consolidated-summary">
         {cards.map((c) => (
           <span key={c.label}>{c.label}: <strong>{c.value}</strong></span>

@@ -18,18 +18,18 @@ const selections = {
     '*,inventory(*)', '*,products(product_name),inventory(*)',
     'product_id,inventory_id,qty_per_sale,products(product_name),inventory(id,name,stock_quantity)'],
   transactions: ['*', 'id,created_at,subtotal,discount,total,payment_method,discount_type,discount_id,status,customer_count,male_count,female_count,unspecified_count',
-    'created_at', 'id,created_at,total,status', 'created_at,total', 'created_at,cart',
+    'created_at', 'id,created_at,cart', 'id,created_at,total,status', 'created_at,total', 'created_at,cart',
     'created_at,customer_count,male_count,female_count,unspecified_count', 'created_at,customer_count',
     'id,total,customer_count,male_count,female_count,unspecified_count,status', 'total,customer_count'],
   customer_traffic: ['*', 'created_at,number_of_customer', 'number_of_customer,male_count,female_count,unspecified_count',
     'number_of_customer', 'created_at,number_of_customer,male_count,female_count,unspecified_count'],
   discounts: ['*', 'is_system', 'name,type,value'], refunds: ['*', 'refund_amount,created_at,transaction_id'],
-  sessions: ['*'], transaction_items: ['quantity,product_id,products(product_name),transactions!inner(created_at)'],
+  sessions: ['*'], transaction_items: ['quantity,product_id,products(product_name),transactions!inner(created_at)', 'transaction_id,quantity,product_id,products(product_name),transactions!inner(created_at)'],
   inventory_adjustments: ['*,inventory(name)'],
 }
 const filterColumns = new Set(['id', 'product_id', 'inventory_id', 'transaction_id', 'idempotency_key',
   'created_at', 'transactions.created_at', 'stock_quantity', 'status', 'ended_at'])
-const orderColumns = new Set(['name', 'product_name', 'created_at', 'stock_quantity', 'is_system', 'started_at', 'product_id'])
+const orderColumns = new Set(['id', 'name', 'product_name', 'created_at', 'stock_quantity', 'is_system', 'started_at', 'product_id'])
 const writeColumns = {
   products: ['product_name', 'selling_price', 'category_id', 'status'],
   product_recipes: ['product_id', 'inventory_id', 'qty_per_sale'],

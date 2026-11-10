@@ -12,7 +12,7 @@ async function getInsights(req, res) {
       data,
     })
   } catch (err) {
-    res.status(500).json({
+    res.status(err.statusCode || 500).json({
       error: err.message,
     })
   }

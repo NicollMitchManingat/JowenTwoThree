@@ -4227,3 +4227,17 @@
     transform: none;
   }
 }
+
+/* Sales forecasts keep observed and predicted values separate on tablets. */
+.analytics-page .analytics-forecast-card { min-width: 0; max-width: 100%; }
+.analytics-forecast-card .card-header { display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: center; }
+.analytics-forecast-body { min-width: 0; overflow-wrap: anywhere; }
+.analytics-forecast-summary { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 1rem 2rem; }
+.analytics-forecast-summary > p { flex: 1 1 13rem; margin: 0; }
+.analytics-forecast-summary > p > span, .analytics-forecast-summary strong { display: block; }
+.analytics-forecast-summary strong { font-size: clamp(1.5rem, 3vw, 2rem); line-height: 1.3; }
+.analytics-forecast-summary dl { flex: 2 1 20rem; margin: 0; min-width: 0; }
+.analytics-forecast-summary dl > div { display: flex; flex-wrap: wrap; gap: 0.25rem 0.75rem; margin-bottom: 0.35rem; }
+.analytics-forecast-summary dt { flex: 0 0 5rem; font-weight: 600; }
+.analytics-forecast-summary dd { flex: 1 1 12rem; margin: 0; min-width: 0; }
+.analytics-page .analytics-forecast-chart { height: 280px; min-width: 0; margin-top: 0.75rem; }

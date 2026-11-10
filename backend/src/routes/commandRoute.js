@@ -1,3 +1,4 @@
+const { readAll } = require('../services/analyticsReadService')
 const router = require('express').Router()
 const a = require('../services/accessService')
 const checkout = require('../services/checkoutService')
@@ -61,8 +62,14 @@ router.post('/traffic', modules('pos'), run(async (req, res) => {
 }))
 router.get('/session-summary/:id', modules('settings', 'analytics'), run(async (req, res) => {
   const session = a.check(await a.database().from('sessions').select('id,started_at,ended_at').eq('id', req.params.id).single())
-  const txns = a.check(await a.database().from('transactions').select('id,total,discount,status,male_count,female_count,unspecified_count').gte('created_at', session.started_at).lte('created_at', session.ended_at || new Date().toISOString()))
-  const refunds = txns.length ? a.check(await a.database().from('refunds').select('transaction_id,refund_amount').in('transaction_id', txns.map(t => t.id))) : []
+  const end = session.ended_at || new Date().toISOString()
+  const txns = await readAll((start, stop) => a.database().from('transactions').select('id,total,discount,status,male_count,female_count,unspecified_count')
+    .gte('created_at', session.started_at).lte('created_at', end).order('id').range(start, stop), { label: 'Session sales' })
+  const refunds = []
+  for (let offset = 0; offset < txns.length; offset += 100) {
+    refunds.push(...await readAll((start, stop) => a.database().from('refunds').select('id,transaction_id,refund_amount')
+      .in('transaction_id', txns.slice(offset, offset + 100).map(t => t.id)).order('id').range(start, stop), { label: 'Session refunds', maxRows: 20000 - refunds.length }))
+  }
   res.json({ txns, refunds })
 }))
 module.exports = router

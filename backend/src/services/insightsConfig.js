@@ -11,6 +11,7 @@ module.exports = {
   // same-weekday occurrences, then FORECAST_DAYS of horizon.
   SAME_WEEKDAY_OCCURRENCES: 4,
   FORECAST_DAYS: 7,
+  FORECAST_MIN_WEEKDAY_SAMPLES: 2,
 
   // Reorder: ingredients below this many days of cover get flagged;
   // only the worst REORDER_TOP_N are named on the card.
@@ -45,14 +46,6 @@ module.exports = {
   // (Positive) keeps the calm state settled at the bottom.
   IMPACT_SEVERITY: { High: 0, Reorder: 0, Medium: 1, Positive: 2 },
 
-  // Supabase read caps per table per insights request (bounded cost).
-  FETCH_LIMITS: {
-    transactions: 999,
-    traffic: 499,
-    inventory: 100,
-    products: 100,
-    adjustments: 499,
-    refunds: 499,
-    discounts: 99,
-  },
+  // Safety bound across paginated reads. Exceeding it fails visibly.
+  FETCH_LIMITS: { maxRows: 20000, trafficRows: 100000 },
 }

@@ -65,12 +65,13 @@ describe("StockMovementChart", () => {
     expect(screen.getByTestId("stock-summary")).toHaveTextContent("1");
   });
 
-  it("should fall back to sample data with retry on fetch failure", async () => {
+  it("should show an error without sample sales and allow retry", async () => {
     db.getTopSellingItems.mockRejectedValueOnce(new Error("Supabase waking up"));
     render(<StockMovementChart />);
 
     await waitFor(() => expect(screen.getByTestId("stock-error")).toBeInTheDocument());
-    expect(screen.getByTestId("stock-summary")).toHaveTextContent("Espresso");
+    expect(screen.queryByTestId("stock-summary")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("chart-canvas")).not.toBeInTheDocument();
 
     db.getTopSellingItems.mockResolvedValueOnce([{ name: "Latte", sold: 5 }]);
     db.getInventoryStatus.mockResolvedValueOnce([]);

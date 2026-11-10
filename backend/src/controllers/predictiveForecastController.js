@@ -1,14 +1,14 @@
 const predictiveForecastService = require("../services/predictiveForecastService")
 
-function getForecast(req, res) {
+async function getForecast(req, res) {
   try {
-    const data = predictiveForecastService.getSalesForecast()
+    const data = await predictiveForecastService.getSalesForecast({ asOf: req.query.asOf })
 
     res.status(200).json({
       data,
     })
   } catch (err) {
-    res.status(500).json({
+    res.status(err.statusCode || 500).json({
       error: err.message,
     })
   }

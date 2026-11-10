@@ -1,3 +1,5 @@
+vi.mock('../services/apiClient', () => ({ apiRequest: vi.fn() }))
+import { apiRequest } from '../services/apiClient'
 import { render, screen, waitFor, fireEvent, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
@@ -39,6 +41,9 @@ const TXNS = [
 ]
 
 function setup() {
+  apiRequest.mockResolvedValue({data:{status:'insufficient_history',total:null,forecast:[],history:[],
+    generatedAt:'2026-11-02T02:00:00Z',method:{label:'Same-weekday moving average',windowDays:28,occurrences:4},
+    training:{from:'2026-10-05',through:'2026-11-01',observedDays:0,missingDays:28},dataQuality:{complete:true},notice:'Insufficient history.'}})
   db.getTodayStats.mockResolvedValue({ totalCustomers: 0 })
   db.getInventoryStatus.mockResolvedValue([])
   db.getAdjustments.mockResolvedValue([])
@@ -98,7 +103,7 @@ describe('DashboardContent granularity', () => {
     await waitFor(() => expect(db.getInventoryStatus).toHaveBeenCalled())
     const inventoryCalls = db.getInventoryStatus.mock.calls.length
     await user.click(screen.getByRole('tab', { name: 'Customer Traffic' }))
-    expect(within(screen.getByRole('tabpanel', { name: 'Customer Traffic' })).getByRole('heading', { name: 'Customers' })).toBeVisible()
+    expect(within(screen.getByRole('tabpanel', { name: 'Customer Traffic' })).getByRole('heading', { name: 'Customers on Transactions' })).toBeVisible()
     await user.click(screen.getByRole('tab', { name: 'AI Insights' }))
     await screen.findByTestId('insight-forecast')
     await user.click(screen.getByRole('button', { name: 'Dismiss Forecast Revenue insight' }))

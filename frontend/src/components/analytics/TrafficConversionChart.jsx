@@ -22,12 +22,6 @@ const barOptions = {
     tooltip: {
       callbacks: {
         label: (ctx) => ` ${ctx.dataset.label}: ${ctx.parsed.y}`,
-        footer: (items) => {
-          const walk = items.find((i) => i.dataset.label === "Walk-ins")?.parsed.y ?? 0;
-          const buyers = items.find((i) => i.dataset.label === "Buyers")?.parsed.y ?? 0;
-          if (walk <= 0) return "";
-          return `Conversion: ${Math.round((buyers / walk) * 100)}%`;
-        },
       },
     },
   },
@@ -49,7 +43,7 @@ export default function TrafficConversionChart({ startDate, endDate }) {
     let cancelled = false;
     async function load() {
       setLoading(true);
-      setError(null);
+      setHourly(null); setError(null);
       try {
         const data = await db.getHourlyTrafficSplit(startDate, endDate);
         if (cancelled) return;
@@ -87,7 +81,6 @@ export default function TrafficConversionChart({ startDate, endDate }) {
   const rows = Array.isArray(hourly) ? hourly : [];
   const walkIns = rows.reduce((s, h) => s + (Number(h.walkIns) || 0), 0);
   const buyers = rows.reduce((s, h) => s + (Number(h.buyers) || 0), 0);
-  const conversion = walkIns > 0 ? Math.round((buyers / walkIns) * 100) : 0;
 
   if (walkIns === 0 && buyers === 0) {
     return (
@@ -101,7 +94,7 @@ export default function TrafficConversionChart({ startDate, endDate }) {
     labels: rows.map((h) => formatHour(h.hour)),
     datasets: [
       {
-        label: "Walk-ins",
+        label: "Recorded customers",
         data: rows.map((h) => Number(h.walkIns) || 0),
         backgroundColor: "#86efac",
         borderRadius: 4,
@@ -109,7 +102,7 @@ export default function TrafficConversionChart({ startDate, endDate }) {
         maxBarThickness: 18,
       },
       {
-        label: "Buyers",
+        label: "Transactions",
         data: rows.map((h) => Number(h.buyers) || 0),
         backgroundColor: "#166534",
         borderRadius: 4,
@@ -123,13 +116,10 @@ export default function TrafficConversionChart({ startDate, endDate }) {
     <div data-testid="conversion-chart" style={{ width: "100%", height: "100%", flex: 1, minHeight: 0, display: "flex", flexDirection: "column", gap: "6px", overflow: "hidden", boxSizing: "border-box" }}>
       <div data-testid="conversion-summary" style={{ display: "flex", flexWrap: "wrap", gap: "12px", fontSize: "0.8rem", color: "var(--text-muted, #6b7280)" }}>
         <span>
-          Conversion: <strong style={{ color: "var(--text-main, #111827)" }}>{conversion}%</strong>
+          Recorded customers: <strong style={{ color: "var(--text-main, #111827)" }}>{walkIns.toLocaleString()}</strong>
         </span>
         <span>
-          Walk-ins: <strong style={{ color: "var(--text-main, #111827)" }}>{walkIns.toLocaleString()}</strong>
-        </span>
-        <span>
-          Buyers: <strong style={{ color: "var(--text-main, #111827)" }}>{buyers.toLocaleString()}</strong>
+          Transactions: <strong style={{ color: "var(--text-main, #111827)" }}>{buyers.toLocaleString()}</strong>
         </span>
       </div>
       <div style={{ flex: 1, minHeight: 0, minWidth: 0, position: "relative" }}>

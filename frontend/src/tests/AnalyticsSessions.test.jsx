@@ -1,3 +1,4 @@
+import { manilaDay, manilaStart, manilaEnd } from '../utils/analyticsTime'
 vi.mock('../services/apiClient', () => ({ apiRequest: vi.fn() }))
 import { apiRequest } from '../services/apiClient'
 import { render, screen, waitFor, fireEvent } from '@testing-library/react'
@@ -120,11 +121,11 @@ describe('DashboardContent sessions', () => {
     fireEvent.change(screen.getByTestId('analytics-session-select'), { target: { value: 's1' } })
 
     // Charts refetch over the session's calendar days.
-    const day = sStart.toLocaleDateString('en-CA')
+    const day = manilaDay(sStart)
     await waitFor(() => {
       expect(db.getDailySales).toHaveBeenCalledWith(
-        expect.stringContaining(day),
-        expect.anything()
+        manilaStart(day).toISOString(),
+        manilaEnd(manilaDay(sEnd)).toISOString()
       )
     })
     expect(screen.getByTestId('session-scope-chip')).toBeInTheDocument()

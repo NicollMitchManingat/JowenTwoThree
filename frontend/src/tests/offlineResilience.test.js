@@ -35,9 +35,11 @@ function chainable(resolveRows, onStart) {
   for (const m of ['select', 'gt', 'gte', 'lte', 'order', 'range', 'in', 'eq', 'limit', 'abortSignal', 'update', 'insert', 'delete', 'single']) {
     builder[m] = vi.fn(() => builder)
   }
+  let start = 0, end = Infinity
+  builder.range = vi.fn((a,b) => { start = a; end = b; return builder })
   builder.then = (resolve, reject) => {
     if (onStart) onStart()
-    return Promise.resolve(resolveRows()).then(resolve, reject)
+    return Promise.resolve(resolveRows()).then(result => ({ ...result, data: Array.isArray(result.data) ? result.data.slice(start, end + 1) : result.data })).then(resolve, reject)
   }
   return builder
 }
@@ -161,13 +163,13 @@ describe('parallel hourly fetches', () => {
       if (table === 'transactions') {
         return chainable(() => txnsGate.then(() => {
           txnsSettled = true
-          return { data: [{ created_at: '2026-10-04T09:10:00' }], error: null }
+          return { data: [{ created_at: '2026-10-04T09:10:00+08:00' }], error: null }
         }))
       }
       return chainable(() => {
         if (!txnsSettled) trafficStartedWhileTxnsPending = true
         return Promise.resolve({
-          data: [{ created_at: '2026-10-04T10:00:00', number_of_customer: 5 }],
+          data: [{ created_at: '2026-10-04T10:00:00+08:00', number_of_customer: 5 }],
           error: null,
         })
       })

@@ -82,18 +82,18 @@ describe('salesAnalytics', () => {
   })
 
   it('hourKeyLocal should bucket in local time as YYYY-MM-DDTHH:00', () => {
-    expect(hourKeyLocal('2026-10-04T09:15:00')).toBe('2026-10-04T09:00')
-    expect(hourKeyLocal('2026-10-04T09:59:59')).toBe('2026-10-04T09:00')
+    expect(hourKeyLocal('2026-10-04T09:15:00+08:00')).toBe('2026-10-04T09:00')
+    expect(hourKeyLocal('2026-10-04T09:59:59+08:00')).toBe('2026-10-04T09:00')
     expect(hourKeyLocal('not-a-date')).toBe(null)
     expect(hourKeyLocal(null)).toBe(null)
   })
 
   it('bucketHourlySales should sum same-hour txns into chronological keys', () => {
     const txns = [
-      { id: 'a', created_at: '2026-10-04T09:10:00', total: 100, status: 'COMPLETED' },
-      { id: 'b', created_at: '2026-10-04T09:45:00', total: 50, status: 'COMPLETED' },
-      { id: 'c', created_at: '2026-10-04T10:05:00', total: 200, status: 'COMPLETED' },
-      { id: 'd', created_at: '2026-10-05T09:10:00', total: 75, status: 'COMPLETED' },
+      { id: 'a', created_at: '2026-10-04T09:10:00+08:00', total: 100, status: 'COMPLETED' },
+      { id: 'b', created_at: '2026-10-04T09:45:00+08:00', total: 50, status: 'COMPLETED' },
+      { id: 'c', created_at: '2026-10-04T10:05:00+08:00', total: 200, status: 'COMPLETED' },
+      { id: 'd', created_at: '2026-10-05T09:10:00+08:00', total: 75, status: 'COMPLETED' },
     ]
     const out = bucketHourlySales(txns, [])
     expect(out['2026-10-04T09:00']).toBe(150)
@@ -109,12 +109,12 @@ describe('salesAnalytics', () => {
 
   it('bucketHourlySales should net refunds like getDailySales without double-counting', () => {
     const txns = [
-      { id: 't1', created_at: '2026-10-04T09:10:00', total: 240, status: 'COMPLETED' },
-      { id: 't4', created_at: '2026-10-04T10:10:00', total: 150, status: 'REFUNDED' },
+      { id: 't1', created_at: '2026-10-04T09:10:00+08:00', total: 240, status: 'COMPLETED' },
+      { id: 't4', created_at: '2026-10-04T10:10:00+08:00', total: 150, status: 'REFUNDED' },
     ]
     const refunds = [
-      { transaction_id: 't4', refund_amount: 150, created_at: '2026-10-04T10:20:00' },
-      { transaction_id: 't1', refund_amount: 40, created_at: '2026-10-04T09:30:00' },
+      { transaction_id: 't4', refund_amount: 150, created_at: '2026-10-04T10:20:00+08:00' },
+      { transaction_id: 't1', refund_amount: 40, created_at: '2026-10-04T09:30:00+08:00' },
     ]
     const out = bucketHourlySales(txns, refunds)
     // t4 excluded + its refund skipped → 10:00 bucket stays empty/absent.

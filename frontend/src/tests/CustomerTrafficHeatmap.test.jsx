@@ -1,12 +1,13 @@
 import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import CustomerTrafficHeatmap, { FALLBACK_TRAFFIC } from "../components/analytics/CustomerTrafficHeatmap";
+import CustomerTrafficHeatmap from "../components/analytics/CustomerTrafficHeatmap";
 import { db } from "../services/db";
 
 vi.mock("../services/db", () => ({
   db: { getHourlyTraffic: vi.fn() },
 }));
 
+const FALLBACK_TRAFFIC = [3,2,1,1,0,0,2,5,8,12,15,18,20,22,19,16,13,15,18,20,17,11,6,4];
 const toHourly = (arr) => arr.map((customers, hour) => ({ hour, customers }));
 
 describe("CustomerTrafficHeatmap", () => {
@@ -79,13 +80,12 @@ describe("CustomerTrafficHeatmap", () => {
     fireEvent.mouseLeave(cell);
   });
 
-  it("should fall back to sample data and offer retry on fetch failure", async () => {
+  it("should show no sample traffic and offer retry on fetch failure", async () => {
     db.getHourlyTraffic.mockRejectedValueOnce(new Error("Supabase waking up"));
     render(<CustomerTrafficHeatmap />);
 
     await waitFor(() => expect(screen.getByTestId("traffic-error")).toBeInTheDocument());
-    // Fallback matrix still renders so the dashboard never goes blank
-    expect(screen.getByTestId("traffic-cell-13")).toHaveTextContent("22");
+    expect(screen.queryByTestId("traffic-cell-13")).not.toBeInTheDocument();
 
     db.getHourlyTraffic.mockResolvedValueOnce(toHourly(new Array(24).fill(1)));
     fireEvent.click(screen.getByTestId("traffic-retry"));

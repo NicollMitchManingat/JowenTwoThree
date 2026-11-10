@@ -1,55 +1,37 @@
-const salesModel = require("../models/salesModel")
+const { DAY_MS, calendarStart, dayStart, dayKey, readAll } = require('./analyticsReadService')
+const { buildSalesForecast } = require('./salesForecastMath')
+const { netDailySales } = require('./insightsService')
+const config = require('./insightsConfig')
 
-function getSalesForecast(salesData = salesModel.getSales()) {
-  if (!Array.isArray(salesData)) {
-    throw new Error("Forecast data is unavailable")
-  }
-
-  const revenueMap = {}
-
-  salesData.forEach((sale) => {
-    const date = sale.date.split("T")[0]
-
-    if (!revenueMap[date]) {
-      revenueMap[date] = 0
-    }
-
-    revenueMap[date] += sale.totalAmount
+async function getSalesForecast({ asOf, client, now = new Date() } = {}) {
+  const today = dayStart(now)
+  if (!today) throw new Error('Forecast clock is unavailable.')
+  const requested = asOf === undefined ? today : calendarStart(asOf)
+  if (!requested) throw Object.assign(new Error('Use a valid asOf date in YYYY-MM-DD format.'), { statusCode: 400 })
+  // Historical dates are complete. Today/future dates use yesterday.
+  const end = requested < today ? requested : new Date(today.getTime() - DAY_MS)
+  const from = new Date(end.getTime() - (config.TRAILING_DAYS - 1) * DAY_MS)
+  const until = new Date(end.getTime() + DAY_MS)
+  const supabase = client !== undefined ? client : require('../config/supabaseClient').supabase
+  if (!supabase) throw Object.assign(new Error('Sales forecast data is unavailable. Please retry.'), { statusCode: 503 })
+  const read = (table, columns) => readAll((start, stop) => supabase.from(table).select(columns)
+    .gte('created_at', from.toISOString()).lt('created_at', until.toISOString())
+    .order('created_at').order('id').range(start, stop), { label: 'Sales forecast' })
+  const [transactions, refunds] = await Promise.all([
+    read('transactions', 'id,created_at,total,status'),
+    read('refunds', 'id,transaction_id,created_at,refund_amount'),
+  ])
+  const inWindow = rows => rows.filter(row => {
+    const time = new Date(row.created_at).getTime()
+    return time >= from.getTime() && time < until.getTime()
   })
-
-  const history = Object.keys(revenueMap)
-    .sort()
-    .map((date) => ({
-      date,
-      revenue: revenueMap[date],
-    }))
-
-  if (history.length === 0) {
-    return []
+  return {
+    ...buildSalesForecast(netDailySales(inWindow(transactions), inWindow(refunds)), dayKey(end), config),
+    generatedAt: new Date(now).toISOString(),
+    requestedAsOf: asOf || dayKey(today), historical: requested < today,
+    dataQuality: { complete: true, timeZone: 'Asia/Manila', recordingCoverage: 'unknown',
+      currentDayExcluded: true, historicalStatusSnapshots: false, revenueBasis: 'Dashboard daily revenue after refunds' },
   }
-
-  const average =
-    history.reduce((sum, day) => sum + day.revenue, 0) /
-    history.length
-
-  const lastDate = new Date(history[history.length - 1].date)
-
-  const forecast = []
-
-  for (let i = 1; i <= 7; i++) {
-    const nextDate = new Date(lastDate)
-
-    nextDate.setDate(lastDate.getDate() + i)
-
-    forecast.push({
-      date: nextDate.toISOString().split("T")[0],
-      predictedRevenue: Math.round(average),
-    })
-  }
-
-  return forecast
 }
 
-module.exports = {
-  getSalesForecast,
-}
+module.exports = { getSalesForecast }

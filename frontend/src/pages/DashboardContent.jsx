@@ -4,12 +4,14 @@ import { TrendingUp, AlertTriangle, Package, BarChart3, ShoppingBag, Calendar, C
 import { db } from '../services/db';
 import { formatElapsed, loadSessionSummary, HISTORY_PAGE_SIZE } from '../services/sessionAnalytics';
 import { productAPI } from '../services/productAPI';
+import { manilaClock, manilaDay, manilaStart, manilaEnd, DAY_MS } from '../utils/analyticsTime';
 import { formatStock, inventoryStatus } from '../utils/formatStock';
 import { netRevenue, paymentMix, voucherStats, refundSummary, customerTotals, bucketHourlySales, aggregateWeekdayPattern } from '../services/salesAnalytics';
 
 import SummaryCard from "../components/analytics/SummaryCard";
 import TabMenu, { ANALYTICS_GROUPS } from "../components/analytics/TabMenu";
 import SalesTrendChart from "../components/analytics/SalesTrendChart";
+import SalesForecastPanel from "../components/analytics/SalesForecastPanel";
 import StockMovementChart from "../components/analytics/StockMovementChart";
 import DateRangeFilter from "../components/analytics/DateRangeFilter";
 import CustomerTrafficHeatmap from "../components/analytics/CustomerTrafficHeatmap";
@@ -22,43 +24,15 @@ import TrafficConversionChart from "../components/analytics/TrafficConversionCha
 import AiInsights, { RESOLVE_TARGETS } from "../components/analytics/AiInsights";
 
 function getDateRange(filter) {
-  const now = new Date();
-  const end = new Date(now);
-  end.setHours(23, 59, 59, 999);
-  
-  let start = new Date(now);
-  
-  switch (filter) {
-    case "Today":
-      start.setHours(0, 0, 0, 0);
-      break;
-    case "Week":
-      start.setDate(now.getDate() - now.getDay());
-      start.setHours(0, 0, 0, 0);
-      break;
-    case "Month":
-      start.setDate(1);
-      start.setHours(0, 0, 0, 0);
-      break;
-    case "Year":
-      start.setMonth(0, 1);
-      start.setHours(0, 0, 0, 0);
-      break;
-    case "Custom":
-      return null;
-    default:
-      start.setHours(0, 0, 0, 0);
-  }
-  
-  return {
-    start: start.toISOString(),
-    end: end.toISOString(),
-  };
+  const now = manilaClock(), today = manilaDay();
+  let start = today;
+  if (filter === 'Custom') return null;
+  if (filter === 'Week') start = new Date(now.getTime() - now.getUTCDay() * DAY_MS).toISOString().slice(0, 10);
+  if (filter === 'Month') start = today.slice(0, 7) + '-01';
+  if (filter === 'Year') start = today.slice(0, 4) + '-01-01';
+  return { start: manilaStart(start).toISOString(), end: manilaEnd(today).toISOString() };
 }
-
-function formatDateForInput(date) {
-  return date.toISOString().split('T')[0];
-}
+function formatDateForInput(date) { return manilaDay(date); }
 
 // Same-origin by default so the Vercel `/api` rewrite reaches the backend.
 // Set VITE_API_URL=http://localhost:3001 for local `vite dev` without a proxy.
@@ -70,22 +44,22 @@ export function aggregateWeeklySales(salesData) {
   if (!salesData || typeof salesData !== "object") return [];
   const buckets = new Map();
   for (const [day, amount] of Object.entries(salesData)) {
-    const d = new Date(`${day}T12:00:00`);
+    const d = new Date(`${day}T12:00:00Z`);
     if (Number.isNaN(d.getTime())) continue;
     const n = Number(amount);
     if (!Number.isFinite(n) || n < 0) continue;
     // ISO week: shift to Thursday, then derive Monday + week number.
     const tmp = new Date(d);
-    const dayIdx = (tmp.getDay() + 6) % 7; // Mon=0..Sun=6
-    tmp.setDate(tmp.getDate() - dayIdx + 3); // Thursday
-    const isoYear = tmp.getFullYear();
-    const firstThursday = new Date(isoYear, 0, 4);
-    const fIdx = (firstThursday.getDay() + 6) % 7;
-    firstThursday.setDate(firstThursday.getDate() - fIdx + 3);
+    const dayIdx = (tmp.getUTCDay() + 6) % 7; // Mon=0..Sun=6
+    tmp.setUTCDate(tmp.getUTCDate() - dayIdx + 3); // Thursday
+    const isoYear = tmp.getUTCFullYear();
+    const firstThursday = new Date(Date.UTC(isoYear, 0, 4, 12));
+    const fIdx = (firstThursday.getUTCDay() + 6) % 7;
+    firstThursday.setUTCDate(firstThursday.getUTCDate() - fIdx + 3);
     const weekNum = 1 + Math.round((tmp - firstThursday) / (7 * 24 * 3600 * 1000));
     const key = `${isoYear}-W${String(weekNum).padStart(2, "0")}`;
     const monday = new Date(d);
-    monday.setDate(monday.getDate() - dayIdx);
+    monday.setUTCDate(monday.getUTCDate() - dayIdx);
     const prev = buckets.get(key);
     if (prev) {
       prev.total += n;
@@ -98,7 +72,7 @@ export function aggregateWeeklySales(salesData) {
     .sort((a, b) => a.weekStart - b.weekStart)
     .map((b) => ({
       ...b,
-      label: `W${b.key.slice(-2)} ${b.weekStart.toLocaleDateString("en-US", { month: "short", day: "numeric" })}`,
+      label: `W${b.key.slice(-2)} ${b.weekStart.toLocaleDateString("en-US", { timeZone: "UTC", month: "short", day: "numeric" })}`,
     }));
 }
 
@@ -115,7 +89,6 @@ export default function DashboardContent({ activeTab, user, onNavigate }) {
   const { dateFilter, setDateFilter, granularity = 'daily', setGranularity = () => {} } = useContext(AnalyticsContext);
   const [customStartDate, setCustomStartDate] = useState("");
   const [customEndDate, setCustomEndDate] = useState("");
-  const [todayStats, setTodayStats] = useState(null);
   const [lowStock, setLowStock] = useState([]);
   const [inventoryLoading, setInventoryLoading] = useState(false);
   const [inventoryError, setInventoryError] = useState(null);
@@ -129,6 +102,7 @@ export default function DashboardContent({ activeTab, user, onNavigate }) {
   const [rangeTxns, setRangeTxns] = useState(null);
   const [rangeRefunds, setRangeRefunds] = useState([]);
   const [discountList, setDiscountList] = useState([]);
+  const [discountError, setDiscountError] = useState(null);
   // Session scope: picking a past session drives the Period pipeline via a
   // Custom range over the session's calendar days (charts follow untouched).
   const [sessions, setSessions] = useState([]);
@@ -137,7 +111,7 @@ export default function DashboardContent({ activeTab, user, onNavigate }) {
   const [historyDetail, setHistoryDetail] = useState(null);
   const [historyDetailLoading, setHistoryDetailLoading] = useState(false);
 
-  const toLocalDay = (iso) => new Date(iso).toLocaleDateString('en-CA');
+  const toLocalDay = manilaDay;
 
   useEffect(() => {
     let cancelled = false;
@@ -199,10 +173,10 @@ export default function DashboardContent({ activeTab, user, onNavigate }) {
     let cancelled = false;
     async function loadDiscounts() {
       try {
-        const list = typeof db.getActiveDiscounts === 'function' ? await db.getActiveDiscounts() : [];
-        if (!cancelled) setDiscountList(list || []);
+        const list = typeof db.getDiscountsForAnalytics === 'function' ? await db.getDiscountsForAnalytics() : typeof db.getActiveDiscounts === 'function' ? await db.getActiveDiscounts() : [];
+        if (!cancelled) { setDiscountList(list || []); setDiscountError(null); }
       } catch {
-        if (!cancelled) setDiscountList([]);
+        if (!cancelled) { setDiscountList([]); setDiscountError('Voucher information is unavailable. Reload to retry.'); }
       }
     }
     loadDiscounts();
@@ -223,29 +197,15 @@ export default function DashboardContent({ activeTab, user, onNavigate }) {
     if (dateFilter === "Custom") {
       if (customStartDate && customEndDate) {
         return {
-          start: new Date(customStartDate).toISOString(),
-          end: new Date(new Date(customEndDate).setHours(23, 59, 59, 999)).toISOString(),
+          start: manilaStart(customStartDate).toISOString(),
+          end: manilaEnd(customEndDate).toISOString(),
         };
       }
       // Default to today if custom dates not set
-      const now = new Date();
-      const start = new Date(now);
-      start.setHours(0, 0, 0, 0);
-      return {
-        start: start.toISOString(),
-        end: new Date(now.setHours(23, 59, 59, 999)).toISOString(),
-      };
+      return getDateRange('Today');
     }
     return getDateRange(dateFilter);
   }, [dateFilter, customStartDate, customEndDate]);
-
-  // Shared fallback for summary cards; inventory loads on first visit separately.
-  useEffect(() => {
-    let cancelled = false;
-    db.getTodayStats().then(stats => { if (!cancelled) setTodayStats(stats); })
-      .catch(err => console.error('Analytics load error:', err));
-    return () => { cancelled = true; };
-  }, []);
 
   useEffect(() => {
     if (!inventoryVisited) return;
@@ -266,15 +226,16 @@ export default function DashboardContent({ activeTab, user, onNavigate }) {
 
     async function loadSalesData() {
       setLoading(true);
+      setSalesData(null); setRangeTxns(null); setRangeRefunds([]);
       setSalesError(null);
       try {
         const [dailySales, txns, refunds] = await Promise.all([
           db.getDailySales(dateRange.start, dateRange.end),
           typeof db.getTransactionsForAnalytics === 'function'
-            ? db.getTransactionsForAnalytics(dateRange.start, dateRange.end).catch(() => null)
+            ? db.getTransactionsForAnalytics(dateRange.start, dateRange.end)
             : Promise.resolve(null),
           typeof db.getRefundsByDateRange === 'function'
-            ? db.getRefundsByDateRange(dateRange.start, dateRange.end).catch(() => [])
+            ? db.getRefundsByDateRange(dateRange.start, dateRange.end)
             : Promise.resolve([]),
         ]);
         if (cancelled) return;
@@ -360,7 +321,7 @@ export default function DashboardContent({ activeTab, user, onNavigate }) {
     return {
       labels: labels.map(d => {
         const date = new Date(d);
-        return date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+        return date.toLocaleDateString('en-US', { timeZone: 'Asia/Manila', weekday: 'short', month: 'short', day: 'numeric' });
       }),
       datasets: [{
         label: "Revenue",
@@ -403,18 +364,18 @@ export default function DashboardContent({ activeTab, user, onNavigate }) {
 // Orders is the true transaction count (previously this counted days).
 // Customers follows the selected range (previously today-only, so it read 0
 // on any range without sales logged yet today).
-// Both fall back gracefully when the transaction fetch is unavailable.
+// Read failures are shown as unavailable by the group guard.
   const totals = useMemo(() => {
     if (!salesData || Object.keys(salesData).length === 0) {
       return { revenue: 0, orders: 0, customers: { total: 0, male: 0, female: 0, unspecified: 0 } };
     }
     const revenue = Object.values(salesData).reduce((sum, val) => sum + (Number(val) || 0), 0);
-    const orders = Array.isArray(rangeTxns) ? rangeTxns.length : Object.keys(salesData).length;
+    const orders = Array.isArray(rangeTxns) ? rangeTxns.length : 0;
     const customers = Array.isArray(rangeTxns)
       ? customerTotals(rangeTxns)
-      : { total: todayStats?.totalCustomers || 0, male: 0, female: 0, unspecified: 0 };
+      : { total: 0, male: 0, female: 0, unspecified: 0 };
     return { revenue, orders, customers };
-  }, [salesData, todayStats, rangeTxns]);
+  }, [salesData, rangeTxns]);
 
   // Tier-1 aggregates share the single range fetch above.
   const net = useMemo(() => netRevenue(rangeTxns, rangeRefunds), [rangeTxns, rangeRefunds]);
@@ -435,6 +396,7 @@ export default function DashboardContent({ activeTab, user, onNavigate }) {
   const [insights, setInsights] = useState(null);
   const [insightsError, setInsightsError] = useState(null);
   const [insightsRetryKey, setInsightsRetryKey] = useState(0);
+  const [insightsNotice, setInsightsNotice] = useState(null);
 
   useEffect(() => {
     if (!dateRange || !insightsVisited) return;
@@ -444,16 +406,21 @@ export default function DashboardContent({ activeTab, user, onNavigate }) {
 
     async function loadInsights() {
       setInsightsError(null);
+      setInsights(null); setInsightsNotice(null);
       try {
         const params = new URLSearchParams({ start: dateRange.start, end: dateRange.end });
         const res = await fetch(`${INSIGHTS_API_BASE}/api/ai-insights?${params}`, { credentials: 'include', signal: controller.signal });
-        if (!res.ok) throw new Error("Failed to load insights.");
         const json = await res.json();
-        if (!cancelled) setInsights(json.data ? json.data.insights : json.insights || []);
+        if (!res.ok) throw new Error(json.error || "Failed to load insights.");
+        if (json.data?.dataQuality?.complete === false) throw new Error("Insights data is incomplete. Please retry.");
+        if (!cancelled) {
+          setInsights(json.data ? json.data.insights : json.insights || []);
+          setInsightsNotice(json.data?.dataQuality?.notice || null);
+        }
       } catch (err) {
-        if (cancelled || err?.name === "AbortError") return;
+        if (cancelled) return;
         console.error("Insights load error:", err);
-        if (!cancelled) setInsightsError(err?.message || "Failed to load insights.");
+        if (!cancelled) setInsightsError(err?.name === "AbortError" ? "Insights request timed out. Please retry." : err?.message || "Failed to load insights.");
       } finally {
         clearTimeout(timeout);
       }
@@ -471,7 +438,7 @@ export default function DashboardContent({ activeTab, user, onNavigate }) {
     if (dateFilter === "Custom") {
       const end = new Date();
       const start = new Date();
-      start.setDate(end.getDate() - 6);
+      start.setTime(end.getTime() - 6 * DAY_MS);
       if (!customStartDate) setCustomStartDate(formatDateForInput(start));
       if (!customEndDate) setCustomEndDate(formatDateForInput(end));
     }
@@ -521,8 +488,8 @@ export default function DashboardContent({ activeTab, user, onNavigate }) {
         <SummaryCard title="Total Revenue" value={totals.revenue} isCurrency={true} icon={<ShoppingBag />} color="#16a34a" />
         <SummaryCard title="Transactions" value={totals.orders} icon={<BarChart3 />} color="#2563eb" />
         <SummaryCard
-          title="Customers"
-          value={totals.customers.total}
+          title="Customers on Transactions"
+          value={salesError ? "Unavailable" : totals.customers.total}
           icon={<ShoppingBag />}
           color="#9333ea"
           sub={`♂ ${totals.customers.male.toLocaleString()} · ♀ ${totals.customers.female.toLocaleString()}${totals.customers.unspecified > 0 ? ` · ? ${totals.customers.unspecified.toLocaleString()}` : ''}`}
@@ -574,6 +541,8 @@ export default function DashboardContent({ activeTab, user, onNavigate }) {
         </div>
       </div>
 
+      <SalesForecastPanel asOf={manilaDay(dateRange.end)} />
+
       <div className="charts-grid">
         <div className="card">
           <div className="card-header">
@@ -588,7 +557,7 @@ export default function DashboardContent({ activeTab, user, onNavigate }) {
             <h3 className="m-0">Voucher Effectiveness</h3>
           </div>
           <div className="chart-container" style={{ height: "250px" }}>
-            <VoucherEffectivenessChart stats={vouchers} />
+            {discountError ? <p role="alert">{discountError}</p> : <VoucherEffectivenessChart stats={vouchers} />}
           </div>
         </div>
       </div>
@@ -647,8 +616,9 @@ export default function DashboardContent({ activeTab, user, onNavigate }) {
       </div>
       </>;
       case 'traffic': return <>
+      <p className="text-sm text-muted">Traffic charts use recorded customer counts, including checkout traffic, without adding transactions again. Missing recordings are unknown, not confirmed zero visits.</p>
         <SummaryCard
-          title="Customers"
+          title="Customers on Transactions"
           value={totals.customers.total}
           icon={<ShoppingBag />}
           color="#9333ea"
@@ -657,7 +627,7 @@ export default function DashboardContent({ activeTab, user, onNavigate }) {
       <div className="charts-grid">
         <div className="card">
           <div className="card-header">
-            <h3 className="m-0">Walk-ins vs Buyers</h3>
+            <h3 className="m-0">Recorded Customers vs Transactions</h3>
           </div>
           <div className="chart-container" style={{ height: "250px" }}>
             <TrafficConversionChart startDate={dateRange?.start} endDate={dateRange?.end} />
@@ -677,6 +647,7 @@ export default function DashboardContent({ activeTab, user, onNavigate }) {
           <h3 className="m-0">AI Insights</h3>
         </div>
         <div className="card-body">
+          {insightsNotice && <p className="text-sm text-muted" data-testid="insights-data-notice">{insightsNotice}</p>}
           <AiInsights
             insights={insights}
             loading={!insights && !insightsError}

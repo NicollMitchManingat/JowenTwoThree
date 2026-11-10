@@ -1,6 +1,7 @@
 import { apiDatabase as supabase, apiRequest } from './apiClient'
 import { offlineQueue } from './offlineQueue'
 import { isLowStock } from '../utils/formatStock'
+import { manilaDay, manilaHour, manilaStart } from '../utils/analyticsTime'
 
 const QUERY_TIMEOUT_MS = 8000
 
@@ -30,6 +31,37 @@ async function queryWithTimeout(build) {
   } finally {
     clearTimeout(timer)
   }
+}
+
+// Analytics must finish pagination or fail explicitly. One timeout covers the
+// entire read; a server cap smaller than a page does not imply completion.
+function readAnalytics(table, columns, startDate, endDate, dateColumn = 'created_at') {
+  return queryWithTimeout(async signal => {
+    const rows = [], maxRows = table === 'customer_traffic' ? 100000 : 20000
+    const page = async (start, size) => {
+      let query = supabase.from(table).select(columns)
+      if (startDate) query = query.gte(dateColumn, startDate)
+      if (endDate) query = query.lte(dateColumn, endDate)
+      const result = await query.order('id', { ascending: true }).range(start, start + size - 1).abortSignal(signal)
+      if (result.error) throw result.error
+      if (!Array.isArray(result.data)) throw new Error('Analytics data is unavailable. Please retry.')
+      return result.data
+    }
+    let width = 1000, batch = [await page(0, 1000)]
+    for (;;) {
+      for (const result of batch) {
+        if (!result.length) return { data: rows, error: null }
+        rows.push(...result)
+        if (rows.length > maxRows) throw new Error('Analytics exceeds the safe reporting limit. Select a shorter period.')
+        if (result.length < width) { width = result.length; break }
+      }
+      const count = Math.min(4, Math.ceil((maxRows - rows.length + 1) / width))
+      batch = await Promise.all(Array.from({ length: count }, (_, i) => {
+        const start = rows.length + i * width
+        return page(start, Math.min(width, maxRows - start + 1))
+      }))
+    }
+  })
 }
 
 async function unitChangeRequest(id, action, body) {
@@ -408,95 +440,38 @@ export const db = {
   // Deliberately excludes the bulky cart JSONB: list-level aggregations
   // (payment mix, vouchers, net revenue, order counts) never need it.
   // Gender columns included for session handover M/F/U (ignored elsewhere).
+  async getDiscountsForAnalytics() { return readAnalytics('discounts', '*') },
+
   async getTransactionsForAnalytics(startDate, endDate) {
-    return queryWithTimeout((signal) => supabase
-      .from('transactions')
-      .select('id, created_at, subtotal, discount, total, payment_method, discount_type, discount_id, status, customer_count, male_count, female_count, unspecified_count')
-      .gte('created_at', startDate)
-      .lte('created_at', endDate)
-      .order('created_at', { ascending: true })
-      .range(0, 999)
-      .abortSignal(signal))
+    return readAnalytics('transactions', 'id, created_at, subtotal, discount, total, payment_method, discount_type, discount_id, status, customer_count, male_count, female_count, unspecified_count', startDate, endDate)
   },
 
   // Hourly walk-ins (customer_traffic) vs buyers (transaction count) for the
   // traffic-conversion chart. Unlike getHourlyTraffic, the two sources stay
   // split: [{ hour: 0-23, walkIns, buyers }] (always 24 entries).
   async getHourlyTrafficSplit(startDate, endDate) {
-    let start = startDate
-    let end = endDate
-    if (!start || !end) {
-      const today = new Date()
-      today.setHours(0, 0, 0, 0)
-      start = start || today.toISOString()
-      end = end || new Date().toISOString()
-    }
+    const start = startDate || manilaStart().toISOString(), end = endDate || new Date().toISOString()
     const hourly = Array.from({ length: 24 }, (_, hour) => ({ hour, walkIns: 0, buyers: 0 }))
-    const bump = (timestamp, key, amount = 1) => {
-      if (!timestamp) return
-      const d = new Date(timestamp)
-      if (Number.isNaN(d.getTime())) return
-      hourly[d.getHours()][key] += amount
-    }
-    // The two sources are independent — fetch in parallel so one outage
-    // can't stack its 8s timeout behind the other. Traffic stays optional.
-    const txnsPromise = queryWithTimeout((signal) => supabase
-      .from('transactions')
-      .select('created_at')
-      .gte('created_at', start)
-      .lte('created_at', end)
-      .order('created_at', { ascending: true })
-      .range(0, 999)
-      .abortSignal(signal))
-    const trafficPromise = queryWithTimeout((signal) => supabase
-      .from('customer_traffic')
-      .select('created_at, number_of_customer')
-      .gte('created_at', start)
-      .lte('created_at', end)
-      .order('created_at', { ascending: true })
-      .range(0, 999)
-      .abortSignal(signal)).catch(() => null)
-    const [txns, traffic] = await Promise.all([txnsPromise, trafficPromise])
-    ;(txns || []).forEach((t) => bump(t.created_at, 'buyers'))
-    ;(traffic || []).forEach((r) => {
-      const n = Number(r.number_of_customer)
-      if (Number.isFinite(n) && n > 0) bump(r.created_at, 'walkIns', n)
-    })
+    const [txns, traffic] = await Promise.all([
+      readAnalytics('transactions', 'created_at', start, end),
+      readAnalytics('customer_traffic', 'created_at, number_of_customer', start, end),
+    ])
+    txns.forEach(t => { const h = manilaHour(t.created_at); if (h !== null) hourly[h].buyers++ })
+    traffic.forEach(t => { const h = manilaHour(t.created_at); if (h !== null) hourly[h].walkIns += toNonNegativeInt(t.number_of_customer) })
     return hourly
   },
 
   async getDailySales(startDate, endDate) {
-    // Refunds don't depend on the sales rows (the refunded-order filter is
-    // applied at aggregation), so fetch both in parallel instead of
-    // stacking two 8s timeouts back-to-back when the database is slow.
-    const refundsPromise = this.getRefundsByDateRange(startDate, endDate)
-    let data
-    try {
-      data = await queryWithTimeout((signal) => supabase
-        .from('transactions')
-        .select('id, created_at, total, status')
-        .gte('created_at', startDate)
-        .lte('created_at', endDate)
-        .order('created_at', { ascending: true })
-        .range(0, 499)
-        .abortSignal(signal))
-    } catch (err) {
-      if (!isMissingColumnError(err)) throw err
-      data = await queryWithTimeout((signal) => supabase
-        .from('transactions')
-        .select('created_at, total')
-        .gte('created_at', startDate)
-        .lte('created_at', endDate)
-        .order('created_at', { ascending: true })
-        .range(0, 499)
-        .abortSignal(signal))
-    }
+    const [data, refunds] = await Promise.all([
+      readAnalytics('transactions', 'id, created_at, total, status', startDate, endDate),
+      this.getRefundsByDateRange(startDate, endDate),
+    ])
     const dailySales = {}
     const addToDay = (timestamp, amount) => {
       if (!timestamp) return
       const d = new Date(timestamp)
       if (Number.isNaN(d.getTime())) return
-      const date = d.toISOString().split('T')[0]
+      const date = manilaDay(d)
       dailySales[date] = Math.max(0, (dailySales[date] || 0) + Number(amount))
     }
     // Fully refunded orders contribute nothing; partial refunds net out below.
@@ -509,7 +484,6 @@ export const db = {
       }
       addToDay(txn.created_at, txn.total)
     })
-    const refunds = await refundsPromise
     ;(refunds || []).forEach((r) => {
       if (r.transaction_id && refundedIds.has(r.transaction_id)) return
       addToDay(r.created_at, -Number(r.refund_amount || 0))
@@ -614,19 +588,7 @@ export const db = {
   },
 
   async getRefundsByDateRange(startDate, endDate) {
-    try {
-      return await queryWithTimeout((signal) => supabase
-        .from('refunds')
-        .select('refund_amount, created_at, transaction_id')
-        .gte('created_at', startDate)
-        .lte('created_at', endDate)
-        .order('created_at', { ascending: true })
-        .range(0, 499)
-        .abortSignal(signal))
-    } catch (err) {
-      if (isMissingColumnError(err)) return []
-      throw err
-    }
+    return readAnalytics('refunds', 'refund_amount, created_at, transaction_id', startDate, endDate)
   },
 
   async getRefundsForTransactions(transactionIds) {
@@ -708,43 +670,12 @@ export const db = {
       if (!Number.isFinite(n) || n <= 0) return
       totals.set(label, (totals.get(label) || 0) + n)
     }
-    let start = startDate
-    let end = endDate
-    if (!start || !end) {
-      const today = new Date()
-      today.setHours(0, 0, 0, 0)
-      start = start || today.toISOString()
-      end = end || new Date().toISOString()
-    }
-    try {
-      const rows = await queryWithTimeout((signal) => supabase
-        .from('transaction_items')
-        .select('quantity, product_id, products(product_name), transactions!inner(created_at)')
-        .gte('transactions.created_at', start)
-        .lte('transactions.created_at', end)
-        .range(0, 499)
-        .abortSignal(signal))
-      ;(rows || []).forEach((r) => {
-        addSale(r?.products?.product_name || r?.product_id, r?.quantity)
-      })
-      if (totals.size > 0) {
-        return [...totals.entries()]
-          .map(([name, sold]) => ({ name, sold }))
-          .sort((a, b) => b.sold - a.sold)
-          .slice(0, limit)
-      }
-    } catch {
-      // Fall through to cart-JSONB fallback below.
-    }
-    const txns = await queryWithTimeout((signal) => supabase
-      .from('transactions')
-      .select('created_at, cart')
-      .gte('created_at', start)
-      .lte('created_at', end)
-      .order('created_at', { ascending: true })
-      .range(0, 499)
-      .abortSignal(signal))
-    ;(txns || []).forEach((t) => {
+    const start = startDate || manilaStart().toISOString(), end = endDate || new Date().toISOString()
+    const rows = await readAnalytics('transaction_items', 'transaction_id, quantity, product_id, products(product_name), transactions!inner(created_at)', start, end, 'transactions.created_at')
+    rows.forEach(r => addSale(r?.products?.product_name || r?.product_id, r?.quantity))
+    const represented = new Set(rows.map(row => row.transaction_id))
+    const txns = await readAnalytics('transactions', 'id, created_at, cart', start, end)
+    ;(txns || []).filter(t => !represented.has(t.id)).forEach((t) => {
       const cart = Array.isArray(t?.cart) ? t.cart : []
       cart.forEach((line) => addSale(line?.name || line?.product_name, line?.qty ?? line?.quantity))
     })
@@ -851,82 +782,17 @@ export const db = {
   // per local hour. Returns [{ hour: 0-23, customers, male, female, unspecified }]
   // (always 24 entries). Legacy rows without a split count toward unspecified.
   async getHourlyTraffic(startDate, endDate) {
-    let start = startDate
-    let end = endDate
-    if (!start || !end) {
-      const today = new Date()
-      today.setHours(0, 0, 0, 0)
-      start = start || today.toISOString()
-      end = end || new Date().toISOString()
-    }
+    const start = startDate || manilaStart().toISOString(), end = endDate || new Date().toISOString()
+    // Checkout already logs customer_traffic. Adding transaction headcounts
+    // would count those same customers twice. Unrecorded people stay unknown.
+    const rows = await readAnalytics('customer_traffic', 'created_at, number_of_customer, male_count, female_count, unspecified_count', start, end)
     const hourly = Array.from({ length: 24 }, (_, hour) => ({ hour, customers: 0, male: 0, female: 0, unspecified: 0 }))
-    const addSplit = (timestamp, split) => {
-      if (!timestamp) return
-      const d = new Date(timestamp)
-      if (Number.isNaN(d.getTime())) return
-      if (split.total <= 0) return
-      const bin = hourly[d.getHours()]
-      bin.customers += split.total
-      bin.male += split.male
-      bin.female += split.female
-      bin.unspecified += split.unspecified
-    }
-    // Independent sources fetched in parallel (legacy-column fallbacks
-    // preserved). Traffic stays optional: any failure still yields
-    // transactions alone, exactly as before.
-    const txnsPromise = (async () => {
-      try {
-        return await queryWithTimeout((signal) => supabase
-          .from('transactions')
-          .select('created_at, customer_count, male_count, female_count, unspecified_count')
-          .gte('created_at', start)
-          .lte('created_at', end)
-          .order('created_at', { ascending: true })
-          .range(0, 499)
-          .abortSignal(signal))
-      } catch (err) {
-        if (!isMissingColumnError(err)) throw err
-        return queryWithTimeout((signal) => supabase
-          .from('transactions')
-          .select('created_at, customer_count')
-          .gte('created_at', start)
-          .lte('created_at', end)
-          .order('created_at', { ascending: true })
-          .range(0, 499)
-          .abortSignal(signal))
-      }
-    })()
-    const trafficPromise = (async () => {
-      try {
-        return await queryWithTimeout((signal) => supabase
-          .from('customer_traffic')
-          .select('created_at, number_of_customer, male_count, female_count, unspecified_count')
-          .gte('created_at', start)
-          .lte('created_at', end)
-          .order('created_at', { ascending: true })
-          .range(0, 499)
-          .abortSignal(signal))
-      } catch (err) {
-        if (!isMissingColumnError(err)) throw err
-        return queryWithTimeout((signal) => supabase
-          .from('customer_traffic')
-          .select('created_at, number_of_customer')
-          .gte('created_at', start)
-          .lte('created_at', end)
-          .order('created_at', { ascending: true })
-          .range(0, 499)
-          .abortSignal(signal))
-      }
-    })().catch(() => null)
-    const [txns, traffic] = await Promise.all([txnsPromise, trafficPromise])
-    ;(txns || []).forEach((t) => {
-      const hasSplit = t.male_count != null || t.female_count != null || t.unspecified_count != null
-      const split = hasSplit
-        ? splitRowToGender(t, 'customer_count')
-        : normalizeGenderCounts(t.customer_count ?? 1)
-      addSplit(t.created_at, split)
+    rows.forEach(row => {
+      const hour = manilaHour(row.created_at)
+      if (hour === null) return
+      const split = splitRowToGender(row, 'number_of_customer'), bin = hourly[hour]
+      bin.customers += split.total; bin.male += split.male; bin.female += split.female; bin.unspecified += split.unspecified
     })
-    ;(traffic || []).forEach((r) => addSplit(r.created_at, splitRowToGender(r, 'number_of_customer')))
     return hourly
   },
 
@@ -941,29 +807,11 @@ export const db = {
   },
 
   async getTodayStats() {
-    const today = new Date()
-    today.setHours(0, 0, 0, 0)
-    const iso = today.toISOString()
-
-    // Refunds join only on the aggregated ids, so fetch in parallel.
-    const refundsPromise = this.getRefundsByDateRange(iso, new Date().toISOString())
-    let orders
-    try {
-      orders = await queryWithTimeout((signal) => supabase
-        .from('transactions')
-        .select('id, total, customer_count, male_count, female_count, unspecified_count, status')
-        .gte('created_at', iso)
-        .range(0, 199)
-        .abortSignal(signal))
-    } catch (err) {
-      if (!isMissingColumnError(err)) throw err
-      orders = await queryWithTimeout((signal) => supabase
-        .from('transactions')
-        .select('total, customer_count')
-        .gte('created_at', iso)
-        .range(0, 199)
-        .abortSignal(signal))
-    }
+    const iso = manilaStart().toISOString(), end = new Date().toISOString()
+    const [orders, refunds] = await Promise.all([
+      readAnalytics('transactions', 'id, total, customer_count, male_count, female_count, unspecified_count, status', iso, end),
+      this.getRefundsByDateRange(iso, end),
+    ])
 
     // Fully refunded orders are excluded from sales; partial refunds net out below.
     const refundedIds = new Set()
@@ -983,7 +831,6 @@ export const db = {
       totals.femaleCustomers += s.female
       totals.unspecifiedCustomers += s.unspecified
     })
-    const refunds = await refundsPromise
     ;(refunds || []).forEach((r) => {
       if (r.transaction_id && refundedIds.has(r.transaction_id)) return
       totalSales = Math.max(0, totalSales - Number(r.refund_amount || 0))
@@ -993,12 +840,7 @@ export const db = {
   },
 
   async getInventoryStatus() {
-    return queryWithTimeout((signal) => supabase
-      .from('inventory')
-      .select('*')
-      .order('stock_quantity', { ascending: true })
-      .range(0, 4999)
-      .abortSignal(signal))
+    return readAnalytics('inventory', '*')
   },
 
 }

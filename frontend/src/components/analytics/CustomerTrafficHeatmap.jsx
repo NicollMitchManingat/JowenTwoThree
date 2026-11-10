@@ -1,12 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { db } from "../../services/db";
 
-export const FALLBACK_TRAFFIC = [
-  3, 2, 1, 1, 0, 0,
-  2, 5, 8, 12, 15, 18,
-  20, 22, 19, 16, 13, 15,
-  18, 20, 17, 11, 6, 4,
-];
 
 function getColor(value, max) {
   if (!value || value <= 0) return "#f3f4f6";
@@ -58,10 +52,7 @@ function normalizeHourly(input) {
       return { hour: i, customers, male, female, unspecified };
     });
   }
-  return FALLBACK_TRAFFIC.map((value, hour) => {
-    const customers = toCount(value);
-    return { hour, customers, male: 0, female: 0, unspecified: customers };
-  });
+  return null;
 }
 
 export function formatGenderSplit({ male = 0, female = 0, unspecified = 0 } = {}) {
@@ -85,12 +76,13 @@ export default function CustomerTrafficHeatmap({ startDate, endDate }) {
       try {
         const data = await db.getHourlyTraffic(startDate, endDate);
         if (cancelled) return;
-        setHourly(normalizeHourly(data));
+        const normalized = normalizeHourly(data);
+        if (!normalized) throw new Error("Traffic data is incomplete. Please retry.");
+        setHourly(normalized);
       } catch (err) {
         if (cancelled) return;
-        // Graceful fallback so the dashboard never goes blank.
-        setHourly(normalizeHourly(null));
-        setError(err?.message || "Failed to load traffic data — showing sample data.");
+        setHourly(null);
+        setError(err?.message || "Failed to load traffic data. Please retry.");
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -121,11 +113,14 @@ export default function CustomerTrafficHeatmap({ startDate, endDate }) {
     return { total: t, max: m, peakHour: peak, avg: list.length ? t / list.length : 0, maleTotal: maleT, femaleTotal: femaleT, unspecifiedTotal: unspecifiedT };
   }, [hourly]);
 
-  if (loading && !hourly) {
+  if (loading) {
     return <div data-testid="traffic-loading">Loading traffic heatmap...</div>;
   }
 
-  const cells = hourly || normalizeHourly(null);
+  if (error) return <div role="alert" data-testid="traffic-error" style={{ overflowWrap: "anywhere", minWidth: 0 }}>
+    {error} <button type="button" data-testid="traffic-retry" className="btn btn-secondary" onClick={() => setRetryKey(k => k + 1)}>Retry</button>
+  </div>;
+  const cells = hourly || [];
 
   return (
     <div

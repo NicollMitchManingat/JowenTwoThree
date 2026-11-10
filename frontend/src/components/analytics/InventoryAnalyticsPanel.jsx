@@ -52,6 +52,24 @@ export default function InventoryAnalyticsPanel({ start, end }) {
         : <p role="status">Loading inventory usage and wastage...</p>}
     </div></div> : <>
       <div className="card">
+        <div className="card-header"><h3 className="m-0">Recorded Wastage</h3></div>
+        <div className="card-body inventory-analytics-notes">
+          <p className="text-sm text-muted">Follows the selected period. Totals stay separate for each ingredient, recorded unit and unit version. Unrecorded units show entry counts only.</p>
+          {data.dataQuality.unknownUnitWastageEntries > 0 && <p role="status">{data.dataQuality.unknownUnitWastageEntries} wastage entries have unrecorded units; their quantities cannot be safely combined.</p>}
+        </div>
+        {data.wastage.length ? <table className="inventory-analytics-table" aria-label="Recorded wastage by ingredient and unit">
+          <colgroup>{[25, 20, 15, 10, 30].map((width, i) => <col key={i} style={{ width: `${width}%` }} />)}</colgroup>
+          <thead><tr><th scope="col">Ingredient</th><th scope="col">Recorded unit</th><th scope="col" className="analytics-number">Quantity</th><th scope="col" className="analytics-number">Entries</th><th scope="col">Details</th></tr></thead>
+          <tbody>{data.wastage.slice(wastePage * PAGE_SIZE, (wastePage + 1) * PAGE_SIZE).map(row => <tr key={row.id}>
+            <td>{row.name}{row.active === false && <small className="text-muted inventory-analytics-detail">Archived ingredient</small>}</td>
+            <td>{row.unit || 'Unrecorded'}{row.unitVersion != null && <small className="text-muted inventory-analytics-detail">Version {row.unitVersion}</small>}</td>
+            <td className="analytics-number" title={row.quantity || ''}>{quantity(row.quantity)}</td><td className="analytics-number">{row.entries}</td>
+            <td>{row.reasons.join(', ')}<small className="text-muted inventory-analytics-detail">{row.unit === null ? 'Quantity not comparable' : row.currentUnit ? 'Matches current unit/version' : 'Earlier unit/version; kept separate'}</small></td>
+          </tr>)}</tbody>
+        </table> : <p className="card-body text-muted">No wastage recorded for this period.</p>}
+        <Pages page={wastePage} count={data.wastage.length} onChange={setWastePage} label="Wastage" />
+      </div>
+      <div className="card">
         <div className="card-header"><h3 className="m-0">Ingredient Usage &amp; Stock Cover</h3></div>
         <div className="card-body inventory-analytics-notes">
           <p>Current quantities with sales from {data.usageWindow.from} to {data.usageWindow.through}: {data.usageWindow.recordedSalesDays} recorded sales days.</p>
@@ -73,24 +91,6 @@ export default function InventoryAnalyticsPanel({ start, end }) {
         </table>
         {!data.planning.length && <p className="card-body text-muted">No active ingredients recorded.</p>}
         <Pages page={usagePage} count={data.planning.length} onChange={setUsagePage} label="Usage" />
-      </div>
-      <div className="card">
-        <div className="card-header"><h3 className="m-0">Recorded Wastage</h3></div>
-        <div className="card-body inventory-analytics-notes">
-          <p className="text-sm text-muted">Follows the selected period. Totals stay separate for each ingredient, recorded unit and unit version. Unrecorded units show entry counts only.</p>
-          {data.dataQuality.unknownUnitWastageEntries > 0 && <p role="status">{data.dataQuality.unknownUnitWastageEntries} wastage entries have unrecorded units; their quantities cannot be safely combined.</p>}
-        </div>
-        {data.wastage.length ? <table className="inventory-analytics-table" aria-label="Recorded wastage by ingredient and unit">
-          <colgroup>{[25, 20, 15, 10, 30].map((width, i) => <col key={i} style={{ width: `${width}%` }} />)}</colgroup>
-          <thead><tr><th scope="col">Ingredient</th><th scope="col">Recorded unit</th><th scope="col" className="analytics-number">Quantity</th><th scope="col" className="analytics-number">Entries</th><th scope="col">Details</th></tr></thead>
-          <tbody>{data.wastage.slice(wastePage * PAGE_SIZE, (wastePage + 1) * PAGE_SIZE).map(row => <tr key={row.id}>
-            <td>{row.name}{row.active === false && <small className="text-muted inventory-analytics-detail">Archived ingredient</small>}</td>
-            <td>{row.unit || 'Unrecorded'}{row.unitVersion != null && <small className="text-muted inventory-analytics-detail">Version {row.unitVersion}</small>}</td>
-            <td className="analytics-number" title={row.quantity || ''}>{quantity(row.quantity)}</td><td className="analytics-number">{row.entries}</td>
-            <td>{row.reasons.join(', ')}<small className="text-muted inventory-analytics-detail">{row.unit === null ? 'Quantity not comparable' : row.currentUnit ? 'Matches current unit/version' : 'Earlier unit/version; kept separate'}</small></td>
-          </tr>)}</tbody>
-        </table> : <p className="card-body text-muted">No wastage recorded for this period.</p>}
-        <Pages page={wastePage} count={data.wastage.length} onChange={setWastePage} label="Wastage" />
       </div>
     </>}
   </div>

@@ -129,6 +129,7 @@ describe('Inventory analytics panel',()=>{
   expect(screen.getByText('Archived ingredient')).toBeInTheDocument()
   expect(screen.getByText('Earlier unit/version; kept separate')).toBeInTheDocument()
   expect(screen.getByRole('table',{name:'Recorded wastage by ingredient and unit'})).toBeInTheDocument()
+  expect(screen.getByRole('heading',{name:'Recorded Wastage'}).compareDocumentPosition(screen.getByRole('heading',{name:'Ingredient Usage & Stock Cover'})) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   expect(screen.getByText('Quantity not comparable')).toBeInTheDocument()
  })
  it('leaves unavailable estimates blank and does not manufacture zero wastage',async()=>{

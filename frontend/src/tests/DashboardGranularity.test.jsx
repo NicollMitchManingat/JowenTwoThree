@@ -244,6 +244,8 @@ describe('DashboardContent granularity', () => {
     await waitFor(() => {
       expect(screen.getAllByTestId('sales-summary').some((s) => /Best day/.test(s.textContent))).toBe(true)
     })
+    const salesForecast = screen.getByRole('heading', { name: 'Sales Forecast' })
+    expect(screen.getByRole('heading', { name: 'Refunds' }).compareDocumentPosition(salesForecast) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 
   it('should mark out-of-stock rows danger and low rows warning', async () => {
@@ -333,6 +335,8 @@ describe('DashboardContent granularity', () => {
    expect(apiRequest.mock.calls.some(([url])=>url.includes('/api/customer-traffic/forecast'))).toBe(false)
    fireEvent.click(screen.getByRole('tab',{name:'Customer Traffic'}))
    await screen.findByText('Insufficient history for a seven-day daily forecast.')
+   const trafficForecast = screen.getByRole('heading', { name: 'Customer Traffic Forecast' })
+   expect(screen.getByRole('heading', { name: 'Customer Traffic Heatmap' }).compareDocumentPosition(trafficForecast) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
    expect(apiRequest.mock.calls.some(([url])=>url.includes('/api/customer-traffic/forecast?asOf='))).toBe(true)
    const panel=screen.getByTestId('traffic-forecast-panel')
    fireEvent.click(screen.getByRole('tab',{name:'Overview'}))
@@ -351,6 +355,8 @@ describe('DashboardContent granularity', () => {
   expect(apiRequest.mock.calls.some(([url])=>url.includes('/api/consolidated-data/predictive'))).toBe(false)
   fireEvent.click(screen.getByRole('tab',{name:'Reports & Sessions'}))
   await screen.findByRole('table',{name:'Predictive business report preview'})
+  const actualReport = await screen.findByRole('heading', {name:'Consolidated System Data'})
+  expect(actualReport.compareDocumentPosition(screen.getByRole('heading', {name:'Predictive Business Report'})) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   const calls=()=>apiRequest.mock.calls.filter(([url])=>url.includes('/api/consolidated-data/predictive'))
   expect(calls()).toHaveLength(1)
   const url=new URL(calls()[0][0],'http://localhost')

@@ -544,8 +544,6 @@ export default function DashboardContent({ activeTab, user, onNavigate }) {
         </div>
       </div>
 
-      <SalesForecastPanel asOf={manilaDay(dateRange.end)} />
-
       <div className="charts-grid">
         <div className="card">
           <div className="card-header">
@@ -575,6 +573,7 @@ export default function DashboardContent({ activeTab, user, onNavigate }) {
           </div>
         </div>
       </div>
+      <SalesForecastPanel asOf={manilaDay(dateRange.end)} />
       </>;
       case 'inventory': return <>
       <p className="text-sm text-muted">Top-selling products follow the selected period. Low Stock Alerts show current balances.</p>
@@ -620,7 +619,6 @@ export default function DashboardContent({ activeTab, user, onNavigate }) {
       <InventoryAnalyticsPanel start={dateRange.start} end={dateRange.end} />
       </>;
       case 'traffic': return <>
-      <TrafficForecastPanel asOf={manilaDay(dateRange.end)} />
       <p className="text-sm text-muted">Traffic charts use recorded customer counts, including checkout traffic, without adding transactions again. Missing recordings are unknown, not confirmed zero visits.</p>
         <SummaryCard
           title="Customers on Transactions"
@@ -645,6 +643,7 @@ export default function DashboardContent({ activeTab, user, onNavigate }) {
             <CustomerTrafficHeatmap startDate={dateRange?.start} endDate={dateRange?.end} />
           </div>
         </div>      </div>
+      <TrafficForecastPanel asOf={manilaDay(dateRange.end)} />
       </>;
       case 'insights': return <>
       <div className="card">
@@ -753,8 +752,8 @@ export default function DashboardContent({ activeTab, user, onNavigate }) {
         </div>
       )}
 
-      <PredictiveReportPanel start={dateRange.start} end={dateRange.end} />
       <ConsolidatedDataTable sharedRange={{ from: toLocalDay(dateRange.start), to: toLocalDay(dateRange.end), start: dateRange.start, end: dateRange.end }} />
+      <PredictiveReportPanel start={dateRange.start} end={dateRange.end} />
       </>;
       default: return null;
     }

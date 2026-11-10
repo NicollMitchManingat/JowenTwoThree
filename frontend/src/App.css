@@ -4283,3 +4283,21 @@
 .analytics-validation-table small { display: block; margin-top: .25rem; }
 .analytics-validation-limits { padding-left: 1.25rem; line-height: 1.5; }
 .analytics-validation-limits li + li { margin-top: .4rem; }
+
+/* Predictive report previews retain native, fitted tablet table rows. */
+.analytics-page .predictive-report-card { min-width: 0; max-width: 100%; }
+.predictive-report-card .card-header, .predictive-report-filters, .predictive-report-pagination { display: flex; flex-wrap: wrap; align-items: center; gap: .75rem; justify-content: space-between; }
+.predictive-report-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr)); gap: .75rem; }
+.predictive-report-summary p { padding: .75rem; border: 1px solid var(--border-color, #e5e7eb); border-radius: .5rem; min-width: 0; }
+.predictive-report-summary strong, .predictive-report-summary span, .predictive-report-table small { display: block; }
+.predictive-report-card .card-body { min-width: 0; overflow-wrap: anywhere; }
+.predictive-report-filters { justify-content: flex-start; margin: 1rem 0; }
+.predictive-report-filters label { flex: 1 1 12rem; min-width: 0; }
+.predictive-report-filters select { width: 100%; min-height: 44px; }
+.analytics-page .predictive-report-table { table-layout: fixed; width: 100%; min-width: 0; }
+.analytics-page .predictive-report-table th, .analytics-page .predictive-report-table td { padding: .65rem .5rem; white-space: normal; overflow-wrap: anywhere; vertical-align: top; font-size: .82rem; }
+.predictive-report-table small { margin-top: .3rem; color: var(--text-muted, #6b7280); }
+.predictive-report-card details { font-size: .82rem; line-height: 1.5; }
+.predictive-report-card summary { cursor: pointer; padding: .4rem 0; }
+.predictive-report-notes { margin-bottom: .75rem; }
+.predictive-report-pagination { margin-top: 1rem; }

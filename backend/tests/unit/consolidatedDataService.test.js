@@ -398,3 +398,64 @@ describe('inventory analytics estimates and recorded wastage',()=>{
   await expect(getInventoryAnalytics({...input,client:makeSupabase()})).rejects.toMatchObject({statusCode:400})
  })
 })
+
+const {getPredictiveReport,reportRows,predictiveCsv}=require('../../src/services/predictiveReportService')
+describe('predictive business report and CSV',()=>{
+ const now=new Date('2026-11-10T08:00:00Z')
+ const history=Array.from({length:56},(_,i)=>({id:'predict-'+i,created_at:new Date(Date.parse('2026-09-15T04:00:00Z')+i*86400000).toISOString(),total:i<28?100:200,status:'COMPLETED',number_of_customer:String(i<28?10:20),cart:[]}))
+ it('reuses the production models and packages forecasts separately from actuals and historical checks',async()=>{
+  const result=await getPredictiveReport({now,client:makeSupabase({transactions:history,traffic:history}),start:'2026-11-01T00:00:00+08:00',end:'2026-11-09T23:59:59.999+08:00'})
+  expect(result.forecastThrough).toBe('2026-11-09');expect(result.summary).toMatchObject({salesStatus:'ready',salesTotal:1400,trafficTotal:140,salesScoredDays:28,trafficScoredDays:28})
+  expect(result.rows.find(row=>row.section==='Sales'&&row.metric==='Daily forecast MAE').value).toBe(62.5)
+  expect(result.rows.filter(row=>row.section==='Sales'&&row.basis==='Recorded')).toHaveLength(28)
+  expect(result.rows.filter(row=>row.section==='Sales'&&row.metric==='Daily forecast')).toHaveLength(7)
+  expect(result.export.csv).toBe(predictiveCsv(result.rows));expect(result.export.filename).toBe('predictive-report-2026-11-10.csv')
+  expect(result.notes.join(' ')).toMatch(/not one transactional database snapshot/)
+ })
+ it('exports unknown values and insufficient history as empty values with explicit statuses',async()=>{
+  const result=await getPredictiveReport({now,client:makeSupabase()})
+  expect(result.summary.salesTotal).toBeNull();expect(result.summary.trafficTotal).toBeNull()
+  expect(result.rows.find(row=>row.section==='Sales'&&row.basis==='Prediction')).toMatchObject({value:null,status:'Insufficient history',date:'2026-11-10',through:'2026-11-16'})
+  expect(result.rows.find(row=>row.metric==='Daily forecast MAE')).toMatchObject({value:null,status:'insufficient_history'})
+  expect(result.rows.find(row=>row.metric==='Hourly customer forecast')).toMatchObject({value:null,status:'Unknown'})
+  expect(result.export.csv).not.toContain('NaN');expect(result.export.csv).not.toContain('Infinity')
+ })
+ it('preserves exact ingredient decimals and recorded unit/version separation',async()=>{
+  const result=await getPredictiveReport({now,client:makeSupabase({
+   inventoryRows:[{id:'i',name:'Milk',unit:'L',unit_version:'9007199254740993',stock_quantity:'0.1234567890123456789',is_active:true}],
+   adjustments:[{id:'a',inventory_id:'i',created_at:'2026-11-05T04:00:00Z',reason:'spoiled',change_amount:'-0.1234567890123456789',unit_snapshot:'mL',unit_version:'0'},
+    {id:'b',inventory_id:'i',created_at:'2026-11-05T05:00:00Z',reason:'damaged',change_amount:'-9',unit_snapshot:null,unit_version:null}]
+  })})
+  expect(result.rows.find(row=>row.metric==='Current quantity')).toMatchObject({value:'0.1234567890123456789',unitVersion:'9007199254740993',method:'Current inventory balance',trainingThrough:null})
+  const waste=result.rows.filter(row=>row.metric==='Recorded wastage quantity')
+  expect(waste).toEqual(expect.arrayContaining([expect.objectContaining({value:'0.1234567890123456789',unit:'mL',unitVersion:'0'}),expect.objectContaining({value:null,status:'Unknown unit'})]))
+  expect(result.export.csv).toContain('0.1234567890123456789')
+ })
+ it('uses completed forecast dates while retaining exact selected timestamps and current inventory semantics',async()=>{
+  const result=await getPredictiveReport({now,client:makeSupabase(),start:'2026-10-30T04:00:00Z',end:'2026-11-02T05:00:00Z'})
+  expect(result.period).toEqual({start:'2026-10-30T04:00:00.000Z',end:'2026-11-02T05:00:00.000Z'})
+  expect(result.forecastThrough).toBe('2026-11-02')
+  expect(result.notes.join(' ')).toMatch(/Inventory balances are current/)
+ })
+ it.each(['transactions','refunds','customer_traffic','inventory','product_recipes','transaction_items','inventory_adjustments'])('fails the full report on a failed %s source',async errorOn=>{
+  await expect(getPredictiveReport({now,client:makeSupabase({errorOn})})).rejects.toMatchObject({statusCode:503})
+ })
+ it.each([{start:'bad'},{end:'2026-11-09T00:00:00'},{start:'2026-11-10T12:00:00Z',end:'2026-11-09T00:00:00Z'}])('rejects invalid bounds',async bounds=>{
+  await expect(getPredictiveReport({...bounds,now,client:makeSupabase()})).rejects.toMatchObject({statusCode:400})
+ })
+ it('quotes commas, embedded quotes/newlines, protects formula text and retains numeric/zero/null values',()=>{
+  const csv=predictiveCsv([{section:'Sales',basis:'Prediction',metric:'Daily forecast',item:'=SUM(1,2)',value:0,note:'line 1, "quoted"\nline 2'},
+   {section:'Inventory',basis:'Scenario',metric:'Usage',item:'  +cmd',value:'0.000000000000001'},
+   {section:'Inventory',basis:'Recorded',metric:'Unknown loss',item:'@formula',value:null}])
+  expect(csv.charCodeAt(0)).toBe(0xfeff);expect(csv).toContain('"\'=SUM(1,2)"');expect(csv).toContain('"\'  +cmd"');expect(csv).toContain('"\'@formula"')
+  expect(csv).toContain('"0.000000000000001"');expect(csv).toContain('line 1, ""quoted""\nline 2')
+  expect(csv.endsWith('\r\n')).toBe(true)
+ })
+})
+
+ it('rejects an oversized derived export instead of silently dropping rows',()=>{
+  const sales=require('../../src/services/salesForecastMath').buildSalesForecast({},'2026-11-09')
+  const traffic=require('../../src/services/trafficForecastMath').buildTrafficForecast([],'2026-11-09')
+  const planning=Array.from({length:2100},(_,i)=>({name:'Item '+i,unit:'units',quantity:'1',status:'no_recipe',recommendation:'Review recipe links'}))
+  expect(()=>reportRows({generatedAt:'2026-11-10T08:00:00Z',period:{},sales,traffic,inventory:{planning,wastage:[],usageWindow:{}},validation:[]})).toThrow('safe export limit')
+ })

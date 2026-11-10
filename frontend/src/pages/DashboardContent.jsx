@@ -19,6 +19,7 @@ import DateRangeFilter from "../components/analytics/DateRangeFilter";
 import CustomerTrafficHeatmap from "../components/analytics/CustomerTrafficHeatmap";
 import LoadingSkeleton from "../components/analytics/LoadingSkeleton";
 import ConsolidatedDataTable from "../components/analytics/ConsolidatedDataTable";
+import PredictiveReportPanel from "../components/analytics/PredictiveReportPanel";
 import PaymentMixChart from "../components/analytics/PaymentMixChart";
 import VoucherEffectivenessChart from "../components/analytics/VoucherEffectivenessChart";
 import RefundInsights from "../components/analytics/RefundInsights";
@@ -752,6 +753,7 @@ export default function DashboardContent({ activeTab, user, onNavigate }) {
         </div>
       )}
 
+      <PredictiveReportPanel start={dateRange.start} end={dateRange.end} />
       <ConsolidatedDataTable sharedRange={{ from: toLocalDay(dateRange.start), to: toLocalDay(dateRange.end), start: dateRange.start, end: dateRange.end }} />
       </>;
       default: return null;

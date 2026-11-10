@@ -1,5 +1,6 @@
 const consolidated = require("../services/consolidatedDataService")
 const inventoryAnalytics = require("../services/inventoryAnalyticsService")
+const predictive = require('../services/predictiveReportService')
 
 function pickParam(value) {
   if (Array.isArray(value)) return value[0]
@@ -30,4 +31,10 @@ async function getInventoryAnalytics(req, res) {
   } catch (err) { res.status(err.statusCode || 500).json({ error: err.message }) }
 }
 
-module.exports = { getConsolidated, getInventoryAnalytics }
+async function getPredictiveReport(req, res) {
+  try {
+    res.json({ data: await predictive.getPredictiveReport({ start: req.query.start, end: req.query.end }) })
+  } catch (err) { res.status(err.statusCode || 500).json({ error: err.message }) }
+}
+
+module.exports = { getConsolidated, getInventoryAnalytics, getPredictiveReport }

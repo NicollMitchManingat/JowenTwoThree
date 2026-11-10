@@ -52,3 +52,32 @@ describe('protected consolidated analytics routes', () => {
   expect((await request(app).get('/api/consolidated-data/inventory')).status).toBe(200)
  })
 })
+
+const predictive=require('../../src/services/predictiveReportService')
+describe('protected predictive report route',()=>{
+ beforeEach(()=>{vi.restoreAllMocks();vi.spyOn(access,'authenticate').mockResolvedValue({user:{id:'fixture',role:'admin',isActive:true}})})
+ afterEach(()=>vi.restoreAllMocks())
+ it('returns report and prepared CSV under the same protected response',async()=>{
+  vi.spyOn(predictive,'getPredictiveReport').mockResolvedValue({schemaVersion:1,rows:[],export:{csv:'section,basis',filename:'predictive-report-2026-11-10.csv'}})
+  const start='2026-11-01T00:00:00+08:00',end='2026-11-09T23:59:59.999+08:00'
+  const res=await request(app).get('/api/consolidated-data/predictive').query({start,end})
+  expect(res.status).toBe(200);expect(res.body.data.export.csv).toBe('section,basis');expect(res.headers['cache-control']).toBe('private, no-store')
+  expect(predictive.getPredictiveReport).toHaveBeenCalledWith({start,end})
+ })
+ it.each([400,503])('fails without a downloadable partial report (%s)',async statusCode=>{
+  vi.spyOn(predictive,'getPredictiveReport').mockRejectedValue(Object.assign(new Error('Report unavailable'),{statusCode}))
+  const res=await request(app).get('/api/consolidated-data/predictive');expect(res.status).toBe(statusCode);expect(res.body.data).toBeUndefined()
+ })
+ it('requires a session and Analytics permission for the preview and embedded CSV',async()=>{
+  const spy=vi.spyOn(predictive,'getPredictiveReport').mockResolvedValue({rows:[]})
+  access.authenticate.mockRejectedValue(access.httpError('Sign in',401))
+  expect((await request(app).get('/api/consolidated-data/predictive')).status).toBe(401)
+  for(const role of ['cashier','stockist']){
+   access.authenticate.mockResolvedValue({user:{role,isActive:true,permissions:['inventory']}})
+   expect((await request(app).get('/api/consolidated-data/predictive')).status).toBe(403)
+  }
+  expect(spy).not.toHaveBeenCalled()
+  access.authenticate.mockResolvedValue({user:{role:'cashier',isActive:true,permissions:['analytics']}})
+  expect((await request(app).get('/api/consolidated-data/predictive')).status).toBe(200)
+ })
+})

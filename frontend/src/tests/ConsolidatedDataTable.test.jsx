@@ -1,4 +1,7 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import PredictiveReportPanel from '../components/analytics/PredictiveReportPanel'
+import { apiRequest } from '../services/apiClient'
+vi.mock('../services/apiClient', () => ({ apiRequest: vi.fn() }))
+import { render, screen, waitFor, within, fireEvent, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { vi, describe, it, expect, beforeEach } from "vitest";
 
@@ -346,3 +349,85 @@ describe("ConsolidatedDataTable", () => {
     );
   });
 });
+
+function predictivePayload() {
+ return {schemaVersion:1,generatedAt:'2026-11-10T08:00:00Z',period:{start:'2026-11-01T00:00:00Z',end:'2026-11-09T15:59:59.999Z'},forecastThrough:'2026-11-09',dataQuality:{complete:true},
+ summary:{salesStatus:'insufficient_history',salesTotal:null,trafficStatus:'insufficient_history',trafficTotal:null,inventoryItems:1,salesScoredDays:0,trafficScoredDays:0},
+ notes:['Predictions are separate from actual totals.','Current inventory is not a historical balance.'],
+ rows:[{section:'Sales',basis:'Prediction',metric:'Next seven days',value:null,status:'Insufficient history',trainingFrom:'2026-10-13',trainingThrough:'2026-11-09',method:'Same-weekday moving average'},
+  {section:'Inventory',basis:'Scenario',metric:'Daily ingredient usage',item:'Milk',unit:'L/day',unitVersion:'1',value:'0.1234567890123456789',status:'estimated'},
+  {section:'Sales',basis:'Recorded',metric:'Daily revenue after refunds',date:'2026-11-09',value:100,unit:'PHP',status:'Recorded'}],
+ export:{filename:'predictive-report-2026-11-10.csv',csv:'complete report CSV including Sales and Inventory',contentType:'text/csv;charset=utf-8'}}
+}
+describe('Predictive Business Report',()=>{
+ beforeEach(()=>{vi.restoreAllMocks();vi.clearAllMocks();apiRequest.mockResolvedValue({data:predictivePayload()})})
+ it('uses the shared exact timestamps, labels missing forecasts and separates data bases',async()=>{
+  render(<PredictiveReportPanel start="2026-11-01T00:00:00+08:00" end="2026-11-09T23:59:59.999+08:00" />)
+  const table=await screen.findByRole('table',{name:'Predictive business report preview'})
+  expect(table).toHaveTextContent('Next seven days');expect(table).toHaveTextContent('Not available')
+  const url=new URL(apiRequest.mock.calls[0][0],'http://localhost')
+  expect(url.searchParams.get('start')).toBe('2026-11-01T00:00:00+08:00')
+  expect(url.searchParams.get('end')).toBe('2026-11-09T23:59:59.999+08:00')
+  expect(screen.getByText(/Preview filters change the table only/)).toBeInTheDocument()
+  fireEvent.change(screen.getByLabelText('Aspect'),{target:{value:'Inventory'}})
+  expect(table).toHaveTextContent('0.1234567890123456789 L/day');expect(table).not.toHaveTextContent('Next seven days')
+  fireEvent.change(screen.getByLabelText('Aspect'),{target:{value:'Sales'}})
+  fireEvent.change(screen.getByLabelText('Data basis'),{target:{value:'Recorded'}})
+  expect(table).toHaveTextContent('Daily revenue after refunds');expect(table).not.toHaveTextContent('Next seven days')
+ })
+ it('downloads the server-prepared complete CSV from the loaded report despite preview filters',async()=>{
+  let capturedBlob,filename
+  URL.createObjectURL=vi.fn(blob=>{capturedBlob=blob;return 'blob:predictive'})
+  URL.revokeObjectURL=vi.fn()
+  vi.spyOn(HTMLAnchorElement.prototype,'click').mockImplementation(function(){filename=this.download})
+  render(<PredictiveReportPanel />)
+  await screen.findByRole('table')
+  fireEvent.change(screen.getByLabelText('Aspect'),{target:{value:'Inventory'}})
+  fireEvent.click(screen.getByRole('button',{name:'Export full predictive CSV'}))
+  expect(filename).toBe('predictive-report-2026-11-10.csv');expect(capturedBlob.type).toBe('text/csv;charset=utf-8')
+  const text=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.onerror=reject;reader.readAsText(capturedBlob)})
+  expect(text).toBe(predictivePayload().export.csv);expect(apiRequest).toHaveBeenCalledTimes(1)
+  expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:predictive')
+ })
+ it('does not permit stale report export when the selected period changes',async()=>{
+  const view=render(<PredictiveReportPanel start="2026-11-01T00:00:00Z" />)
+  await screen.findByRole('table')
+  apiRequest.mockImplementation(()=>new Promise(()=>{}))
+  view.rerender(<PredictiveReportPanel start="2026-11-02T00:00:00Z" />)
+  expect(screen.getByRole('button',{name:'Export full predictive CSV'})).toBeDisabled()
+  expect(screen.queryByRole('table')).not.toBeInTheDocument()
+ })
+ it('shows source failure with retry and never downloads a partial report',async()=>{
+  apiRequest.mockRejectedValueOnce(new Error('Traffic unavailable')).mockResolvedValue({data:predictivePayload()})
+  render(<PredictiveReportPanel />)
+  expect(await screen.findByRole('alert')).toHaveTextContent('Traffic unavailable')
+  expect(screen.getByRole('button',{name:'Export full predictive CSV'})).toBeDisabled()
+  fireEvent.click(screen.getByRole('button',{name:'Retry predictive report'}))
+  await screen.findByRole('table')
+ })
+ it('rejects incomplete report payloads and invalid ready totals',async()=>{
+  const data=predictivePayload();data.summary.salesStatus='ready';data.summary.salesTotal=null
+  apiRequest.mockResolvedValue({data})
+  render(<PredictiveReportPanel />)
+  expect(await screen.findByRole('alert')).toHaveTextContent('unavailable or incomplete')
+  expect(screen.getByRole('button',{name:'Export full predictive CSV'})).toBeDisabled()
+ })
+ it('bounds report requests at eight seconds',async()=>{
+  vi.useFakeTimers()
+  try{
+   apiRequest.mockImplementation((_url,{signal})=>new Promise((_resolve,reject)=>signal.addEventListener('abort',()=>reject(new DOMException('Aborted','AbortError')))))
+   render(<PredictiveReportPanel />)
+   await act(async()=>{await vi.advanceTimersByTimeAsync(8000)})
+   expect(screen.getByRole('alert')).toHaveTextContent('Predictive report request timed out')
+  }finally{vi.useRealTimers()}
+ })
+ it('paginates fitted native rows and preserves every report column',async()=>{
+  const data=predictivePayload();data.rows=Array.from({length:31},(_,i)=>({...data.rows[0],metric:'Forecast '+i}));apiRequest.mockResolvedValue({data})
+  render(<PredictiveReportPanel />)
+  const table=await screen.findByRole('table')
+  expect(within(table).getAllByRole('row')).toHaveLength(16)
+  expect(within(table).getAllByRole('columnheader')).toHaveLength(4)
+  fireEvent.click(screen.getByRole('button',{name:'Next report page'}))
+  expect(table).toHaveTextContent('Forecast 15');expect(table).not.toHaveTextContent('Forecast 0')
+ })
+})

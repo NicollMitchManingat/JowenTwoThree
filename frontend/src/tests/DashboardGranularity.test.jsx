@@ -338,3 +338,25 @@ describe('DashboardContent granularity', () => {
    fireEvent.click(screen.getByRole('tab',{name:'Overview'}))
    expect(panel).toBeInTheDocument();expect(panel).not.toBeVisible()
  })
+
+ it('loads the predictive report only in Reports & Sessions with shared bounds and retains preview filters',async()=>{
+  setup()
+  const data={schemaVersion:1,generatedAt:'2026-11-10T08:00:00Z',period:{},forecastThrough:'2026-11-09',dataQuality:{complete:true},
+   summary:{salesStatus:'insufficient_history',salesTotal:null,trafficStatus:'insufficient_history',trafficTotal:null,inventoryItems:0,salesScoredDays:0,trafficScoredDays:0},
+   notes:['Predictions remain separate.'],rows:[{section:'Sales',basis:'Prediction',metric:'Next seven days',value:null,status:'Insufficient history'}],
+   export:{filename:'predictive-report-2026-11-10.csv',csv:'predictive CSV'}}
+  apiRequest.mockResolvedValue({data})
+  vi.stubGlobal('fetch',vi.fn(()=>Promise.resolve({ok:true,json:async()=>({data:{summary:{},rows:[],categories:[],meta:{dataSource:'live'}}})})))
+  render(<AnalyticsProvider><DashboardContent user={{role:'admin'}} /></AnalyticsProvider>)
+  expect(apiRequest.mock.calls.some(([url])=>url.includes('/api/consolidated-data/predictive'))).toBe(false)
+  fireEvent.click(screen.getByRole('tab',{name:'Reports & Sessions'}))
+  await screen.findByRole('table',{name:'Predictive business report preview'})
+  const calls=()=>apiRequest.mock.calls.filter(([url])=>url.includes('/api/consolidated-data/predictive'))
+  expect(calls()).toHaveLength(1)
+  const url=new URL(calls()[0][0],'http://localhost')
+  expect(url.searchParams.get('start')).toBe(db.getDailySales.mock.lastCall[0]);expect(url.searchParams.get('end')).toBe(db.getDailySales.mock.lastCall[1])
+  fireEvent.change(screen.getByLabelText('Aspect'),{target:{value:'Inventory'}})
+  fireEvent.click(screen.getByRole('tab',{name:'Overview'}))
+  fireEvent.click(screen.getByRole('tab',{name:'Reports & Sessions'}))
+  expect(screen.getByLabelText('Aspect')).toHaveValue('Inventory');expect(calls()).toHaveLength(1)
+ })

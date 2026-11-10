@@ -7,6 +7,7 @@
 const insightsConfig = require("./insightsConfig")
 const unitReads = require("./inventorySupabaseStore")
 const { buildSalesForecast } = require("./salesForecastMath")
+const { buildTrafficForecast } = require("./trafficForecastMath")
 
 const { DAY_MS, dayKey, hourOf, dayStart, readAll } = require("./analyticsReadService")
 
@@ -167,34 +168,25 @@ function forecastDemand(dailyTrailing, endISO, cfg = insightsConfig) {
   }
 }
 
-// 2. Peak staffing — top-2 trading hours by traffic with buyer conversion.
-// Only fires when the top hour is both high-converting and far above mean.
-function peakStaffing(hourly, split, cfg = insightsConfig) {
-  const start = cfg.TRADING_START_HOUR || 0
-  const end = cfg.TRADING_END_HOUR || 23
-  const inHours = (hourly || []).filter((b) => b.hour >= start && b.hour <= end)
-  if (inHours.length === 0) return null
-  const mean = inHours.reduce((s, b) => s + toNum(b.customers), 0) / inHours.length
-  if (!(mean > 0)) return null
-  const byHour = new Map((split || []).map((s) => [s.hour, s]))
-  const ranked = [...inHours].sort((a, b) => toNum(b.customers) - toNum(a.customers))
-  const top = ranked[0]
-  const row = byHour.get(top.hour) || { walkIns: 0, buyers: 0 }
-  const conversion = row.walkIns > 0 ? row.buyers / row.walkIns : row.buyers > 0 ? 1 : 0
-  if (!(conversion > (cfg.STAFFING_CONVERSION || 0.4))) return null
-  if (!(toNum(top.customers) > mean * (cfg.STAFFING_PEAK_MULT || 1.5))) return null
-  const second = ranked[1]
-  return {
-    key: "staffing",
-    metric: "Peak Hours",
-    value: `${fmtHour(top.hour)} – ${fmtHour(top.hour + 1)}`,
-    insight: second && toNum(second.customers) > 0
-      ? `Schedule 2 extra staff · second peak ${fmtHour(second.hour)}`
-      : "Schedule 2 extra staff",
-    impact: "High",
-    numbers: [top.hour, Math.round(toNum(top.customers)), Math.round(conversion * 100)],
-    detail: { topHour: top.hour, customers: top.customers, conversion },
-  }
+// Staffing is advisory: no headcount recommendation without service-capacity data.
+function trafficStaffingCards(trafficRows, through, cfg = insightsConfig) {
+  const forecast = buildTrafficForecast(trafficRows || [], dayKey(through), cfg)
+  const day = forecast.hourlyForecast[0]
+  if (!day?.staffing.peakHours.length) return []
+  const card = (key, metric, hours, peak) => ({
+    key, metric, value: hours.map(fmtHour).join(', '),
+    insight: (peak ? 'Review staffing coverage' : 'Consider prep and breaks') + ' on ' + day.date + ': ' +
+      hours.map(hour => fmtHour(hour) + ' (' + day.hours[hour].predictedCustomers + ' expected customers)').join(', ') +
+      '. Compare supported recorded hours only; staffing numbers require service-capacity data.',
+    impact: 'Medium', numbers: hours.map(hour => day.hours[hour].predictedCustomers),
+    detail: { date: day.date, hours: hours.map(hour => day.hours[hour]), method: forecast.method,
+      supportedHours: day.staffing.supportedHours, recordingCoverage: 'unknown' },
+  })
+  return [card('staffing', 'Expected Peak Hours', day.staffing.peakHours, true),
+    card('anomaly-hours', 'Expected Lean Hours', day.staffing.leanHours, false)]
+}
+function peakStaffing(trafficRows, through, cfg = insightsConfig) {
+  return trafficStaffingCards(trafficRows, through, cfg)[0] || null
 }
 
 // 3. Reorder cover — days-of-cover per ingredient from recipes × sales
@@ -361,8 +353,8 @@ function promoLever({ txns, discounts }, cfg = insightsConfig) {
 }
 
 // 6. Anomaly flags — independent one-line rules; each fires on its own.
-// range/trailing: {gross, refunds, discounts}. hourlyRevenue: 24 sums.
-function anomalyFlags({ range, trailing, hourlyRevenue }, cfg = insightsConfig) {
+// range/trailing: {gross, refunds, discounts}. Traffic advice uses the forecast.
+function anomalyFlags({ range, trailing }, cfg = insightsConfig) {
   const out = []
   const rRate = range.gross > 0 ? (range.refunds / range.gross) * 100 : 0
   const tRate = trailing.gross > 0 ? (trailing.refunds / trailing.gross) * 100 : 0
@@ -376,29 +368,6 @@ function anomalyFlags({ range, trailing, hourlyRevenue }, cfg = insightsConfig) 
       impact: "High",
       numbers: [Math.round(rRate * 10) / 10, Math.round(tRate * 10) / 10],
       detail: { rangeRate: rRate, trailingRate: tRate },
-    })
-  }
-  const start = cfg.TRADING_START_HOUR || 0
-  const end = cfg.TRADING_END_HOUR || 23
-  const revenue = hourlyRevenue || []
-  const revTotal = revenue.reduce((s, v) => s + toNum(v), 0)
-  // No baseline revenue at all (brand-new business): hours aren't "dead",
-  // there's just no history yet.
-  const dead = []
-  if (revTotal > 0) {
-    for (let h = start; h <= end; h++) {
-      if (!(toNum(revenue[h]) > 0)) dead.push(h)
-    }
-  }
-  if (dead.length > 0) {
-    out.push({
-      key: "anomaly-hours",
-      metric: "Lean Hours",
-      value: dead.length === 1 ? fmtHour(dead[0]) : `${dead.length} quiet hours`,
-      insight: `No revenue ${dead.slice(0, 3).map(fmtHour).join(", ")}${dead.length > 3 ? "…" : ""} — consider shorter shifts`,
-      impact: "Medium",
-      numbers: [dead.length],
-      detail: { hours: dead },
     })
   }
   const rShare = range.gross > 0 ? (range.discounts / range.gross) * 100 : 0
@@ -439,7 +408,7 @@ async function fetchContext(client, { spanStart, end }, limits = {}) {
     .gte("created_at", spanStart).lte("created_at", end).order("created_at").order("id").range(start, stop)
   const [txns, trafficRows, inventory, recipes, adjustments, refunds, discounts, products, itemRows] = await Promise.all([
     get('Sales', (a, b) => timed('transactions', 'id,created_at,subtotal,discount,total,payment_method,discount_type,discount_id,status,customer_count,cart', a, b)),
-    get('Customer traffic', (a, b) => timed('customer_traffic', 'id,created_at,number_of_customer', a, b), limits.trafficRows || 100000),
+    get('Customer traffic', (a, b) => timed('customer_traffic', 'id,created_at,number_of_customer:number_of_customer::text', a, b), limits.trafficRows || 100000),
     get('Inventory', (a, b) => unitReads.readUnitRows(versioned => client.from('inventory').select(unitReads.inventoryColumns(versioned)).eq('is_active', true).order('id').range(a, b))),
     get('Recipes', (a, b) => client.from('product_recipes').select('product_id,inventory_id,qty_per_sale').order('product_id').order('inventory_id').range(a, b)),
     get('Adjustments', (a, b) => unitReads.readUnitRows(versioned => timed('inventory_adjustments', '*,change_amount_text:change_amount::text' + (versioned ? ',unit_version_text:unit_version::text' : ''), a, b))),
@@ -475,18 +444,10 @@ function buildInsights(ctx, cfg = insightsConfig) {
     endISO, rangeStartISO, trailingTxns, rangeTxns,
     trailingRefunds, rangeRefunds, trafficRows,
     inventory, recipes, itemRows, adjustments, discounts, products,
-    windowDays, forecastTxns = trailingTxns, forecastRefunds = trailingRefunds, forecastEndISO = endISO,
+    windowDays, forecastTxns = trailingTxns, forecastRefunds = trailingRefunds, forecastEndISO = endISO, forecastTrafficRows = trafficRows,
   } = ctx
   const dailyTrailing = netDailySales(forecastTxns, forecastRefunds)
-  const { hourly, split } = trafficBins(trailingTxns, trafficRows)
   const units = unitsSoldByProduct(itemRows, trailingTxns)
-  const hourlyRevenue = Array.from({ length: 24 }, () => 0)
-  ;(Array.isArray(trailingTxns) ? trailingTxns : []).forEach((t) => {
-    if (t && t.status === "REFUNDED") return
-    const d = new Date(t && t.created_at)
-    if (Number.isNaN(d.getTime())) return
-    hourlyRevenue[hourOf(d)] += toNum(t && t.total)
-  })
   const range = summarizeTxns(rangeTxns)
   range.refunds = (Array.isArray(rangeRefunds) ? rangeRefunds : []).reduce((s, r) => s + toNum(r && r.refund_amount), 0)
   const trailing = summarizeTxns(trailingTxns)
@@ -507,11 +468,11 @@ function buildInsights(ctx, cfg = insightsConfig) {
 
   const insights = sortInsightsBySeverity([
     forecastDemand(dailyTrailing, forecastEndISO, cfg),
-    peakStaffing(hourly, split, cfg),
+    ...trafficStaffingCards(forecastTrafficRows, forecastEndISO, cfg),
     reorderCover({ inventory, recipes, unitsByProduct: units, windowDays }, cfg),
     wastageRisk({ adjustments, inventory, recipeLinks, slowProducts }, cfg),
     promoLever({ txns: rangeTxns, discounts }, cfg),
-    ...anomalyFlags({ range, trailing, hourlyRevenue }, cfg),
+    ...anomalyFlags({ range, trailing }, cfg),
   ].filter(Boolean), cfg)
 
   if (insights.length > 0 && !insights.some((i) => i.key.indexOf("anomaly-") === 0)) {
@@ -588,6 +549,7 @@ async function getInsights({ start, end, client } = {}, cfg = insightsConfig) {
     forecastTxns: inWindow(rows.txns, forecastStart).filter(row => new Date(row.created_at) <= forecastEnd),
     forecastRefunds: inWindow(rows.refunds, forecastStart).filter(row => new Date(row.created_at) <= forecastEnd),
     forecastEndISO: forecastEnd.toISOString(),
+    forecastTrafficRows: inWindow(rows.trafficRows, forecastStart).filter(row => new Date(row.created_at) <= forecastEnd),
   }, cfg)
   return {
     generatedAt: now.toISOString(),
@@ -610,6 +572,7 @@ module.exports = {
   voucherStats,
   forecastDemand,
   peakStaffing,
+  trafficStaffingCards,
   reorderCover,
   wastageRisk,
   promoLever,

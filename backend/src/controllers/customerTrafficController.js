@@ -1,19 +1,12 @@
-const customerTrafficService = require("../services/customerTrafficService")
-
-function getCustomerTraffic(req, res) {
+const customerTrafficService = require('../services/customerTrafficService')
+async function getCustomerTraffic(req, res) {
   try {
-    const data = customerTrafficService.getCustomerTrafficData()
-
-    res.status(200).json({
-      data,
-    })
-  } catch (err) {
-    res.status(500).json({
-      error: err.message,
-    })
-  }
+    res.json({ data: await customerTrafficService.getCustomerTrafficData({ start: req.query.start, end: req.query.end }) })
+  } catch (err) { res.status(err.statusCode || 500).json({ error: err.message }) }
 }
-
-module.exports = {
-  getCustomerTraffic,
+async function getTrafficForecast(req, res) {
+  try {
+    res.json({ data: await customerTrafficService.getTrafficForecast({ asOf: req.query.asOf }) })
+  } catch (err) { res.status(err.statusCode || 500).json({ error: err.message }) }
 }
+module.exports = { getCustomerTraffic, getTrafficForecast }

@@ -323,3 +323,18 @@ describe('DashboardContent granularity', () => {
     })
   })
 })
+
+ it('loads the traffic forecast only after visiting Customer Traffic and keeps it mounted',async()=>{
+   setup()
+   const days=Array.from({length:7},(_,i)=>({date:'2026-11-'+(10+i),hours:Array.from({length:24},(_,hour)=>({hour,samples:0,predictedCustomers:null})),staffing:{supportedHours:0,peakHours:[],leanHours:[]}}))
+   apiRequest.mockResolvedValue({data:{status:'insufficient_history',total:null,history:[],forecast:[],hourlyForecast:days,
+     generatedAt:'2026-11-10T00:00:00Z',dataQuality:{complete:true},training:{from:'2026-10-13',through:'2026-11-09',observedDays:0},method:{label:'Same-weekday moving average',windowDays:28,occurrences:4}}})
+   render(<AnalyticsProvider><DashboardContent user={{role:'admin'}} /></AnalyticsProvider>)
+   expect(apiRequest.mock.calls.some(([url])=>url.includes('/api/customer-traffic/forecast'))).toBe(false)
+   fireEvent.click(screen.getByRole('tab',{name:'Customer Traffic'}))
+   await screen.findByText('Insufficient history for a seven-day daily forecast.')
+   expect(apiRequest.mock.calls.some(([url])=>url.includes('/api/customer-traffic/forecast?asOf='))).toBe(true)
+   const panel=screen.getByTestId('traffic-forecast-panel')
+   fireEvent.click(screen.getByRole('tab',{name:'Overview'}))
+   expect(panel).toBeInTheDocument();expect(panel).not.toBeVisible()
+ })

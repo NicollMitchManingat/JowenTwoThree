@@ -1,87 +1,42 @@
-const request = require("supertest")
-const app = require("../../src/app")
-const customerTrafficService = require("../../src/services/customerTrafficService")
-
-describe("Customer Traffic Route", () => {
+const request = require('supertest')
+const app = require('../../src/app')
+const access = require('../../src/services/accessService')
+const traffic = require('../../src/services/customerTrafficService')
+describe('protected customer traffic routes', () => {
   beforeEach(() => {
     vi.restoreAllMocks()
+    vi.spyOn(access, 'authenticate').mockResolvedValue({user:{id:'fixture-admin',role:'admin',isActive:true}})
   })
-
-  describe("GET /api/customer-traffic", () => {
-    it("should return customer traffic data when data exists", async () => {
-      vi.spyOn(customerTrafficService, "getCustomerTrafficData").mockReturnValue([
-        {
-          hour: 9,
-          customers: 2,
-        },
-        {
-          hour: 10,
-          customers: 1,
-        },
-      ])
-
-      const res = await request(app).get("/api/customer-traffic")
-
-      expect(res.status).toBe(200)
-      expect(res.body.data).toEqual([
-        {
-          hour: 9,
-          customers: 2,
-        },
-        {
-          hour: 10,
-          customers: 1,
-        },
-      ])
-    })
-
-    it("should return an empty customer traffic array when no data exists", async () => {
-      vi.spyOn(customerTrafficService, "getCustomerTrafficData").mockReturnValue([])
-
-      const res = await request(app).get("/api/customer-traffic")
-
-      expect(res.status).toBe(200)
-      expect(res.body.data).toEqual([])
-    })
-
-    it("should return HTTP 500 when the service throws an error", async () => {
-      vi.spyOn(customerTrafficService, "getCustomerTrafficData").mockImplementation(() => {
-        throw new Error("Customer traffic data is unavailable")
-      })
-
-      const res = await request(app).get("/api/customer-traffic")
-
-      expect(res.status).toBe(500)
-      expect(res.body).toEqual({
-        error: "Customer traffic data is unavailable",
-      })
-    })
-
-    it("should return hour and customers properties", async () => {
-      vi.spyOn(customerTrafficService, "getCustomerTrafficData").mockReturnValue([
-        {
-          hour: 9,
-          customers: 2,
-        },
-      ])
-
-      const res = await request(app).get("/api/customer-traffic")
-
-      expect(res.body.data[0]).toHaveProperty("hour")
-      expect(res.body.data[0]).toHaveProperty("customers")
-    })
-
-    it("should return 24 hourly traffic records", async () => {
-      const hourlyData = Array.from({ length: 24 }, (_, hour) => ({
-        hour,
-        customers: 0,
-      }))
-
-      vi.spyOn(customerTrafficService, "getCustomerTrafficData").mockReturnValue(hourlyData)
-
-      const res = await request(app).get("/api/customer-traffic")
-
-      expect(res.body.data).toHaveLength(24)
-    })
+  afterEach(() => vi.restoreAllMocks())
+  it('preserves the live hourly response contract and bounds', async () => {
+    vi.spyOn(traffic,'getCustomerTrafficData').mockResolvedValue([{hour:8,customers:12}])
+    const res=await request(app).get('/api/customer-traffic').query({start:'2026-11-01T00:00:00Z',end:'2026-11-02T00:00:00Z'})
+    expect(res.status).toBe(200);expect(res.body.data).toEqual([{hour:8,customers:12}])
+    expect(traffic.getCustomerTrafficData).toHaveBeenCalledWith({start:'2026-11-01T00:00:00Z',end:'2026-11-02T00:00:00Z'})
+  })
+  it('passes the forecast anchor and disables shared caching', async () => {
+    vi.spyOn(traffic,'getTrafficForecast').mockResolvedValue({status:'insufficient_history',forecast:[]})
+    const res=await request(app).get('/api/customer-traffic/forecast?asOf=2026-11-09')
+    expect(res.status).toBe(200);expect(res.body.data.status).toBe('insufficient_history')
+    expect(traffic.getTrafficForecast).toHaveBeenCalledWith({asOf:'2026-11-09'})
+    expect(res.headers['cache-control']).toBe('private, no-store')
+  })
+  it.each([400,503])('preserves errors without sample traffic (%s)', async statusCode=>{
+    vi.spyOn(traffic,'getTrafficForecast').mockRejectedValue(Object.assign(new Error('Traffic unavailable'),{statusCode}))
+    const res=await request(app).get('/api/customer-traffic/forecast')
+    expect(res.status).toBe(statusCode);expect(res.body.data).toBeUndefined()
+  })
+  it('requires authentication for both reads',async()=>{
+    access.authenticate.mockRejectedValue(access.httpError('Sign in',401))
+    const spy=vi.spyOn(traffic,'getTrafficForecast')
+    for(const path of ['/api/customer-traffic','/api/customer-traffic/forecast']) expect((await request(app).get(path)).status).toBe(401)
+    expect(spy).not.toHaveBeenCalled()
+  })
+  it.each(['cashier','stockist'])('enforces Analytics module permission for %s',async role=>{
+    const spy=vi.spyOn(traffic,'getTrafficForecast').mockResolvedValue({status:'insufficient_history'})
+    access.authenticate.mockResolvedValue({user:{role,isActive:true,permissions:['inventory']}})
+    expect((await request(app).get('/api/customer-traffic/forecast')).status).toBe(403);expect(spy).not.toHaveBeenCalled()
+    access.authenticate.mockResolvedValue({user:{role,isActive:true,permissions:['analytics']}})
+    expect((await request(app).get('/api/customer-traffic/forecast')).status).toBe(200)
   })
 })

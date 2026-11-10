@@ -101,11 +101,13 @@ export default function SalesTrendChart({
   showLegend = false,
   showSummary = true,
   allowZeroValues = false,
+  valueType = "currency",
 }) {
   if (loading) {
     return <div data-testid="sales-loading">Loading sales chart...</div>;
   }
 
+  const formatValue = valueType === "count" ? value => Number(value).toLocaleString("en-PH", { maximumFractionDigits: 0 }) : formatPeso;
   const chartData = data && data.labels && data.labels.length > 0 ? data : defaultLineData;
   const isEmpty =
     !data || !data.labels || data.labels.length === 0 ||
@@ -161,7 +163,10 @@ export default function SalesTrendChart({
     ...chartOptions.scales.x,
     ticks: { ...chartOptions.scales.x.ticks, maxTicksLimit },
   };
-  chartOptions.plugins = { ...baseOptions.plugins, legend: { display: showLegend, position: 'bottom' } };
+  chartOptions.plugins = { ...baseOptions.plugins, legend: { display: showLegend, position: 'bottom' },
+    tooltip: { ...baseOptions.plugins.tooltip, callbacks: { label: ctx => ' ' + (ctx.dataset.label || (valueType === 'count' ? 'Customers' : 'Revenue')) + ': ' + formatValue(ctx.parsed.y) } } };
+  if (valueType === 'count') chartOptions.scales.y = { ...baseOptions.scales.y,
+    ticks: { ...baseOptions.scales.y.ticks, precision: 0, callback: value => formatValue(value) } };
 
   return (
     <div
@@ -196,14 +201,14 @@ export default function SalesTrendChart({
         <span>
           {summaryPrefix}:{" "}
           <strong style={{ color: "var(--text-main, #111827)" }}>
-            {peakLabel} ({formatPeso(max)})
+            {peakLabel} ({formatValue(max)})
           </strong>
         </span>
         <span>
-          Total: <strong style={{ color: "var(--text-main, #111827)" }}>{formatPeso(total)}</strong>
+          Total: <strong style={{ color: "var(--text-main, #111827)" }}>{formatValue(total)}</strong>
         </span>
         <span>
-          {avgLabel}: <strong style={{ color: "var(--text-main, #111827)" }}>{formatPeso(Math.round(avg))}</strong>
+          {avgLabel}: <strong style={{ color: "var(--text-main, #111827)" }}>{formatValue(Math.round(avg))}</strong>
         </span>
       </div>}
 
@@ -238,7 +243,7 @@ export default function SalesTrendChart({
           data-testid="sales-empty"
           style={{ fontSize: "0.85rem", color: "var(--text-muted, #6b7280)", textAlign: "center", padding: "12px 0" }}
         >
-          No sales recorded for this period.
+          {valueType === "count" ? "No customer recordings for this period." : "No sales recorded for this period."}
         </div>
       ) : null}
 

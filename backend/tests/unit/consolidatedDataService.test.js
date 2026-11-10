@@ -6,12 +6,15 @@ const {
 
 // Minimal chainable Supabase fake: supports the select/gte/lt/in/order/limit
 // chain used by the service and resolves like a real query result.
-function makeSupabase({ transactions = [], items = [], refunds = [], traffic = [], errorOn = null } = {}) {
+function makeSupabase({ transactions = [], items = [], refunds = [], traffic = [], inventoryRows = [], recipes = [], adjustments = [], errorOn = null, pageCap = Infinity } = {}) {
   const sources = {
     transactions,
     transaction_items: items,
     refunds,
     customer_traffic: traffic,
+    inventory: inventoryRows,
+    product_recipes: recipes,
+    inventory_adjustments: adjustments,
   }
   const from = (name) => {
     const q = {
@@ -31,12 +34,13 @@ function makeSupabase({ transactions = [], items = [], refunds = [], traffic = [
         }
         let rows = sources[name] || []
         q._filters.forEach(([op, col, val]) => {
-          if (op === "in") rows = rows.filter((r) => val.includes(r[col]))
-          if (op === "gte") rows = rows.filter((r) => String(r[col]) >= String(val))
-          if (op === "lt") rows = rows.filter((r) => String(r[col]) < String(val))
-          if (op === "lte") rows = rows.filter((r) => String(r[col]) <= String(val))
+          const value = row => col.split('.').reduce((v,key)=>v?.[key],row)
+          if (op === "in") rows = rows.filter((r) => val.includes(value(r)))
+          if (op === "gte") rows = rows.filter((r) => new Date(value(r)) >= new Date(val))
+          if (op === "lt") rows = rows.filter((r) => new Date(value(r)) < new Date(val))
+          if (op === "lte") rows = rows.filter((r) => new Date(value(r)) <= new Date(val))
         })
-        if (q._range) rows = rows.slice(q._range[0], q._range[1] + 1)
+        if (q._range) rows = rows.slice(q._range[0], Math.min(q._range[1] + 1,q._range[0] + pageCap))
         resolve({ data: rows, error: null })
       },
     }
@@ -289,4 +293,108 @@ describe("Consolidated Data Service (real-data rewrite)", () => {
       expect(applyCategoryFilter(rows, undefined)).toHaveLength(2)
     })
   })
+})
+
+
+describe('inventory analytics estimates and recorded wastage',()=>{
+ const {buildInventoryAnalytics,getInventoryAnalytics}=require('../../src/services/inventoryAnalyticsService')
+ const fixture=()=>({
+  inventory:[{id:'flour',name:'Flour',unit:'g',unit_version:'1',stock_quantity:'20',is_active:true},{id:'milk',name:'Milk',unit:'L',unit_version:'1',stock_quantity:'5',is_active:true},{id:'salt',name:'Salt',unit:'g',unit_version:'0',stock_quantity:'1',is_active:true}],
+  recipes:[{product_id:'p',inventory_id:'flour',qty_per_sale:'0.1',inventory_unit_version:'1'},{product_id:'p',inventory_id:'milk',qty_per_sale:'0.5',inventory_unit_version:'1'}],
+  transactions:[{id:'t1',created_at:'2026-11-01T04:00:00Z',cart:[]},{id:'t2',created_at:'2026-11-02T04:00:00Z',cart:[]}],
+  items:[{transaction_id:'t1',product_id:'p',quantity:10,transactions:{created_at:'2026-11-01T04:00:00Z'}},{transaction_id:'t2',product_id:'p',quantity:10,transactions:{created_at:'2026-11-02T04:00:00Z'}}],
+  adjustments:[],usageWindow:{from:'2026-10-13',through:'2026-11-09',calendarDays:28},period:{start:'2026-11-01T00:00:00+08:00',end:'2026-11-09T23:59:59.999+08:00'},generatedAt:'2026-11-10T02:00:00Z'
+ })
+ it('uses exact current recipes and recorded sales days, with shortage and stock cover',()=>{
+  const result=buildInventoryAnalytics(fixture())
+  expect(result.usageWindow.recordedSalesDays).toBe(2)
+  expect(result.planning.find(row=>row.id==='flour')).toMatchObject({dailyUsage:'1',daysCover:'20',sevenDayUsage:'7',shortage:'0',status:'estimated'})
+  expect(result.planning.find(row=>row.id==='milk')).toMatchObject({dailyUsage:'5',daysCover:'1',sevenDayUsage:'35',shortage:'30',recommendation:'Review replenishment'})
+  expect(result.dataQuality.recipeBasis).toBe('current_recipes')
+ })
+ it('preserves subunit precision and compares a tiny shortage without floating point',()=>{
+  const input=fixture();input.inventory[0].stock_quantity='6.999999999999999999'
+  const result=buildInventoryAnalytics(input).planning.find(row=>row.id==='flour')
+  expect(result.shortage).toBe('0.000000000000000001')
+  expect(result.recommendation).toBe('Review replenishment')
+  input.recipes[0].qty_per_sale='0.000000000000000001';input.inventory[0].stock_quantity='0.000000000000000001'
+  expect(buildInventoryAnalytics(input).planning.find(row=>row.id==='flour')).toMatchObject({dailyUsage:'0.00000000000000001',daysCover:'0.1',sevenDayUsage:'0.00000000000000007'})
+ })
+ it('does not estimate from stale or rounded bigint unit versions',()=>{
+  const input=fixture();input.inventory[0].unit_version='9007199254740993';input.recipes[0].inventory_unit_version='9007199254740992'
+  expect(buildInventoryAnalytics(input).planning.find(row=>row.id==='flour')).toMatchObject({status:'unit_review',dailyUsage:null,daysCover:null,shortage:null})
+ })
+ it('keeps zero stock valid and never displays infinite cover for missing demand',()=>{
+  const input=fixture();input.inventory[0].stock_quantity='0'
+  expect(buildInventoryAnalytics(input).planning.find(row=>row.id==='flour')).toMatchObject({quantity:'0',daysCover:'0',shortage:'7',recommendation:'Out of stock; review replenishment'})
+  input.recipes[0].product_id='unsold'
+  expect(buildInventoryAnalytics(input).planning.find(row=>row.id==='flour')).toMatchObject({status:'no_recorded_usage',daysCover:null,dailyUsage:null})
+ })
+ it('uses cart compatibility per transaction without counting canonical item rows twice',()=>{
+  const input=fixture();input.transactions[0].cart=[{productId:'p',qty:999}];input.transactions[1].cart=[{productId:'p',qty:2}];input.items=input.items.slice(0,1)
+  expect(buildInventoryAnalytics(input).planning.find(row=>row.id==='flour').dailyUsage).toBe('0.6')
+ })
+ it('does not infer product IDs from names or publish partial projections',()=>{
+  const input=fixture();input.transactions[1].cart=[{name:'Flour',qty:2}];input.items=input.items.slice(0,1)
+  const result=buildInventoryAnalytics(input)
+  expect(result.dataQuality.unmappedLines).toBe(1)
+  expect(result.planning.find(row=>row.id==='flour')).toMatchObject({status:'incomplete_sales',dailyUsage:null})
+ })
+ it('identifies no recipes and no recorded sales without manufacturing zero observations',()=>{
+  const input=fixture();input.transactions=[];input.items=[]
+  const result=buildInventoryAnalytics(input)
+  expect(result.usageWindow.recordedSalesDays).toBe(0)
+  expect(result.planning.find(row=>row.id==='salt').status).toBe('no_recipe')
+  expect(result.planning.find(row=>row.id==='flour')).toMatchObject({status:'no_sales',sevenDayUsage:null})
+ })
+ it('rejects orphan line-item snapshots rather than quietly using inconsistent reads',()=>{
+  const input=fixture();input.transactions=input.transactions.slice(0,1)
+  expect(()=>buildInventoryAnalytics(input)).toThrow('needs review')
+ })
+ it('groups known wastage by ingredient, unit and version and never sums unknown units',()=>{
+  const input=fixture();input.adjustments=[
+   {inventory_id:'flour',reason:'spoiled',change_amount:'-0.1',unit_snapshot:'g',unit_version:'1'},
+   {inventory_id:'flour',reason:'expired',change_amount:'-0.2',unit_snapshot:'g',unit_version:'1'},
+   {inventory_id:'flour',reason:'damaged',change_amount:'-5',unit_snapshot:'g',unit_version:'0'},
+   {inventory_id:'flour',reason:'spoiled',change_amount:'-3',unit_snapshot:'kg',unit_version:'2'},
+   {inventory_id:'flour',reason:'expired',change_amount:'-50'},
+   {inventory_id:'flour',reason:'spoiled',change_amount:'-100'},
+   {inventory_id:'milk',reason:'overproduction',change_amount:'-1.5',unit_snapshot:'L',unit_version:'1'},
+  ]
+  const result=buildInventoryAnalytics(input)
+  expect(result.wastage).toHaveLength(5)
+  expect(result.wastage.find(row=>row.inventoryId==='flour'&&row.currentUnit)).toMatchObject({quantity:'0.3',entries:2})
+  expect(result.wastage.find(row=>row.unit==='kg')).toMatchObject({quantity:'3',currentUnit:false})
+  expect(result.wastage.find(row=>row.unit===null)).toMatchObject({quantity:null,entries:2})
+  expect(result.dataQuality.unknownUnitWastageEntries).toBe(2)
+ })
+ it('keeps full recorded wastage precision without denominator growth across many rows',()=>{
+  const input=fixture();const amount='0.000000000000000001234567890123456789'
+  input.adjustments=Array.from({length:1000},()=>({inventory_id:'flour',reason:'spoiled',change_amount:'-'+amount,unit_snapshot:'g',unit_version:'1'}))
+  expect(buildInventoryAnalytics(input).wastage[0].quantity).toBe('0.000000000000001234567890123456789')
+ })
+ it('does not mistake restocks or positive correction entries for waste',()=>{
+  const input=fixture();input.adjustments=[{inventory_id:'flour',reason:'sale',change_amount:'-4'},{inventory_id:'flour',reason:'restock',change_amount:'10'},{inventory_id:'flour',reason:'spoiled',change_amount:'5'}]
+  expect(buildInventoryAnalytics(input).wastage).toEqual([])
+ })
+ it('retains archived-item wastage without using archived inventory for planning',()=>{
+  const input=fixture();input.inventory[0].is_active=false;input.adjustments=[{inventory_id:'flour',reason:'spoiled',change_amount:'-2',unit_snapshot:'g',unit_version:'1'}]
+  const result=buildInventoryAnalytics(input)
+  expect(result.planning.some(row=>row.id==='flour')).toBe(false)
+  expect(result.wastage[0]).toMatchObject({name:'Flour',active:false,quantity:'2'})
+ })
+ it('uses complete usage days separately from selected-period wastage bounds',async()=>{
+  const input=fixture();const adjustments=[{id:'a',inventory_id:'flour',created_at:'2026-11-01T04:00:00Z',reason:'spoiled',change_amount:'-5'}, {id:'b',inventory_id:'milk',created_at:'2026-11-02T04:00:00Z',reason:'damaged',change_amount:'-0.2',unit_snapshot:'L',unit_version:'1'}]
+  const client=makeSupabase({inventoryRows:input.inventory,recipes:input.recipes,transactions:input.transactions,items:input.items,adjustments,pageCap:1})
+  const result=await getInventoryAnalytics({start:'2026-11-02T00:00:00+08:00',end:'2026-11-09T23:59:59.999+08:00',now:new Date('2026-11-10T02:00:00Z'),client})
+  expect(result.usageWindow).toMatchObject({from:'2026-10-13',through:'2026-11-09',recordedSalesDays:2})
+  expect(result.wastage).toHaveLength(1);expect(result.wastage[0].quantity).toBe('0.2')
+  expect(result.planning.find(row=>row.id==='milk').dailyUsage).toBe('5')
+ })
+ it.each(['inventory','product_recipes','transactions','transaction_items','inventory_adjustments'])('fails explicitly when the %s read fails',async errorOn=>{
+  await expect(getInventoryAnalytics({client:makeSupabase({errorOn})})).rejects.toMatchObject({statusCode:503})
+ })
+ it.each([{start:'bad'},{end:'2026-11-02T00:00:00'},{start:'2026-11-02T00:00:00Z',end:'2026-11-01T00:00:00Z'}])('rejects invalid or reversed bounds before querying',async input=>{
+  await expect(getInventoryAnalytics({...input,client:makeSupabase()})).rejects.toMatchObject({statusCode:400})
+ })
 })

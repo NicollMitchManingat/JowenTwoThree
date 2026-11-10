@@ -1,7 +1,12 @@
-import { render, screen, waitFor, fireEvent } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent, act } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import CustomerTrafficHeatmap from "../components/analytics/CustomerTrafficHeatmap";
 import { db } from "../services/db";
+import TrafficForecastPanel from "../components/analytics/TrafficForecastPanel";
+import { apiRequest } from "../services/apiClient";
+vi.mock("../services/apiClient", () => ({ apiRequest: vi.fn() }));
+vi.mock("react-chartjs-2", () => ({ Line: vi.fn(() => <canvas data-testid="traffic-forecast-canvas" />), Bar: () => <canvas /> }));
+import { Line } from "react-chartjs-2";
 
 vi.mock("../services/db", () => ({
   db: { getHourlyTraffic: vi.fn() },
@@ -209,3 +214,86 @@ describe("CustomerTrafficHeatmap", () => {
     expect(screen.getByTestId("traffic-error").style.overflowWrap).toBe("anywhere");
   });
 });
+
+function forecastResult(ready = true) {
+  const dates = Array.from({length:7},(_,index)=>'2026-11-'+String(10+index))
+  return {status:ready?'ready':'insufficient_history',total:ready?168:null,generatedAt:'2026-11-10T00:00:00Z',
+    dataQuality:{complete:true},method:{label:'Same-weekday moving average',windowDays:28,occurrences:4},
+    training:{from:'2026-10-13',through:'2026-11-09',observedDays:ready?28:0,missingDays:ready?0:28},
+    notice:'Recording coverage is unknown.',hourlyNotice:'Missing hours are unknown, not zero.',
+    history:[{date:'2026-11-09',customers:ready?24:null}],
+    forecast:ready?dates.map(date=>({date,predictedCustomers:24})):[],
+    hourlyForecast:dates.map((date,index)=>({date,
+      hours:Array.from({length:24},(_,hour)=>({hour,samples:ready&&[12,15].includes(hour)?4:0,
+        predictedCustomers:ready&&[12,15].includes(hour)?(hour===12?20+index:4):null})),
+      staffing:{supportedHours:ready?2:0,peakHours:ready?[12]:[],leanHours:ready?[15]:[]}}))}
+}
+describe('TrafficForecastPanel',()=>{
+  beforeEach(()=>{vi.clearAllMocks()})
+  it('separates recorded/forecast counts and uses count-only chart formatting',async()=>{
+    apiRequest.mockResolvedValue({data:forecastResult()})
+    render(<TrafficForecastPanel asOf="2026-11-10" />)
+    await waitFor(()=>expect(screen.getByTestId('traffic-forecast-total')).toHaveTextContent('168'))
+    expect(apiRequest).toHaveBeenCalledWith('/api/customer-traffic/forecast?asOf=2026-11-10',expect.objectContaining({signal:expect.any(AbortSignal)}))
+    const props=Line.mock.calls.at(-1)[0]
+    expect(props.data.datasets[0].data).toEqual([24,null,null,null,null,null,null,null])
+    expect(props.data.datasets[1].borderDash).toEqual([6,4])
+    expect(props.options.plugins.tooltip.callbacks.label({dataset:{label:'Forecast customers'},parsed:{y:24}})).toBe(' Forecast customers: 24')
+    expect(props.options.scales.y.ticks.callback(1000)).toBe('1,000')
+    expect(screen.getByTestId('forecast-hour-10')).toHaveTextContent('Unknown')
+    expect(screen.getByTestId('traffic-staffing-advice')).toHaveTextContent('Expected lean: 3pm')
+    expect(screen.getByTestId('traffic-staffing-advice')).not.toHaveTextContent('2 extra')
+  })
+  it('switches the hourly profile by forecast day',async()=>{
+    apiRequest.mockResolvedValue({data:forecastResult()})
+    render(<TrafficForecastPanel />)
+    await waitFor(()=>expect(screen.getByTestId('forecast-hour-12')).toHaveTextContent('20'))
+    fireEvent.change(screen.getByLabelText('Forecast day'),{target:{value:'2026-11-11'}})
+    expect(screen.getByTestId('forecast-hour-12')).toHaveTextContent('21')
+  })
+  it('shows insufficient history and no staffing claim for sparse recordings',async()=>{
+    apiRequest.mockResolvedValue({data:forecastResult(false)})
+    render(<TrafficForecastPanel />)
+    await screen.findByText('Insufficient history for a seven-day daily forecast.')
+    expect(screen.queryByTestId('traffic-forecast-total')).not.toBeInTheDocument()
+    expect(screen.getByTestId('traffic-staffing-advice')).toHaveTextContent('No distinct peak or lean')
+    expect(screen.getAllByText('Unknown')).toHaveLength(24)
+  })
+  it('retries a failed source without demo data',async()=>{
+    apiRequest.mockRejectedValueOnce(new Error('Traffic unavailable')).mockResolvedValue({data:forecastResult()})
+    render(<TrafficForecastPanel />)
+    expect(await screen.findByRole('alert')).toHaveTextContent('Traffic unavailable')
+    fireEvent.click(screen.getByRole('button',{name:'Retry traffic forecast'}))
+    await screen.findByTestId('traffic-forecast-total')
+  })
+  it('rejects incomplete or unsafe forecast payloads',async()=>{
+    const data=forecastResult();data.hourlyForecast[0].hours[12].predictedCustomers=1.5
+    apiRequest.mockResolvedValue({data})
+    render(<TrafficForecastPanel />)
+    expect(await screen.findByRole('alert')).toHaveTextContent('unavailable or incomplete')
+  })
+  it('ignores a stale response after the selected period changes',async()=>{
+    let resolveOld;apiRequest.mockImplementationOnce(()=>new Promise(resolve=>{resolveOld=resolve})).mockResolvedValue({data:forecastResult(false)})
+    const view=render(<TrafficForecastPanel asOf="2026-11-09" />)
+    view.rerender(<TrafficForecastPanel asOf="2026-11-10" />)
+    await screen.findByText('Insufficient history for a seven-day daily forecast.')
+    resolveOld({data:forecastResult()})
+    await waitFor(()=>expect(screen.queryByTestId('traffic-forecast-total')).not.toBeInTheDocument())
+  })
+  it('shows historical forecast boundaries',async()=>{
+    apiRequest.mockResolvedValue({data:{...forecastResult(),historical:true}})
+    render(<TrafficForecastPanel asOf="2026-11-09" />)
+    await screen.findByText('Historical forecast')
+    expect(screen.getByText(/Past edits can revise/)).toHaveTextContent('2026-11-09')
+  })
+})
+
+ it('bounds traffic forecast waiting at eight seconds',async()=>{
+   vi.useFakeTimers()
+   try {
+     apiRequest.mockImplementation((_path,{signal})=>new Promise((_resolve,reject)=>signal.addEventListener('abort',()=>reject(new DOMException('Aborted','AbortError')))))
+     render(<TrafficForecastPanel />)
+     await act(async()=>{await vi.advanceTimersByTimeAsync(8000)})
+     expect(screen.getByRole('alert')).toHaveTextContent('Traffic forecast request timed out')
+   } finally {vi.useRealTimers()}
+ })

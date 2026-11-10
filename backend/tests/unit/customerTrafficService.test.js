@@ -1,76 +1,77 @@
-const customerTrafficModel = require("../../src/models/customerTrafficModel")
-const {
-  getCustomerTrafficData,
-} = require("../../src/services/customerTrafficService")
-
-describe("Customer Traffic Service", () => {
-  beforeEach(() => {
-    vi.restoreAllMocks()
+const { getCustomerTrafficData, getTrafficForecast } = require('../../src/services/customerTrafficService')
+const { buildTrafficForecast, customerCount } = require('../../src/services/trafficForecastMath')
+function clientFor(rows, error = null) {
+  const query = { select() { return this }, gte() { return this }, lt() { return this }, order() { return this },
+    range(start, stop) { return Promise.resolve({ data: error ? null : rows.slice(start, stop + 1), error }) } }
+  return { from: vi.fn(() => query) }
+}
+const now = new Date('2026-11-10T08:00:00Z')
+function history() {
+  return Array.from({ length: 28 }, (_, index) => {
+    const date = new Date(Date.parse('2026-10-13T00:00:00Z') + index * 86400000).toISOString().slice(0, 10)
+    return [{ created_at: date + 'T12:00:00+08:00', number_of_customer: '20' },
+      { created_at: date + 'T15:00:00+08:00', number_of_customer: '4' }]
+  }).flat()
+}
+describe('live customer traffic and forecasts', () => {
+  it('sums recorded headcounts into Manila hours, not one customer per row', async () => {
+    const client = clientFor([{ created_at: '2026-11-09T16:15:00Z', number_of_customer: '5' }, { created_at: '2026-11-10T00:15:00Z', number_of_customer: '3' }])
+    const result = await getCustomerTrafficData({ now, client })
+    expect(result).toHaveLength(24); expect(result[0].customers).toBe(5); expect(result[8].customers).toBe(3)
+    expect(client.from).toHaveBeenCalledWith('customer_traffic')
   })
-
-  describe("getCustomerTrafficData()", () => {
-    it("should group mocked customer traffic into hourly bins", () => {
-      vi.spyOn(customerTrafficModel, "getCustomerTraffic").mockReturnValue([
-        {
-          orderId: "ORD-001",
-          timestamp: "2026-07-01T09:15:00",
-        },
-        {
-          orderId: "ORD-002",
-          timestamp: "2026-07-01T09:45:00",
-        },
-        {
-          orderId: "ORD-003",
-          timestamp: "2026-07-01T10:30:00",
-        },
-      ])
-
-      const result = getCustomerTrafficData()
-
-      expect(customerTrafficModel.getCustomerTraffic).toHaveBeenCalledTimes(1)
-
-      expect(result.find((item) => item.hour === 9).customers).toBe(2)
-      expect(result.find((item) => item.hour === 10).customers).toBe(1)
-    })
-
-    it("should return grouped customer traffic from actual model data", () => {
-      vi.restoreAllMocks()
-
-      const result = getCustomerTrafficData()
-
-      expect(Array.isArray(result)).toBe(true)
-      expect(result.length).toBe(24)
-    })
-
-    it("should return zero customers for all hours when no data exists", () => {
-      vi.spyOn(customerTrafficModel, "getCustomerTraffic").mockReturnValue([])
-
-      const result = getCustomerTrafficData()
-
-      expect(customerTrafficModel.getCustomerTraffic).toHaveBeenCalledTimes(1)
-
-      result.forEach((hour) => {
-        expect(hour.customers).toBe(0)
-      })
-    })
-
-    it("should throw an error when the model returns invalid data", () => {
-      vi.spyOn(customerTrafficModel, "getCustomerTraffic").mockReturnValue(null)
-
-      expect(() => {
-        getCustomerTrafficData()
-      }).toThrow("Customer traffic data is unavailable")
-
-      expect(customerTrafficModel.getCustomerTraffic).toHaveBeenCalledTimes(1)
-    })
-
-    it("should return objects with hour and customers properties", () => {
-      vi.restoreAllMocks()
-
-      const result = getCustomerTrafficData()
-
-      expect(result[0]).toHaveProperty("hour")
-      expect(result[0]).toHaveProperty("customers")
-    })
+  it('keeps missing forecast days and hours unknown', () => {
+    const result = buildTrafficForecast([], '2026-11-09')
+    expect(result.status).toBe('insufficient_history'); expect(result.total).toBeNull()
+    expect(result.history.every(row => row.customers === null)).toBe(true)
+    expect(result.hourlyForecast[0].hours.every(row => row.predictedCustomers === null)).toBe(true)
+    expect(result.hourlyForecast[0].staffing.leanHours).toEqual([])
+  })
+  it('predicts matching weekdays and derives supported peak/lean without staff counts', () => {
+    const result = buildTrafficForecast(history(), '2026-11-09')
+    expect(result.status).toBe('ready'); expect(result.total).toBe(168)
+    expect(result.forecast).toHaveLength(7); expect(result.forecast[0].predictedCustomers).toBe(24)
+    expect(result.hourlyForecast[0].hours[12]).toMatchObject({ samples: 4, predictedCustomers: 20 })
+    expect(result.hourlyForecast[0].hours[10].predictedCustomers).toBeNull()
+    expect(result.hourlyForecast[0].staffing).toEqual({ supportedHours: 2, peakHours: [12], leanHours: [15] })
+  })
+  it('does not count multiple recordings in the same day as multiple hourly training days', () => {
+    const rows = Array.from({ length: 5 }, () => ({ created_at: '2026-11-03T12:00:00+08:00', number_of_customer: 2 }))
+    const result = buildTrafficForecast(rows, '2026-11-09')
+    expect(result.hourlyForecast[0].hours[12]).toEqual({ hour: 12, samples: 1, predictedCustomers: null })
+  })
+  it('retains explicit recorded zero but never labels flat hours distinct peak/lean', () => {
+    const result = buildTrafficForecast(history().map(row => ({ ...row, number_of_customer: '0' })), '2026-11-09')
+    expect(result.status).toBe('ready'); expect(result.total).toBe(0)
+    expect(result.hourlyForecast[0].hours[12].predictedCustomers).toBe(0)
+    expect(result.hourlyForecast[0].staffing.peakHours).toEqual([])
+  })
+  it.each([null, -1, '1.5', 'bad', '9007199254740992'])('rejects invalid/unsafe recorded counts %s', value => {
+    expect(() => customerCount(value)).toThrow(/counts/)
+  })
+  it('fails on invalid timestamps and unsafe accumulated totals', () => {
+    expect(() => buildTrafficForecast([{created_at:'bad',number_of_customer:1}], '2026-11-09')).toThrow()
+    expect(() => buildTrafficForecast([{created_at:'2026-11-09',number_of_customer:Number.MAX_SAFE_INTEGER},{created_at:'2026-11-09',number_of_customer:1}], '2026-11-09')).toThrow()
+  })
+  it('excludes today/future records and uses an exclusive next-day bound', async () => {
+    const result = await getTrafficForecast({ client: clientFor([...history(), {created_at:'2026-11-09T16:00:00Z',number_of_customer:999}]), now })
+    expect(result.training.through).toBe('2026-11-09'); expect(result.total).toBe(168)
+    expect(result.dataQuality.source).toBe('customer_traffic')
+  })
+  it('anchors historical forecasts and rejects invalid dates', async () => {
+    const client = clientFor(history())
+    const result = await getTrafficForecast({ asOf:'2026-11-02', now, client })
+    expect(result.training.through).toBe('2026-11-02'); expect(result.historical).toBe(true)
+    await expect(getTrafficForecast({ asOf:'2026-02-30', now, client })).rejects.toMatchObject({statusCode:400})
+    await expect(getCustomerTrafficData({start:'bad', now, client})).rejects.toMatchObject({statusCode:400})
+  })
+  it('never uses model fallback when a live source fails or is absent', async () => {
+    await expect(getTrafficForecast({client:clientFor([], {message:'offline'}),now})).rejects.toMatchObject({statusCode:503})
+    await expect(getTrafficForecast({client:null,now})).rejects.toMatchObject({statusCode:503})
+  })
+  it('reads beyond a 1000 row page', async () => {
+    const rows = Array.from({length:1201},()=>({created_at:'2026-11-10T00:00:00Z',number_of_customer:1}))
+    const result = await getCustomerTrafficData({now,client:clientFor(rows)})
+    expect(result[8].customers).toBe(1201)
   })
 })

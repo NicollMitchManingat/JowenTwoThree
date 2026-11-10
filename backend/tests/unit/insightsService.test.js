@@ -5,6 +5,7 @@ const {
   voucherStats,
   forecastDemand,
   peakStaffing,
+  trafficStaffingCards,
   reorderCover,
   wastageRisk,
   promoLever,
@@ -20,8 +21,6 @@ const CFG = {
   FORECAST_DAYS: 7,
   REORDER_COVER_DAYS: 7,
   REORDER_TOP_N: 3,
-  STAFFING_CONVERSION: 0.4,
-  STAFFING_PEAK_MULT: 1.5,
   WASTAGE_REASONS: ["spoiled", "expired", "damaged"],
   WASTAGE_SHARE: 0.15,
   REFUND_MULT: 2,
@@ -122,25 +121,23 @@ describe('forecastDemand', () => {
   })
 })
 
-describe("peakStaffing", () => {
-  const hourly = Array.from({ length: 24 }, (_, hour) => ({ hour, customers: 4 }))
-  hourly[12] = { hour: 12, customers: 20 }
-  hourly[13] = { hour: 13, customers: 18 }
-  const split = Array.from({ length: 24 }, (_, hour) => ({ hour, walkIns: 4, buyers: 1 }))
-  split[12] = { hour: 12, walkIns: 10, buyers: 8 }
-
-  it("should flag a high-converting peak hour", () => {
-    const out = peakStaffing(hourly, split, CFG)
-    expect(out.key).toBe("staffing")
-    expect(out.impact).toBe("High")
-    expect(out.value).toContain("12 PM")
-    expect(out.insight).toMatch(/extra staff/)
+describe('peakStaffing', () => {
+  const rows = ['2026-09-21','2026-09-28'].flatMap(date => [
+    {created_at:date+'T12:00:00+08:00',number_of_customer:20},
+    {created_at:date+'T15:00:00+08:00',number_of_customer:4}])
+  it('uses supported same-weekday forecasts without arbitrary staff counts', () => {
+    const out = peakStaffing(rows, '2026-10-04T15:59:59Z', CFG)
+    expect(out.key).toBe('staffing');expect(out.value).toContain('12 PM')
+    expect(out.detail.date).toBe('2026-10-05');expect(out.insight).not.toMatch(/2 extra|conversion/)
+    expect(out.detail.hours[0].predictedCustomers).toBe(20)
+    const lean = trafficStaffingCards(rows, '2026-10-04T15:59:59Z', CFG)[1]
+    expect(lean.metric).toBe('Expected Lean Hours');expect(lean.value).toContain('3 PM')
+    expect(lean.detail.hours[0].samples).toBe(2)
   })
-
-  it("should stay quiet without a converting peak", () => {
-    const flat = Array.from({ length: 24 }, (_, hour) => ({ hour, customers: 4 }))
-    expect(peakStaffing(flat, split, CFG)).toBe(null)
-    expect(peakStaffing([], [], CFG)).toBe(null)
+  it('suppresses sparse/flat hour advice', () => {
+    expect(peakStaffing([], '2026-10-04', CFG)).toBeNull()
+    expect(peakStaffing(rows.slice(0,2), '2026-10-04', CFG)).toBeNull()
+    expect(peakStaffing(rows.map(row=>({...row,number_of_customer:4})), '2026-10-04', CFG)).toBeNull()
   })
 })
 
@@ -271,7 +268,7 @@ describe("promoLever", () => {
 describe("anomalyFlags", () => {
   const hourlyRevenue = Array.from({ length: 24 }, (_, h) => (h >= 8 && h <= 22 ? 100 : 0))
 
-  it("should flag refund spikes, dead hours, and discount creep independently", () => {
+  it("should flag financial anomalies without treating unrecorded hours as lean", () => {
     const dead = [...hourlyRevenue]
     dead[9] = 0
     const out = anomalyFlags(
@@ -283,10 +280,10 @@ describe("anomalyFlags", () => {
       CFG
     )
     const keys = out.map((i) => i.key)
-    // Refund rate 20% vs trailing 2.5% (8x) → spike; 9 AM dead; discounts 20% vs 5% (+15pts).
-    expect(keys).toEqual(expect.arrayContaining(["anomaly-refunds", "anomaly-hours", "anomaly-discounts"]))
+    // Financial spikes stay independent of missing hourly sales.
+    expect(keys).toEqual(expect.arrayContaining(["anomaly-refunds", "anomaly-discounts"]))
+    expect(keys).not.toContain("anomaly-hours")
     const byKey = new Map(out.map((i) => [i.key, i]))
-    expect(byKey.get("anomaly-hours").metric).toBe("Lean Hours")
     expect(byKey.get("anomaly-refunds").insight).toMatch(/Look into your refunds/)
     expect(byKey.get("anomaly-discounts").insight).toMatch(/Review your discounts/)
   })
@@ -329,11 +326,9 @@ describe("buildInsights", () => {
   it("should compose shaped insights (single Monday sale)", () => {
     const insights = buildInsights(base, CFG)
     const keys = insights.map((i) => i.key)
-    // Single Monday sale: forecast fires, single-buyer hour staffs,
-    // every other trading hour reads dead → no all-clear.
-    expect(keys).toEqual(["anomaly-hours"])
+    // Sparse sales and absent traffic cannot support a forecast or staffing claim.
+    expect(keys).toEqual([])
     expect(keys).not.toContain("all-clear")
-    // Severity-first: Medium anomaly, then Positive forecast.
     expect(keys).not.toContain("forecast")
     insights.forEach((i) => {
       expect(i).toMatchObject({ key: expect.any(String), metric: expect.any(String), value: expect.any(String), insight: expect.any(String), impact: expect.any(String) })

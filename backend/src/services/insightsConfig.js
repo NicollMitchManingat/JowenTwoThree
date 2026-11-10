@@ -18,12 +18,6 @@ module.exports = {
   REORDER_COVER_DAYS: 7,
   REORDER_TOP_N: 3,
 
-  // Peak staffing: an hour qualifies when buyer conversion exceeds
-  // STAFFING_CONVERSION and traffic exceeds STAFFING_PEAK_MULT x the
-  // trading-hours mean.
-  STAFFING_CONVERSION: 0.4,
-  STAFFING_PEAK_MULT: 1.5,
-
   // Wastage: spoilage reasons counted (case-insensitive substring) and the
   // spoiled-units share of on-hand stock that triggers the flag.
   WASTAGE_REASONS: ["spoiled", "expired", "damaged"],
@@ -36,8 +30,7 @@ module.exports = {
   REFUND_MIN_RATE: 5,
   DISCOUNT_CREEP_PTS: 5,
 
-  // Hours considered for peak/dead-hour analysis (24h clock, end exclusive
-  // in bucketing: TRADING_START..TRADING_END inclusive of start hour).
+  // Supported forecast hours compared for peak/lean staffing advice (inclusive).
   TRADING_START_HOUR: 8,
   TRADING_END_HOUR: 22,
 

@@ -4241,3 +4241,32 @@
 .analytics-forecast-summary dt { flex: 0 0 5rem; font-weight: 600; }
 .analytics-forecast-summary dd { flex: 1 1 12rem; margin: 0; min-width: 0; }
 .analytics-page .analytics-forecast-chart { height: 280px; min-width: 0; margin-top: 0.75rem; }
+
+/* Keep inventory analytics as fitted table rows on tablets. */
+.inventory-analytics { display: flex; flex-direction: column; gap: 1rem; min-width: 0; }
+.inventory-analytics .card { min-width: 0; }
+.inventory-analytics-notes p { margin: 0 0 0.625rem; }
+.inventory-analytics-table { table-layout: fixed; width: 100%; border-collapse: collapse; font-size: 0.8125rem; }
+.inventory-analytics-table th, .inventory-analytics-table td { padding: 0.75rem 0.625rem; vertical-align: top; white-space: normal; overflow-wrap: anywhere; border-bottom: 1px solid var(--border-color); }
+.inventory-analytics-table th { text-align: left; }
+.inventory-analytics-table .analytics-number { text-align: right; }
+.inventory-analytics-detail { display: block; margin-top: 0.25rem; }
+.inventory-analytics-pages { display: flex; justify-content: flex-end; align-items: center; flex-wrap: wrap; gap: 0.5rem; padding: 0.75rem; }
+@media (max-width: 1100px) {
+  .inventory-analytics-table { font-size: 0.75rem; }
+  .inventory-analytics-table th, .inventory-analytics-table td { padding: 0.625rem 0.375rem; }
+}
+
+/* Traffic predictions retain readable hourly cells at tablet content widths. */
+.analytics-page .analytics-traffic-forecast-heading { display: flex; flex-wrap: wrap; gap: 1rem; align-items: center; justify-content: space-between; }
+.analytics-page .analytics-traffic-forecast-heading h4 { margin: 0; }
+.analytics-page .analytics-traffic-forecast-heading label { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; min-width: 0; }
+.analytics-page .analytics-traffic-forecast-heading select { width: auto; max-width: 100%; min-height: 44px; }
+.analytics-page .analytics-traffic-forecast-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 6rem), 1fr)); gap: .5rem; }
+.analytics-page .analytics-traffic-forecast-hour { display: flex; flex-direction: column; gap: .25rem; padding: .65rem; border: 1px solid var(--border-color, #e5e7eb); border-radius: .5rem; min-width: 0; overflow-wrap: anywhere; }
+.analytics-page .analytics-traffic-forecast-hour small { color: var(--text-muted, #6b7280); }
+.analytics-page .analytics-traffic-forecast-hour.is-unknown { border-style: dashed; color: var(--text-muted, #6b7280); }
+.analytics-page .analytics-traffic-forecast-hour.is-peak { border-color: #2563eb; background: rgba(37, 99, 235, .08); }
+.analytics-page .analytics-traffic-forecast-hour.is-lean { border-color: #16a34a; background: rgba(22, 163, 74, .08); }
+.analytics-page .analytics-traffic-advice { padding: .75rem 1rem; border-left: 3px solid #2563eb; background: rgba(37, 99, 235, .05); overflow-wrap: anywhere; }
+.analytics-page .analytics-traffic-advice p { margin: .35rem 0; }

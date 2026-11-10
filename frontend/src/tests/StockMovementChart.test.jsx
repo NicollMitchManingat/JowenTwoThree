@@ -1,3 +1,6 @@
+vi.mock('../services/apiClient', () => ({ apiRequest: vi.fn() }));
+import { apiRequest } from '../services/apiClient';
+import InventoryAnalyticsPanel from '../components/analytics/InventoryAnalyticsPanel';
 import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
@@ -23,7 +26,7 @@ vi.mock("../services/db", () => ({
   },
 }));
 
-import StockMovementChart, { stockColor } from "../components/analytics/StockMovementChart";
+import StockMovementChart from "../components/analytics/StockMovementChart";
 import { db } from "../services/db";
 import inventoryData from "../data/inventoryData";
 
@@ -45,7 +48,7 @@ describe("StockMovementChart", () => {
     expect(screen.getByTestId("chart-canvas")).toBeInTheDocument();
   });
 
-  it("should load live top sellers and color low-stock bars", async () => {
+  it("should load top sellers without guessing ingredient stock by product name", async () => {
     db.getTopSellingItems.mockResolvedValue([
       { name: "Espresso", sold: 45 },
       { name: "Milk", sold: 10 },
@@ -62,7 +65,8 @@ describe("StockMovementChart", () => {
       5
     ));
     await waitFor(() => expect(screen.getByTestId("stock-summary")).toHaveTextContent("Espresso"));
-    expect(screen.getByTestId("stock-summary")).toHaveTextContent("1");
+    expect(screen.getByTestId("stock-summary")).toHaveTextContent("Products shown: 2");
+    expect(db.getInventoryStatus).not.toHaveBeenCalled();
   });
 
   it("should show an error without sample sales and allow retry", async () => {
@@ -105,14 +109,59 @@ describe("StockMovementChart", () => {
     expect(canvas).toHaveAttribute("data-category-percentage", "0.6");
   });
 
-  it("should treat exactly 5 as low stock (inclusive boundary)", () => {
-    // Unified with the bell query (0 < stock <= 5) and the inventory table:
-    // 5.00 must read low everywhere, not good.
-    expect(stockColor(0)).toBe("#dc2626");
-    expect(stockColor(4.99)).toBe("#f59e0b");
-    expect(stockColor(5)).toBe("#f59e0b");
-    expect(stockColor("5.00")).toBe("#f59e0b");
-    expect(stockColor(5.01)).toBe("#3b82f6");
-    expect(stockColor(25)).toBe("#3b82f6");
-  });
 });
+
+
+describe('Inventory analytics panel',()=>{
+ const payload=()=>({planning:[{id:'milk',name:'Milk',unit:'L',quantity:'0.00001',dailyUsage:'0.25',daysCover:'0.00004',sevenDayUsage:'1.75',shortage:'1.74999',status:'estimated',recommendation:'Review replenishment'}],
+  wastage:[{id:'old',name:'Milk',unit:'mL',unitVersion:'0',quantity:'10.5',entries:2,reasons:['expired'],currentUnit:false,active:false},{id:'unknown',name:'Flour',unit:null,quantity:null,entries:3,reasons:['spoiled'],currentUnit:false}],
+  usageWindow:{from:'2026-10-13',through:'2026-11-09',recordedSalesDays:6},dataQuality:{complete:true,unmappedLines:0,unknownUnitWastageEntries:3}})
+ beforeEach(()=>{vi.clearAllMocks();apiRequest.mockResolvedValue({data:payload()})})
+ it('shows fitted table rows, precise-source tooltips, estimates and separate unit histories',async()=>{
+  render(<InventoryAnalyticsPanel start="2026-11-01T00:00:00+08:00" end="2026-11-09T23:59:59.999+08:00" />)
+  expect(await screen.findByRole('table',{name:'Ingredient usage estimates'})).toBeInTheDocument()
+  expect(screen.getByRole('columnheader',{name:'Daily usage'})).toBeInTheDocument()
+  expect(screen.getAllByText('<0.01').length).toBeGreaterThan(0)
+  expect(screen.getByTitle('0.00001')).toHaveTextContent('<0.01')
+  expect(screen.getByText(/Current recipe estimate, not exact historical consumption/)).toBeInTheDocument()
+  expect(screen.getByText(/3 wastage entries have unrecorded units/)).toBeInTheDocument()
+  expect(screen.getByText('Archived ingredient')).toBeInTheDocument()
+  expect(screen.getByText('Earlier unit/version; kept separate')).toBeInTheDocument()
+  expect(screen.getByRole('table',{name:'Recorded wastage by ingredient and unit'})).toBeInTheDocument()
+  expect(screen.getByText('Quantity not comparable')).toBeInTheDocument()
+ })
+ it('leaves unavailable estimates blank and does not manufacture zero wastage',async()=>{
+  const data=payload();Object.assign(data.planning[0],{status:'unit_review',dailyUsage:null,daysCover:null,sevenDayUsage:null,shortage:null,recommendation:'Review recipe unit versions'});data.wastage=[];data.dataQuality.unknownUnitWastageEntries=0;apiRequest.mockResolvedValue({data})
+  render(<InventoryAnalyticsPanel />)
+  expect(await screen.findByText('Review recipe unit versions')).toBeInTheDocument()
+  expect(screen.getByText('No wastage recorded for this period.')).toBeInTheDocument()
+  expect(screen.getAllByText('Estimate unavailable')).toHaveLength(1)
+ })
+ it('shows a retryable failure instead of a partial or sample table',async()=>{
+  apiRequest.mockResolvedValueOnce({data:{...payload(),dataQuality:{complete:false}}})
+  render(<InventoryAnalyticsPanel />)
+  expect(await screen.findByRole('alert')).toHaveTextContent('unavailable or incomplete')
+  expect(screen.queryByRole('table')).not.toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button',{name:'Retry inventory analytics'}))
+  expect(await screen.findByRole('table',{name:'Ingredient usage estimates'})).toBeInTheDocument()
+ })
+ it('paginates without hiding columns or converting rows into cards',async()=>{
+  const data=payload();data.planning=Array.from({length:17},(_,i)=>({...data.planning[0],id:'i'+i,name:'Ingredient '+i}));apiRequest.mockResolvedValue({data})
+  render(<InventoryAnalyticsPanel />)
+  expect(await screen.findByText('Ingredient 0')).toBeInTheDocument()
+  expect(screen.queryByText('Ingredient 16')).not.toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button',{name:'Next usage'}))
+  expect(screen.getByText('Ingredient 16')).toBeInTheDocument()
+  expect(screen.getByRole('table',{name:'Ingredient usage estimates'}).querySelectorAll('th')).toHaveLength(8)
+ })
+ it('cancels old range requests and ignores late data',async()=>{
+  const pending=[];apiRequest.mockImplementation((path,{signal})=>new Promise(resolve=>pending.push({signal,resolve})))
+  const view=render(<InventoryAnalyticsPanel start="2026-11-01T00:00:00Z" end="2026-11-02T00:00:00Z" />)
+  view.rerender(<InventoryAnalyticsPanel start="2026-11-02T00:00:00Z" end="2026-11-03T00:00:00Z" />)
+  expect(pending[0].signal.aborted).toBe(true)
+  pending[1].resolve({data:payload()})
+  expect(await screen.findByRole('table',{name:'Ingredient usage estimates'})).toBeInTheDocument()
+  pending[0].resolve({data:{...payload(),planning:[]}})
+  await waitFor(()=>expect(screen.getByText('Review replenishment')).toBeInTheDocument())
+ })
+})

@@ -12,7 +12,9 @@ import SummaryCard from "../components/analytics/SummaryCard";
 import TabMenu, { ANALYTICS_GROUPS } from "../components/analytics/TabMenu";
 import SalesTrendChart from "../components/analytics/SalesTrendChart";
 import SalesForecastPanel from "../components/analytics/SalesForecastPanel";
+import TrafficForecastPanel from "../components/analytics/TrafficForecastPanel";
 import StockMovementChart from "../components/analytics/StockMovementChart";
+import InventoryAnalyticsPanel from "../components/analytics/InventoryAnalyticsPanel";
 import DateRangeFilter from "../components/analytics/DateRangeFilter";
 import CustomerTrafficHeatmap from "../components/analytics/CustomerTrafficHeatmap";
 import LoadingSkeleton from "../components/analytics/LoadingSkeleton";
@@ -574,11 +576,11 @@ export default function DashboardContent({ activeTab, user, onNavigate }) {
       </div>
       </>;
       case 'inventory': return <>
-      <p className="text-sm text-muted">Stock movement follows the selected period. Low Stock Alerts show current balances.</p>
+      <p className="text-sm text-muted">Top-selling products follow the selected period. Low Stock Alerts show current balances.</p>
       <div className="charts-grid">
         <div className="card" style={{ display: "flex", flexDirection: "column" }}>
           <div className="card-header">
-            <h3 className="m-0">Stock Movement</h3>
+            <h3 className="m-0">Top-Selling Products</h3>
           </div>
           <div className="chart-container" style={{ height: "100%", minHeight: "280px", flex: 1, display: "flex", flexDirection: "column" }}>
             <StockMovementChart startDate={dateRange?.start} endDate={dateRange?.end} />
@@ -614,8 +616,10 @@ export default function DashboardContent({ activeTab, user, onNavigate }) {
         </div>
       </div>
       </div>
+      <InventoryAnalyticsPanel start={dateRange.start} end={dateRange.end} />
       </>;
       case 'traffic': return <>
+      <TrafficForecastPanel asOf={manilaDay(dateRange.end)} />
       <p className="text-sm text-muted">Traffic charts use recorded customer counts, including checkout traffic, without adding transactions again. Missing recordings are unknown, not confirmed zero visits.</p>
         <SummaryCard
           title="Customers on Transactions"

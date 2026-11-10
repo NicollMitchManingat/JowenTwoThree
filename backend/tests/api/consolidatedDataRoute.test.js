@@ -1,111 +1,54 @@
-const request = require("supertest")
-const app = require("../../src/app")
+const request = require('supertest')
+const app = require('../../src/app')
+const access = require('../../src/services/accessService')
+const reports = require('../../src/services/consolidatedDataService')
+const inventory = require('../../src/services/inventoryAnalyticsService')
 
-describe("Consolidated Data Route", () => {
-  describe("GET /api/consolidated-data", () => {
-    it("should return HTTP status 200", async () => {
-      const res = await request(app).get("/api/consolidated-data")
-
-      expect(res.status).toBe(200)
-    })
-
-    it("should return JSON data", async () => {
-      const res = await request(app).get("/api/consolidated-data")
-
-      expect(res.headers["content-type"]).toMatch(/json/)
-    })
-
-    it("should return a data object", async () => {
-      const res = await request(app).get("/api/consolidated-data")
-
-      expect(res.body).toHaveProperty("data")
-    })
-
-    it("should return a summary with revenue, units, and customer fields", async () => {
-      const res = await request(app).get("/api/consolidated-data")
-      const { summary } = res.body.data
-
-      expect(summary).toHaveProperty("totalRevenue")
-      expect(summary).toHaveProperty("grossRevenue")
-      expect(summary).toHaveProperty("totalRefunded")
-      expect(summary).toHaveProperty("totalUnitsSold")
-      expect(summary).toHaveProperty("totalCustomers")
-      expect(summary).toHaveProperty("totalTransactions")
-      expect(summary).toHaveProperty("avgTicket")
-      expect(summary).toHaveProperty("totalInventoryItems")
-      // Gross − Refunded = Net holds regardless of live or mock data.
-      expect(summary.totalRevenue).toBe(summary.grossRevenue - summary.totalRefunded)
-    })
-
-    it("should return rows array", async () => {
-      const res = await request(app).get("/api/consolidated-data")
-
-      expect(Array.isArray(res.body.data.rows)).toBe(true)
-      expect(res.body.data.rows.length).toBeGreaterThan(0)
-    })
-
-    it("should return each row with all required columns", async () => {
-      const res = await request(app).get("/api/consolidated-data")
-
-      res.body.data.rows.forEach((row) => {
-        expect(row).toHaveProperty("date")
-        expect(row).toHaveProperty("orderId")
-        expect(row).toHaveProperty("itemName")
-        expect(row).toHaveProperty("category")
-        expect(row).toHaveProperty("quantitySold")
-        expect(row).toHaveProperty("totalAmount")
-        expect(row).toHaveProperty("refunded")
-        expect(row).toHaveProperty("status")
-        expect(row).toHaveProperty("inStock")
-        expect(row).toHaveProperty("inventoryStatus")
-      })
-    })
-
-    it("should return per-category rollups", async () => {
-      const res = await request(app).get("/api/consolidated-data")
-
-      expect(Array.isArray(res.body.data.categories)).toBe(true)
-      res.body.data.categories.forEach((cat) => {
-        expect(cat).toHaveProperty("name")
-        expect(cat).toHaveProperty("revenue")
-        expect(cat).toHaveProperty("units")
-        expect(cat).toHaveProperty("transactions")
-      })
-    })
-
-    it("should report its data source in meta", async () => {
-      const res = await request(app).get("/api/consolidated-data")
-
-      expect(res.body.data.meta).toHaveProperty("dataSource")
-      expect(["live", "cart", "mock"]).toContain(res.body.data.meta.dataSource)
-    })
-
-    it("should accept date filters and echo them in meta", async () => {
-      const res = await request(app)
-        .get("/api/consolidated-data?from=2026-10-01&to=2026-10-31")
-
-      expect(res.status).toBe(200)
-      expect(res.body.data.meta.from).toBe("2026-10-01")
-      expect(res.body.data.meta.to).toBe("2026-10-31")
-    })
-
-    it("should reject invalid date filters with a 400", async () => {
-      const res = await request(app).get("/api/consolidated-data?from=not-a-date")
-
-      expect(res.status).toBe(400)
-      expect(res.body).toHaveProperty("error")
-    })
-
-    it("should return salesByItem", async () => {
-      const res = await request(app).get("/api/consolidated-data")
-
-      expect(Array.isArray(res.body.data.salesByItem)).toBe(true)
-    })
-
-    it("should return trafficByHour with 24 entries", async () => {
-      const res = await request(app).get("/api/consolidated-data")
-
-      expect(res.body.data.trafficByHour.length).toBe(24)
-    })
-  })
+describe('protected consolidated analytics routes', () => {
+ beforeEach(() => {
+  vi.restoreAllMocks()
+  vi.spyOn(access,'authenticate').mockResolvedValue({user:{id:'fixture-admin',role:'admin',isActive:true}})
+ })
+ afterEach(()=>vi.restoreAllMocks())
+ it('serves the consolidated report with its exact requested filters',async()=>{
+  const data={summary:{totalRevenue:0},rows:[],meta:{dataSource:'live',complete:true}}
+  vi.spyOn(reports,'getConsolidatedData').mockResolvedValue(data)
+  const res=await request(app).get('/api/consolidated-data?from=2026-11-01&to=2026-11-09')
+  expect(res.status).toBe(200);expect(res.body.data).toEqual(data)
+  expect(reports.getConsolidatedData).toHaveBeenCalledWith(expect.objectContaining({from:'2026-11-01',to:'2026-11-09'}))
+  expect(res.headers['cache-control']).toBe('private, no-store')
+ })
+ it('serves complete inventory analytics with exact timestamp bounds',async()=>{
+  const data={planning:[],wastage:[],dataQuality:{complete:true}}
+  vi.spyOn(inventory,'getInventoryAnalytics').mockResolvedValue(data)
+  const start='2026-11-01T00:00:00+08:00',end='2026-11-09T23:59:59.999+08:00'
+  const res=await request(app).get('/api/consolidated-data/inventory').query({start,end})
+  expect(res.status).toBe(200);expect(res.body.data).toEqual(data)
+  expect(inventory.getInventoryAnalytics).toHaveBeenCalledWith({start,end})
+  expect(res.headers['cache-control']).toBe('private, no-store')
+ })
+ it.each([400,503])('preserves actionable inventory errors (%s) without demo results',async statusCode=>{
+  vi.spyOn(inventory,'getInventoryAnalytics').mockRejectedValue(Object.assign(new Error('Inventory unavailable'),{statusCode}))
+  const res=await request(app).get('/api/consolidated-data/inventory')
+  expect(res.status).toBe(statusCode);expect(res.body.data).toBeUndefined()
+ })
+ it('preserves consolidated-report failures instead of sample data',async()=>{
+  vi.spyOn(reports,'getConsolidatedData').mockRejectedValue(Object.assign(new Error('Report unavailable'),{statusCode:503}))
+  const res=await request(app).get('/api/consolidated-data')
+  expect(res.status).toBe(503);expect(res.body.data).toBeUndefined()
+ })
+ it('requires a session before either read',async()=>{
+  access.authenticate.mockRejectedValue(access.httpError('Please sign in',401))
+  const report=vi.spyOn(reports,'getConsolidatedData'), ingredient=vi.spyOn(inventory,'getInventoryAnalytics')
+  for(const path of ['/api/consolidated-data','/api/consolidated-data/inventory']) expect((await request(app).get(path)).status).toBe(401)
+  expect(report).not.toHaveBeenCalled();expect(ingredient).not.toHaveBeenCalled()
+ })
+ it.each(['cashier','stockist'])('enforces Analytics module access for %s',async role=>{
+  const spy=vi.spyOn(inventory,'getInventoryAnalytics').mockResolvedValue({planning:[],wastage:[]})
+  access.authenticate.mockResolvedValue({user:{role,isActive:true,permissions:['inventory']}})
+  expect((await request(app).get('/api/consolidated-data/inventory')).status).toBe(403)
+  expect(spy).not.toHaveBeenCalled()
+  access.authenticate.mockResolvedValue({user:{role,isActive:true,permissions:['analytics']}})
+  expect((await request(app).get('/api/consolidated-data/inventory')).status).toBe(200)
+ })
 })

@@ -230,3 +230,12 @@ describe('Sales forecast panel', () => {
     } finally {vi.useRealTimers()}
   })
 })
+
+ it('formats count charts without modifying subsequent currency charts', () => {
+   const view=render(<SalesTrendChart data={dailyData} valueType="count" />)
+   expect(screen.getByTestId('sales-summary')).not.toHaveTextContent('\u20b1')
+   expect(Line.mock.calls.at(-1)[0].options.scales.y.ticks.callback(1234)).toBe('1,234')
+   view.rerender(<SalesTrendChart data={dailyData} />)
+   expect(screen.getByTestId('sales-summary')).toHaveTextContent('\u20b1')
+   expect(Line.mock.calls.at(-1)[0].options.scales.y.ticks.callback(1000)).toContain('\u20b1')
+ })

@@ -19,21 +19,12 @@ ChartJS.register(
   Legend
 );
 
-export function stockColor(stockQty) {
-  const n = Number(stockQty);
-  if (stockQty == null) return "#3b82f6";
-  if (!Number.isFinite(n) || n <= 0) return "#dc2626";
-  if (n <= 5) return "#f59e0b";
-  return "#3b82f6";
-}
-
 function normalizeItems(input) {
   if (Array.isArray(input) && input.length > 0) {
     return input
       .map((item) => ({
         name: item?.item || item?.name || "Unknown",
-        sold: Number(item?.sold ?? item?.stock_quantity ?? 0) || 0,
-        stock: item?.stock_quantity ?? item?.stock ?? null,
+        sold: Number(item?.sold ?? 0) || 0,
       }))
       .filter((i) => i.name)
       .slice(0, 5);
@@ -43,7 +34,6 @@ function normalizeItems(input) {
 
 export default function StockMovementChart({ data, startDate, endDate }) {
   const [liveItems, setLiveItems] = useState(null);
-  const [stockByName, setStockByName] = useState({});
   const [loading, setLoading] = useState(!data || data.length === 0);
   const [error, setError] = useState(null);
   const [retryKey, setRetryKey] = useState(0);
@@ -58,17 +48,9 @@ export default function StockMovementChart({ data, startDate, endDate }) {
       setLoading(true);
       setError(null);
       try {
-        const [top, inventory] = await Promise.all([
-          db.getTopSellingItems(startDate, endDate, 5),
-          db.getInventoryStatus(),
-        ]);
+        const top = await db.getTopSellingItems(startDate, endDate, 5);
         if (cancelled) return;
         setLiveItems(top && top.length > 0 ? top : null);
-        const map = {};
-        (inventory || []).forEach((row) => {
-          if (row?.name) map[row.name] = row.stock_quantity;
-        });
-        setStockByName(map);
         if (!top || top.length === 0) setLiveItems(null);
       } catch (err) {
         if (cancelled) return;
@@ -84,13 +66,7 @@ export default function StockMovementChart({ data, startDate, endDate }) {
     };
   }, [data, startDate, endDate, retryKey]);
 
-  const items = useMemo(() => {
-    const base = normalizeItems(Array.isArray(data) ? data : liveItems);
-    return base.map((i) => ({
-      ...i,
-      stock: i.stock ?? stockByName[i.name] ?? null,
-    }));
-  }, [data, liveItems, stockByName]);
+  const items = useMemo(() => normalizeItems(Array.isArray(data) ? data : liveItems), [data, liveItems]);
 
   const chartData = useMemo(
     () => ({
@@ -99,7 +75,7 @@ export default function StockMovementChart({ data, startDate, endDate }) {
         {
           label: "Units Sold",
           data: items.map((item) => item.sold),
-          backgroundColor: items.map((item) => stockColor(item.stock)),
+          backgroundColor: "#3b82f6",
           barPercentage: 0.5,
           categoryPercentage: 0.6,
           maxBarThickness: 32,
@@ -111,18 +87,13 @@ export default function StockMovementChart({ data, startDate, endDate }) {
     [items]
   );
 
-  const { topSeller, lowStockCount, isEmpty } = useMemo(() => {
+  const { topSeller, isEmpty } = useMemo(() => {
     let top = items[0] || { name: "—", sold: 0 };
     items.forEach((i) => {
       if (i.sold > (top.sold || 0)) top = i;
     });
-    const low = items.filter((i) => {
-      const n = Number(i.stock);
-      return i.stock != null && Number.isFinite(n) && n <= 5;
-    }).length;
     return {
       topSeller: top,
-      lowStockCount: low,
       isEmpty: items.every((i) => !(i.sold > 0)),
     };
   }, [items]);
@@ -135,11 +106,7 @@ export default function StockMovementChart({ data, startDate, endDate }) {
         enabled: true,
         callbacks: {
           label: (ctx) => {
-            const item = items[ctx.dataIndex];
-            const stockTxt = item?.stock === null || item?.stock === undefined
-              ? "stock n/a"
-              : `${item.stock} in stock`;
-            return ` ${ctx.parsed.y} sold • ${stockTxt}`;
+            return ` ${ctx.parsed.y} units sold`;
           },
         },
       },
@@ -160,7 +127,7 @@ export default function StockMovementChart({ data, startDate, endDate }) {
   };
 
   if (loading) {
-    return <div data-testid="stock-loading">Loading stock chart...</div>;
+    return <div data-testid="stock-loading">Loading top-selling products...</div>;
   }
 
   return (
@@ -199,10 +166,7 @@ export default function StockMovementChart({ data, startDate, endDate }) {
           </strong>
         </span>
         <span>
-          Low-stock:{" "}
-          <strong style={{ color: lowStockCount > 0 ? "#b45309" : "var(--text-main, #111827)" }}>
-            {lowStockCount}
-          </strong>
+          Products shown: <strong style={{ color: "var(--text-main, #111827)" }}>{items.length}</strong>
         </span>
       </div>}
 

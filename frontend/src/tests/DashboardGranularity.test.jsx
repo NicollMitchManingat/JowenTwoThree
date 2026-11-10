@@ -210,10 +210,16 @@ describe('DashboardContent granularity', () => {
     expect(screen.getByTestId('granularity-weekly')).toHaveTextContent('Per week')
     expect(screen.getByTestId('granularity-group')).toHaveAttribute('aria-label', 'Chart detail')
     // Captions + sticky header row.
-    const header = screen.getByRole('heading', { name: 'Analytics', level: 2 }).closest('.analytics-sticky-bar')
+    const header = screen.getByTestId('granularity-group').closest('.analytics-sticky-bar')
+    expect(screen.queryByRole('heading', { name: 'Analytics', level: 2 })).not.toBeInTheDocument()
     expect(header).toBeInTheDocument()
     expect(header).toHaveTextContent('Detail')
     expect(header).toHaveTextContent('Period')
+    const period = screen.getByLabelText('Date range')
+    const session = screen.getByLabelText('Scope charts to a past session')
+    const detail = screen.getByTestId('granularity-group')
+    expect(period.compareDocumentPosition(session) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(session.compareDocumentPosition(detail) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 
   it('should reload sales when the browser reconnects', async () => {
@@ -365,4 +371,29 @@ describe('DashboardContent granularity', () => {
   fireEvent.click(screen.getByRole('tab',{name:'Overview'}))
   fireEvent.click(screen.getByRole('tab',{name:'Reports & Sessions'}))
   expect(screen.getByLabelText('Aspect')).toHaveValue('Inventory');expect(calls()).toHaveLength(1)
+ })
+
+ it('opens each section at the top of the page while preserving filters and chart detail',async()=>{
+  setup()
+  render(<div className="page-container page-container--scroll" data-testid="analytics-page-scroll"><AnalyticsProvider><DashboardContent user={{role:'admin'}} /></AnalyticsProvider></div>)
+  await screen.findByRole('heading',{name:'Transactions',level:3})
+  const scroller=screen.getByTestId('analytics-page-scroll')
+  fireEvent.change(screen.getByLabelText('Date range'),{target:{value:'Week'}})
+  scroller.scrollTop=900
+  fireEvent.click(screen.getByRole('tab',{name:'Sales'}))
+  expect(scroller.scrollTop).toBe(0)
+  expect(screen.getByLabelText('Date range')).toHaveValue('Week')
+  scroller.scrollTop=450
+  fireEvent.click(screen.getByTestId('granularity-weekly'))
+  expect(scroller.scrollTop).toBe(450)
+  fireEvent.click(screen.getByRole('tab',{name:'Inventory'}))
+  expect(scroller.scrollTop).toBe(0)
+  scroller.scrollTop=700
+  fireEvent.click(screen.getByRole('tab',{name:'Sales'}))
+  expect(scroller.scrollTop).toBe(0)
+  expect(screen.getByTestId('granularity-weekly')).toHaveAttribute('aria-pressed','true')
+  scroller.scrollTop=650
+  fireEvent.keyDown(screen.getByRole('tab',{name:'Sales'}),{key:'ArrowRight'})
+  expect(screen.getByRole('tab',{name:'Inventory'})).toHaveAttribute('aria-selected','true')
+  expect(scroller.scrollTop).toBe(0)
  })

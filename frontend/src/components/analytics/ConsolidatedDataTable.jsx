@@ -239,11 +239,11 @@ export default function ConsolidatedDataTable({ sharedRange } = {}) {
   }
 
   if (loading) {
-    return <div data-testid="consolidated-loading">Loading consolidated data...</div>
+    return <div className="card"><div className="card-body" data-testid="consolidated-loading">Loading consolidated data...</div></div>
   }
-  if (!data && loadError) return <div role="alert" data-testid="consolidated-load-error">
+  if (!data && loadError) return <div className="card"><div className="card-body" role="alert" data-testid="consolidated-load-error">
     <p>{loadError}</p><button type="button" className="btn btn-secondary" data-testid="consolidated-retry" onClick={() => setRetryCount(c => c + 1)}>Retry</button>
-  </div>
+  </div></div>
 
   const summary = data?.summary || {}
   const sourceLabel = DATA_SOURCE_LABELS[data?.meta?.dataSource] || "Recorded data"
@@ -259,12 +259,14 @@ export default function ConsolidatedDataTable({ sharedRange } = {}) {
   ]
 
   return (
-    <div className="consolidated-table" data-testid="consolidated-table">
-      <div className="table-header">
-        <h3>Consolidated System Data</h3>
-        <span className="text-sm text-muted" data-testid="consolidated-source-badge" title="Where the numbers come from">
-          {sourceLabel}
-        </span>
+    <div className="card consolidated-table analytics-consolidated-card" data-testid="consolidated-table">
+      <div className="card-header table-header">
+        <div className="analytics-card-heading">
+          <h3>Consolidated System Data</h3>
+          <span className="text-sm text-muted" data-testid="consolidated-source-badge" title="Where the numbers come from">
+            {sourceLabel}
+          </span>
+        </div>
         <button
           data-testid="consolidated-export-btn"
           className="btn btn-primary"
@@ -275,6 +277,7 @@ export default function ConsolidatedDataTable({ sharedRange } = {}) {
           <FileSpreadsheet size={16} /> {exporting ? "Exporting…" : "Export"}
         </button>
       </div>
+      <div className="card-body analytics-report-body">
       {exportError && <p className="text-sm text-danger" role="alert">{exportError}</p>}
 
       <p className="text-sm text-muted">Customer totals are from transactions. Inventory quantities show current balances.</p>
@@ -356,7 +359,7 @@ export default function ConsolidatedDataTable({ sharedRange } = {}) {
 
       {sharedRange !== undefined && <p className="text-sm text-muted" data-testid="consolidated-shared-range">{dateLabel}. Change the period or session above to update this report.</p>}
       {(data?.categories || []).length > 0 && (
-        <div className="table-wrapper" style={{ marginBottom: "1rem" }}>
+        <div className="table-wrapper">
           <table data-testid="category-table">
             <thead>
               <tr>
@@ -439,6 +442,7 @@ export default function ConsolidatedDataTable({ sharedRange } = {}) {
             </div>
           </div>
         )}
+      </div>
       </div>
     </div>
   )

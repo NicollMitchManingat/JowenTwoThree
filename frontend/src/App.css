@@ -2520,10 +2520,14 @@
 /* Analytics sizing follows the content area, including the sidebar's width. */
 .analytics-page {
   --analytics-page-inset: 1.5rem;
+  --analytics-card-inset: 1.25rem;
+  --analytics-content-gap: 1.25rem;
+  --analytics-inner-gap: 1rem;
+  --analytics-chart-height: 18rem;
   container: analytics / inline-size;
   min-width: 0;
   width: 100%;
-  gap: 1rem;
+  gap: var(--analytics-content-gap);
 }
 
 .analytics-page .analytics-kpi-grid {
@@ -2540,7 +2544,7 @@
   gap: 0.625rem;
   min-width: 0;
   min-height: 9.5rem;
-  padding: 1.125rem;
+  padding: var(--analytics-card-inset, 1.125rem);
   border: 1px solid var(--border-color);
   border-radius: 14px;
   background: var(--bg-surface);
@@ -2613,7 +2617,7 @@
   gap: 0.625rem;
   min-width: 0;
   min-height: 9.5rem;
-  padding: 1.125rem;
+  padding: var(--analytics-card-inset);
   border-radius: 14px;
 }
 
@@ -2634,48 +2638,82 @@
 }
 
 .analytics-header-row {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 0.75rem 1.5rem;
+  display: block;
   min-width: 0;
 }
 
 .analytics-header-filters {
+  --analytics-control-h: 46px;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr);
+  grid-template-columns: repeat(2, minmax(0, 16rem)) max-content;
+  justify-content: start;
   align-items: end;
-  gap: 0.625rem 0.75rem;
-  flex: 1 1 32rem;
+  gap: .75rem;
+  width: 100%;
   min-width: 0;
 }
 
 .analytics-header-filters .analytics-filter-field {
   min-width: 0;
+  gap: .375rem;
   font-size: 0.7rem;
 }
 
 .analytics-header-filters .analytics-range-select {
+  height: var(--analytics-control-h);
+  min-height: var(--analytics-control-h);
   width: 100%;
   min-width: 0;
   max-width: 100%;
   text-overflow: ellipsis;
 }
 
-.analytics-header-filters .analytics-detail-field,
-.analytics-header-filters .date-filter {
-  grid-column: 1 / -1;
+.analytics-header-filters .analytics-detail-field {
+  justify-self: start;
+  max-width: 100%;
+}
+
+.analytics-page .analytics-header-filters .granularity-group {
+  align-self: flex-start;
+  width: max-content;
+  max-width: 100%;
+  height: var(--analytics-control-h);
+  box-sizing: border-box;
+}
+
+.analytics-page .analytics-header-filters .granularity-group .btn {
+  height: calc(var(--analytics-control-h) - 2px);
+  min-height: calc(var(--analytics-control-h) - 2px);
+  border-radius: 0;
 }
 
 .analytics-header-filters .date-filter {
   display: grid;
+  grid-column: 1 / -1;
   grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  width: 100%;
+  max-width: 32.75rem;
+  gap: .5rem;
 }
 
 .analytics-header-filters .analytics-date-input {
+  height: var(--analytics-control-h);
+  min-height: var(--analytics-control-h);
   width: 100%;
   min-width: 0;
+}
+
+@container analytics (max-width: 52rem) {
+  .analytics-header-filters { grid-template-columns: repeat(2, minmax(0, 16rem)); }
+  .analytics-header-filters .analytics-detail-field { grid-column: 1 / -1; }
+}
+
+@container analytics (max-width: 34rem) {
+  .analytics-header-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@container analytics (max-width: 24rem) {
+  .analytics-header-filters { grid-template-columns: minmax(0, 1fr); }
 }
 
 .analytics-page .analytics-group-tabs {
@@ -2696,12 +2734,13 @@
 }
 
 .analytics-page .analytics-group-panel {
-  gap: 1rem;
+  gap: var(--analytics-content-gap);
 }
 
 .analytics-page .charts-grid {
   grid-template-columns: minmax(0, 1fr);
-  gap: 1rem;
+  gap: var(--analytics-content-gap);
+  align-items: stretch;
 }
 
 .analytics-page .analytics-group-panel .card,
@@ -2712,14 +2751,13 @@
 
 .analytics-page .card-header,
 .analytics-page .table-header {
-  padding: 0.875rem 1rem;
+  padding: 1rem var(--analytics-card-inset);
   flex-wrap: wrap;
   gap: 0.625rem;
 }
 
 .analytics-page .chart-container {
-  padding-left: 0.75rem;
-  padding-right: 0.75rem;
+  padding: 1rem var(--analytics-card-inset) var(--analytics-card-inset);
 }
 
 .analytics-page .table-responsive {
@@ -2742,7 +2780,7 @@
 }
 
 @media (max-width: 768px) {
-  .analytics-page { --analytics-page-inset: 1rem; }
+  .analytics-page { --analytics-page-inset: 1rem; --analytics-card-inset: 1rem; --analytics-content-gap: 1rem; }
 }
 
 @media (max-width: 480px) {
@@ -2758,28 +2796,6 @@
 @container analytics (min-width: 54rem) {
   .analytics-page .charts-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .analytics-header-filters {
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: flex-end;
-  }
-
-  .analytics-header-filters > .analytics-filter-field {
-    flex: 0 1 12rem;
-  }
-
-  .analytics-header-filters > .analytics-session-field {
-    flex-basis: 18rem;
-  }
-
-  .analytics-header-filters > .analytics-detail-field {
-    flex: 0 0 auto;
-  }
-
-  .analytics-header-filters .date-filter {
-    flex: 0 1 28rem;
   }
 }
 
@@ -4240,10 +4256,10 @@
 .analytics-forecast-summary dl > div { display: flex; flex-wrap: wrap; gap: 0.25rem 0.75rem; margin-bottom: 0.35rem; }
 .analytics-forecast-summary dt { flex: 0 0 5rem; font-weight: 600; }
 .analytics-forecast-summary dd { flex: 1 1 12rem; margin: 0; min-width: 0; }
-.analytics-page .analytics-forecast-chart { height: 280px; min-width: 0; margin-top: 0.75rem; }
+.analytics-page .analytics-forecast-chart { height: var(--analytics-chart-height); min-width: 0; margin: 0; }
 
 /* Keep inventory analytics as fitted table rows on tablets. */
-.inventory-analytics { display: flex; flex-direction: column; gap: 1rem; min-width: 0; }
+.inventory-analytics { display: flex; flex-direction: column; gap: var(--analytics-content-gap, 1rem); min-width: 0; }
 .inventory-analytics .card { min-width: 0; }
 .inventory-analytics-notes p { margin: 0 0 0.625rem; }
 .inventory-analytics-table { table-layout: fixed; width: 100%; border-collapse: collapse; font-size: 0.8125rem; }
@@ -4301,3 +4317,126 @@
 .predictive-report-card summary { cursor: pointer; padding: .4rem 0; }
 .predictive-report-notes { margin-bottom: .75rem; }
 .predictive-report-pagination { margin-top: 1rem; }
+
+/* One spacing rhythm for Analytics cards, charts, estimates and reports. */
+.analytics-page .analytics-group-panel > .card,
+.analytics-page .charts-grid > .card,
+.analytics-page .inventory-analytics > .card {
+  border-radius: 12px;
+  box-shadow: var(--shadow-sm);
+}
+
+.analytics-page .analytics-group-panel .card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: .75rem;
+  margin: 0;
+  border-radius: 11px 11px 0 0;
+}
+
+.analytics-page .card-header h3 { min-width: 0; line-height: 1.45; overflow-wrap: anywhere; }
+.analytics-page .analytics-group-panel .card-body { padding: var(--analytics-card-inset); }
+.analytics-page .analytics-section-note { margin: 0; line-height: 1.6; }
+.analytics-page .analytics-chart-card { display: flex; flex-direction: column; }
+.analytics-page .analytics-chart-card--wide { grid-column: 1 / -1; }
+.analytics-page .analytics-chart-area {
+  display: flex;
+  flex-direction: column;
+  height: var(--analytics-chart-height);
+  min-height: var(--analytics-chart-height);
+  flex: 1 0 var(--analytics-chart-height);
+}
+.analytics-page .analytics-chart-note { margin: 0; padding: .75rem var(--analytics-card-inset) 0; line-height: 1.5; }
+.analytics-page .analytics-traffic-charts .analytics-chart-area { height: auto; min-height: 24rem; flex-basis: 24rem; }
+.analytics-page .card-body .chart-container { padding: 0; }
+
+.analytics-page .analytics-forecast-body,
+.analytics-page .analytics-validation-body,
+.analytics-page .predictive-report-card > .card-body,
+.analytics-page .analytics-report-body,
+.analytics-page .analytics-session-detail > .card-body,
+.analytics-page .analytics-insights-card > .card-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--analytics-inner-gap);
+  min-width: 0;
+}
+
+.analytics-page .card-body > p,
+.analytics-page .card-body > [role="alert"] > p { margin: 0; line-height: 1.6; }
+.analytics-page .card-body > [role="alert"] { display: grid; justify-items: start; gap: .75rem; }
+.analytics-page .analytics-forecast-summary { gap: 1rem 1.5rem; }
+.analytics-page .analytics-forecast-summary dl > div { margin-bottom: .5rem; }
+.analytics-page .analytics-forecast-summary dl > div:last-child { margin-bottom: 0; }
+.analytics-page .analytics-forecast-summary dt { color: var(--text-muted); font-size: .8125rem; }
+.analytics-page .analytics-forecast-summary dd { line-height: 1.5; font-size: .875rem; }
+.analytics-page .analytics-validation-metrics { margin: 0; gap: .75rem; }
+.analytics-page .analytics-validation-metrics p { padding: 1rem; }
+.analytics-page .analytics-validation-limits { margin: 0; }
+.analytics-page .analytics-validation-body > .btn { align-self: flex-start; }
+.analytics-page .analytics-traffic-forecast-heading { gap: .75rem; }
+.analytics-page .analytics-traffic-forecast-heading h4 { font-size: .9375rem; }
+.analytics-page .analytics-traffic-forecast-hour { padding: .75rem; }
+.analytics-page .analytics-traffic-advice { padding: .875rem 1rem; border-radius: 0 .5rem .5rem 0; }
+
+.analytics-page .btn { min-height: 44px; gap: .5rem; border-radius: 8px; font-size: .8125rem; }
+.analytics-page .analytics-card-heading { display: grid; gap: .25rem; min-width: 0; flex: 1; }
+.analytics-page .analytics-group-panel .form-input { min-height: 44px; }
+.analytics-page .inventory-analytics-notes { display: grid; gap: .625rem; }
+.analytics-page .inventory-analytics-notes p { margin: 0; }
+.analytics-page .inventory-analytics-pages,
+.analytics-page .analytics-sessions-table > .table-pager { padding: 1rem var(--analytics-card-inset); border-top: 1px solid var(--border-color); }
+.analytics-page .inventory-analytics-table th,
+.analytics-page .inventory-analytics-table td { padding-top: .75rem; padding-bottom: .75rem; }
+.analytics-page .inventory-analytics-table tr > :first-child,
+.analytics-page .analytics-sessions-table tr > :first-child { padding-left: var(--analytics-card-inset); }
+.analytics-page .inventory-analytics-table tr > :last-child,
+.analytics-page .analytics-sessions-table tr > :last-child { padding-right: var(--analytics-card-inset); }
+.analytics-page .analytics-sessions-table { border: 0; border-radius: 0 0 11px 11px; }
+.analytics-page .analytics-session-detail { border-color: var(--color-accent); }
+.analytics-page .analytics-session-detail .card-body > .btn { align-self: flex-start; }
+.analytics-page .insights-grid { gap: var(--analytics-inner-gap); }
+.analytics-page .insight-card { padding: 1rem; gap: .75rem; }
+.analytics-page .insights-dismissed-bar { margin-bottom: var(--analytics-inner-gap); }
+
+.analytics-page .analytics-consolidated-card { margin: 0; }
+.analytics-page .analytics-consolidated-card .summary-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 10rem), 1fr));
+  gap: 1rem;
+  margin: 0;
+  padding: 1rem;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+}
+.analytics-page .analytics-consolidated-card .summary-row > span { min-width: 0; font-size: .75rem; color: var(--text-muted); line-height: 1.5; }
+.analytics-page .analytics-consolidated-card .summary-row strong { display: block; margin-top: .25rem; font-size: 1.125rem; font-variant-numeric: tabular-nums; }
+.analytics-page .analytics-consolidated-card .action-bar--filters {
+  gap: .75rem;
+  margin: 0;
+  padding: .875rem;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-hover);
+}
+.analytics-page .analytics-consolidated-card .table-wrapper { margin: 0; }
+.analytics-page .analytics-consolidated-card .table-pager { margin: 0; padding: .875rem .75rem; }
+.analytics-page .predictive-report-summary { gap: .75rem; }
+.analytics-page .predictive-report-summary p { margin: 0; padding: 1rem; }
+.analytics-page .predictive-report-summary span { margin-top: .375rem; font-size: .875rem; }
+.analytics-page .predictive-report-filters { gap: .75rem; margin: 0; }
+.analytics-page .predictive-report-filters label { display: grid; gap: .375rem; font-size: .8125rem; color: var(--text-muted); }
+.analytics-page .predictive-report-notes { margin: 0; padding: .75rem 1rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--bg-hover); }
+.analytics-page .predictive-report-notes summary { font-weight: 600; color: var(--text-main); }
+.analytics-page .predictive-report-notes ul { margin: .5rem 0 0; padding-left: 1.25rem; }
+.analytics-page .predictive-report-pagination { margin: 0; padding-top: .875rem; border-top: 1px solid var(--border-color); gap: .75rem; }
+
+@container analytics (max-width: 48rem) {
+  .analytics-page .analytics-group-panel { --analytics-card-inset: 1rem; --analytics-content-gap: 1rem; --analytics-inner-gap: .875rem; --analytics-chart-height: 17rem; }
+  .analytics-page .card-header { padding-top: .875rem; padding-bottom: .875rem; }
+  .analytics-page .analytics-traffic-charts .analytics-chart-area { min-height: 24rem; flex-basis: 24rem; }
+  .analytics-page .analytics-consolidated-card .action-bar--filters > .search-bar { flex: 1 1 100%; }
+  .analytics-page .analytics-consolidated-card .action-bar--filters > .txn-filter-field { flex: 1 1 10rem; min-width: 0; }
+}

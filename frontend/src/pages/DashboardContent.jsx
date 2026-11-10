@@ -1,4 +1,4 @@
-import { useContext, useEffect, useState, useMemo } from "react";
+import { useContext, useEffect, useState, useMemo, useRef, useLayoutEffect } from "react";
 import { AnalyticsContext } from "./AnalyticsContext";
 import { TrendingUp, AlertTriangle, Package, BarChart3, ShoppingBag, Calendar, ChevronDown, Plus, X, AlertCircle, CheckCircle, Percent, Undo2, Clock, Receipt } from 'lucide-react';
 import { db } from '../services/db';
@@ -83,6 +83,11 @@ export default function DashboardContent({ activeTab, user, onNavigate }) {
   const initialGroup = ANALYTICS_GROUPS.find(group => group.id === activeTab || group.label === activeTab)?.id || 'overview';
   const [activeGroup, setActiveGroup] = useState(initialGroup);
   const [visitedGroups, setVisitedGroups] = useState(() => new Set([initialGroup]));
+  const pageRef = useRef(null);
+  useLayoutEffect(() => {
+    const scrollContainer = pageRef.current?.closest('.page-container--scroll');
+    if (scrollContainer) scrollContainer.scrollTop = 0;
+  }, [activeGroup]);
   const selectGroup = group => {
     setActiveGroup(group);
     setVisitedGroups(previous => previous.has(group) ? previous : new Set([...previous, group]));
@@ -505,16 +510,16 @@ export default function DashboardContent({ activeTab, user, onNavigate }) {
       </>;
       case 'sales': return <>
       <div className="charts-grid">
-        <div className="card">
+        <div className="card analytics-chart-card">
           <div className="card-header">
             <h3 className="m-0">Revenue Trend{granularity === 'hourly' ? ' (Hourly)' : granularity === 'weekly' ? ' (Weekly)' : ''}</h3>
           </div>
           {granularity === 'hourly' && hourlySpanDays > 7 && (
-            <p className="text-sm text-muted" data-testid="hourly-range-hint" style={{ margin: '0.25rem 0 0 0', padding: '0 1rem' }}>
+            <p className="text-sm text-muted analytics-chart-note" data-testid="hourly-range-hint">
               Hourly is clearest under 7 days — showing {hourlyBuckets.keys.length} chronological hours across ~{hourlySpanDays} days.
             </p>
           )}
-          <div className="chart-container" style={{ height: "250px" }}>
+          <div className="chart-container analytics-chart-area">
             <SalesTrendChart
               data={chartData}
               variant="line"
@@ -526,11 +531,11 @@ export default function DashboardContent({ activeTab, user, onNavigate }) {
             />
           </div>
         </div>
-        <div className="card">
+        <div className="card analytics-chart-card">
           <div className="card-header">
             <h3 className="m-0">Weekday Pattern</h3>
           </div>
-          <div className="chart-container" style={{ height: "250px" }}>
+          <div className="chart-container analytics-chart-area">
             <SalesTrendChart
               data={weekdayChartData}
               variant="bar"
@@ -545,30 +550,30 @@ export default function DashboardContent({ activeTab, user, onNavigate }) {
       </div>
 
       <div className="charts-grid">
-        <div className="card">
+        <div className="card analytics-chart-card">
           <div className="card-header">
             <h3 className="m-0">Payment Mix</h3>
           </div>
-          <div className="chart-container" style={{ height: "250px" }}>
+          <div className="chart-container analytics-chart-area">
             <PaymentMixChart mix={mix} />
           </div>
         </div>
-        <div className="card">
+        <div className="card analytics-chart-card">
           <div className="card-header">
             <h3 className="m-0">Voucher Effectiveness</h3>
           </div>
-          <div className="chart-container" style={{ height: "250px" }}>
+          <div className="chart-container analytics-chart-area">
             {discountError ? <p role="alert">{discountError}</p> : <VoucherEffectivenessChart stats={vouchers} />}
           </div>
         </div>
       </div>
 
       <div className="charts-grid">
-        <div className="card" style={{ gridColumn: '1 / -1' }}>
+        <div className="card analytics-chart-card analytics-chart-card--wide">
           <div className="card-header">
             <h3 className="m-0">Refunds</h3>
           </div>
-          <div className="chart-container" style={{ height: "250px" }}>
+          <div className="chart-container analytics-chart-area">
             <RefundInsights summary={refundInfo} />
           </div>
         </div>
@@ -576,13 +581,13 @@ export default function DashboardContent({ activeTab, user, onNavigate }) {
       <SalesForecastPanel asOf={manilaDay(dateRange.end)} />
       </>;
       case 'inventory': return <>
-      <p className="text-sm text-muted">Top-selling products follow the selected period. Low Stock Alerts show current balances.</p>
+      <p className="text-sm text-muted analytics-section-note">Top-selling products follow the selected period. Low Stock Alerts show current balances.</p>
       <div className="charts-grid">
-        <div className="card" style={{ display: "flex", flexDirection: "column" }}>
+        <div className="card analytics-chart-card">
           <div className="card-header">
             <h3 className="m-0">Top-Selling Products</h3>
           </div>
-          <div className="chart-container" style={{ height: "100%", minHeight: "280px", flex: 1, display: "flex", flexDirection: "column" }}>
+          <div className="chart-container analytics-chart-area">
             <StockMovementChart startDate={dateRange?.start} endDate={dateRange?.end} />
           </div>
         </div>
@@ -619,7 +624,7 @@ export default function DashboardContent({ activeTab, user, onNavigate }) {
       <InventoryAnalyticsPanel start={dateRange.start} end={dateRange.end} />
       </>;
       case 'traffic': return <>
-      <p className="text-sm text-muted">Traffic charts use recorded customer counts, including checkout traffic, without adding transactions again. Missing recordings are unknown, not confirmed zero visits.</p>
+      <p className="text-sm text-muted analytics-section-note">Traffic charts use recorded customer counts, including checkout traffic, without adding transactions again. Missing recordings are unknown, not confirmed zero visits.</p>
         <SummaryCard
           title="Customers on Transactions"
           value={totals.customers.total}
@@ -627,26 +632,26 @@ export default function DashboardContent({ activeTab, user, onNavigate }) {
           color="#9333ea"
           sub={`♂ ${totals.customers.male.toLocaleString()} · ♀ ${totals.customers.female.toLocaleString()}${totals.customers.unspecified > 0 ? ` · ? ${totals.customers.unspecified.toLocaleString()}` : ''}`}
         />
-      <div className="charts-grid">
-        <div className="card">
+      <div className="charts-grid analytics-traffic-charts">
+        <div className="card analytics-chart-card">
           <div className="card-header">
             <h3 className="m-0">Recorded Customers vs Transactions</h3>
           </div>
-          <div className="chart-container" style={{ height: "250px" }}>
+          <div className="chart-container analytics-chart-area">
             <TrafficConversionChart startDate={dateRange?.start} endDate={dateRange?.end} />
           </div>
-        </div>        <div className="card">
+        </div>        <div className="card analytics-chart-card">
           <div className="card-header">
             <h3 className="m-0">Customer Traffic Heatmap</h3>
           </div>
-          <div className="chart-container" style={{ height: "auto", minHeight: "340px" }}>
+          <div className="chart-container analytics-chart-area">
             <CustomerTrafficHeatmap startDate={dateRange?.start} endDate={dateRange?.end} />
           </div>
         </div>      </div>
       <TrafficForecastPanel asOf={manilaDay(dateRange.end)} />
       </>;
       case 'insights': return <>
-      <div className="card">
+      <div className="card analytics-insights-card">
         <div className="card-header">
           <h3 className="m-0">AI Insights</h3>
         </div>
@@ -673,7 +678,7 @@ export default function DashboardContent({ activeTab, user, onNavigate }) {
             <Clock size={20} className="text-primary" /> Sessions
           </h3>
         </div>
-        <div className="card table-card table-responsive" style={{ border: 'none' }}>
+        <div className="table-card table-responsive analytics-sessions-table">
           <table className="data-table">
             <thead>
               <tr>
@@ -689,7 +694,6 @@ export default function DashboardContent({ activeTab, user, onNavigate }) {
                   <td>
                     <button
                       className="btn btn-secondary"
-                      style={{ minHeight: '34px', padding: '0.4rem 0.8rem', fontSize: '0.82rem' }}
                       disabled={historyDetailLoading}
                       onClick={() => handleViewSession(s)}
                       data-testid={`session-view-${s.id}`}
@@ -718,7 +722,7 @@ export default function DashboardContent({ activeTab, user, onNavigate }) {
       </div>
 
       {historyDetail && (
-        <div className="card" style={{ gridColumn: '1 / -1', border: '2px solid var(--color-accent)' }}>
+        <div className="card analytics-session-detail">
           <div className="card-header">
             <h3 className="m-0 flex items-center gap-2">
               <Receipt size={20} className="text-primary" /> Session Details
@@ -760,28 +764,10 @@ export default function DashboardContent({ activeTab, user, onNavigate }) {
   };
 
   return (
-    <div className="page-content analytics-page">
+    <div ref={pageRef} className="page-content analytics-page">
       <div className="analytics-sticky-bar analytics-group-header">
         <div className="analytics-header-row">
-        <h2 className="m-0 text-2xl font-bold">Analytics</h2>
         <div className="analytics-header-filters">
-          {activeGroup === 'sales' && <div className="analytics-filter-field analytics-detail-field">Detail
-            <div role="group" aria-label="Chart detail" data-testid="granularity-group" className="flex items-center granularity-group">
-              {[['hourly', 'Per hour'], ['daily', 'Per day'], ['weekly', 'Per week']].map(([val, label]) => (
-                <button
-                  key={val}
-                  type="button"
-                  data-testid={`granularity-${val}`}
-                  aria-pressed={granularity === val}
-                  onClick={() => setGranularity(val)}
-                  className={`btn ${granularity === val ? 'btn-primary' : 'btn-secondary'}`}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-          </div>
-          }
           <label className="analytics-filter-field">Period
           <select
             value={dateFilter}
@@ -812,6 +798,23 @@ export default function DashboardContent({ activeTab, user, onNavigate }) {
             ))}
           </select>
           </label>
+          {activeGroup === 'sales' && <div className="analytics-filter-field analytics-detail-field">Detail
+            <div role="group" aria-label="Chart detail" data-testid="granularity-group" className="flex items-center granularity-group">
+              {[['hourly', 'Per hour'], ['daily', 'Per day'], ['weekly', 'Per week']].map(([val, label]) => (
+                <button
+                  key={val}
+                  type="button"
+                  data-testid={`granularity-${val}`}
+                  aria-pressed={granularity === val}
+                  onClick={() => setGranularity(val)}
+                  className={`btn ${granularity === val ? 'btn-primary' : 'btn-secondary'}`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+          }
           {dateFilter === "Custom" && (
             <DateRangeFilter
               startDate={customStartDate}
@@ -832,7 +835,7 @@ export default function DashboardContent({ activeTab, user, onNavigate }) {
             Viewing session of {new Date(scopedSession.started_at).toLocaleString()}
             {' '}({formatElapsed(new Date(scopedSession.ended_at) - new Date(scopedSession.started_at))})
           </span>
-          <button className="btn btn-secondary" style={{ minHeight: '30px', padding: '0.25rem 0.7rem', fontSize: '0.78rem' }} onClick={clearSessionScope}>Clear</button>
+          <button className="btn btn-secondary" onClick={clearSessionScope}>Clear</button>
         </p>
       )}
 

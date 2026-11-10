@@ -41,6 +41,10 @@ function formatDateForInput(date) { return manilaDay(date); }
 // Set VITE_API_URL=http://localhost:3001 for local `vite dev` without a proxy.
 const INSIGHTS_API_BASE = import.meta.env.VITE_API_URL || "";
 
+// Temporarily hide forecast UI until its source history is ready for use.
+// Keep the panels available for restoration; AI Insights remains independent.
+const SHOW_FORECASTING = false;
+
 // Group { 'YYYY-MM-DD': amount } daily sales into ISO-week buckets (Monday start).
 // Returns [{ key: 'YYYY-Www', label: 'Www MMM d', weekStart: Date, total }] sorted by week.
 export function aggregateWeeklySales(salesData) {
@@ -578,7 +582,7 @@ export default function DashboardContent({ activeTab, user, onNavigate }) {
           </div>
         </div>
       </div>
-      <SalesForecastPanel asOf={manilaDay(dateRange.end)} />
+      {SHOW_FORECASTING && <SalesForecastPanel asOf={manilaDay(dateRange.end)} />}
       </>;
       case 'inventory': return <>
       <p className="text-sm text-muted analytics-section-note">Top-selling products follow the selected period. Low Stock Alerts show current balances.</p>
@@ -621,7 +625,7 @@ export default function DashboardContent({ activeTab, user, onNavigate }) {
         </div>
       </div>
       </div>
-      <InventoryAnalyticsPanel start={dateRange.start} end={dateRange.end} />
+      <InventoryAnalyticsPanel start={dateRange.start} end={dateRange.end} showPlanning={SHOW_FORECASTING} />
       </>;
       case 'traffic': return <>
       <p className="text-sm text-muted analytics-section-note">Traffic charts use recorded customer counts, including checkout traffic, without adding transactions again. Missing recordings are unknown, not confirmed zero visits.</p>
@@ -648,7 +652,7 @@ export default function DashboardContent({ activeTab, user, onNavigate }) {
             <CustomerTrafficHeatmap startDate={dateRange?.start} endDate={dateRange?.end} />
           </div>
         </div>      </div>
-      <TrafficForecastPanel asOf={manilaDay(dateRange.end)} />
+      {SHOW_FORECASTING && <TrafficForecastPanel asOf={manilaDay(dateRange.end)} />}
       </>;
       case 'insights': return <>
       <div className="card analytics-insights-card">
@@ -757,7 +761,7 @@ export default function DashboardContent({ activeTab, user, onNavigate }) {
       )}
 
       <ConsolidatedDataTable sharedRange={{ from: toLocalDay(dateRange.start), to: toLocalDay(dateRange.end), start: dateRange.start, end: dateRange.end }} />
-      <PredictiveReportPanel start={dateRange.start} end={dateRange.end} />
+      {SHOW_FORECASTING && <PredictiveReportPanel start={dateRange.start} end={dateRange.end} />}
       </>;
       default: return null;
     }

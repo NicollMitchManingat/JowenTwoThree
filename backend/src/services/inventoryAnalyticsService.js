@@ -115,10 +115,11 @@ function buildInventoryAnalytics({ inventory, recipes, transactions, items, adju
       name: item?.name || 'Unknown ingredient', active: item?.is_active !== false,
       unit: known ? adjustment.unit_snapshot : null, unitVersion: known ? recordedVersion : null,
       currentUnit: !!known && item?.unit === adjustment.unit_snapshot && version(item?.unit_version) === recordedVersion,
-      entries: 0, reasons: new Set(), amount: zero() })
+      entries: 0, reasons: new Set(), amount: zero(), recordedQuantities: [] })
     const group = groups.get(key)
     group.entries++; group.reasons.add(reason)
     if (known) group.amount = add(group.amount, { n: -amount.n, d: amount.d })
+    else group.recordedQuantities.push(exactText({ n: -amount.n, d: amount.d }))
   }
   const wastage = [...groups.values()].map(({ amount, reasons, ...row }) => ({ ...row,
     quantity: row.unit === null ? null : exactText(amount), reasons: [...reasons].sort() }))

@@ -4361,6 +4361,10 @@
 .inventory-analytics-table th { text-align: left; }
 .inventory-analytics-table .analytics-number { text-align: right; }
 .inventory-analytics-detail { display: block; margin-top: 0.25rem; }
+.inventory-analytics-reasons { display: block; }
+.inventory-analytics-recorded-quantity { display: block; }
+.inventory-analytics-recorded-quantity + .inventory-analytics-recorded-quantity { margin-top: 0.5rem; }
+.inventory-analytics-recorded-quantity small { display: block; margin-top: 0.125rem; }
 .inventory-analytics-pages { display: flex; justify-content: flex-end; align-items: center; flex-wrap: wrap; gap: 0.5rem; padding: 0.75rem; }
 @media (max-width: 1100px) {
   .inventory-analytics-table { font-size: 0.75rem; }

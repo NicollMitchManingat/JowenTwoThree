@@ -365,8 +365,16 @@ describe('inventory analytics estimates and recorded wastage',()=>{
   expect(result.wastage).toHaveLength(5)
   expect(result.wastage.find(row=>row.inventoryId==='flour'&&row.currentUnit)).toMatchObject({quantity:'0.3',entries:2})
   expect(result.wastage.find(row=>row.unit==='kg')).toMatchObject({quantity:'3',currentUnit:false})
-  expect(result.wastage.find(row=>row.unit===null)).toMatchObject({quantity:null,entries:2})
+  expect(result.wastage.find(row=>row.unit===null)).toMatchObject({quantity:null,entries:2,recordedQuantities:['50','100']})
   expect(result.dataQuality.unknownUnitWastageEntries).toBe(2)
+ })
+ it('recovers a legacy loss amount without inventing its historical unit or combining entries',()=>{
+  const input=fixture();input.inventory[0].name='Arabica Beans (Dark)';input.inventory[0].unit='units'
+  input.adjustments=[{inventory_id:'flour',reason:'spoiled',change_amount:'-1'},
+   {inventory_id:'flour',reason:'expired',change_amount:'-0.1234567890123456789'}]
+  const row=buildInventoryAnalytics(input).wastage[0]
+  expect(row).toMatchObject({name:'Arabica Beans (Dark)',unit:null,unitVersion:null,quantity:null,entries:2,
+   recordedQuantities:['1','0.1234567890123456789']})
  })
  it('keeps full recorded wastage precision without denominator growth across many rows',()=>{
   const input=fixture();const amount='0.000000000000000001234567890123456789'

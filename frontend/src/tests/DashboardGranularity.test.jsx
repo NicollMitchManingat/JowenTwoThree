@@ -250,8 +250,10 @@ describe('DashboardContent granularity', () => {
     await waitFor(() => {
       expect(screen.getAllByTestId('sales-summary').some((s) => /Best day/.test(s.textContent))).toBe(true)
     })
-    const salesForecast = screen.getByRole('heading', { name: 'Sales Forecast' })
-    expect(screen.getByRole('heading', { name: 'Refunds' }).compareDocumentPosition(salesForecast) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'Refunds' })).toBeVisible()
+    expect(screen.queryByTestId('sales-forecast-panel')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('sales-forecast-validation')).not.toBeInTheDocument()
+    expect(apiRequest.mock.calls.some(([url]) => url.includes('/api/predictive-forecast'))).toBe(false)
   })
 
   it('should mark out-of-stock rows danger and low rows warning', async () => {
@@ -332,45 +334,49 @@ describe('DashboardContent granularity', () => {
   })
 })
 
- it('loads the traffic forecast only after visiting Customer Traffic and keeps it mounted',async()=>{
+ it('keeps historical traffic charts without mounting or requesting forecasts',async()=>{
+   vi.clearAllMocks()
    setup()
-   const days=Array.from({length:7},(_,i)=>({date:'2026-11-'+(10+i),hours:Array.from({length:24},(_,hour)=>({hour,samples:0,predictedCustomers:null})),staffing:{supportedHours:0,peakHours:[],leanHours:[]}}))
-   apiRequest.mockResolvedValue({data:{status:'insufficient_history',total:null,history:[],forecast:[],hourlyForecast:days,
-     generatedAt:'2026-11-10T00:00:00Z',dataQuality:{complete:true},training:{from:'2026-10-13',through:'2026-11-09',observedDays:0},method:{label:'Same-weekday moving average',windowDays:28,occurrences:4}}})
    render(<AnalyticsProvider><DashboardContent user={{role:'admin'}} /></AnalyticsProvider>)
-   expect(apiRequest.mock.calls.some(([url])=>url.includes('/api/customer-traffic/forecast'))).toBe(false)
    fireEvent.click(screen.getByRole('tab',{name:'Customer Traffic'}))
-   await screen.findByText('Insufficient history for a seven-day daily forecast.')
-   const trafficForecast = screen.getByRole('heading', { name: 'Customer Traffic Forecast' })
-   expect(screen.getByRole('heading', { name: 'Customer Traffic Heatmap' }).compareDocumentPosition(trafficForecast) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-   expect(apiRequest.mock.calls.some(([url])=>url.includes('/api/customer-traffic/forecast?asOf='))).toBe(true)
-   const panel=screen.getByTestId('traffic-forecast-panel')
+   expect(await screen.findByRole('heading',{name:'Customer Traffic Heatmap'})).toBeVisible()
+   expect(screen.getByRole('heading',{name:'Recorded Customers vs Transactions'})).toBeVisible()
    fireEvent.click(screen.getByRole('tab',{name:'Overview'}))
-   expect(panel).toBeInTheDocument();expect(panel).not.toBeVisible()
+   fireEvent.click(screen.getByRole('tab',{name:'Customer Traffic'}))
+   expect(screen.queryByTestId('traffic-forecast-panel')).not.toBeInTheDocument()
+   expect(screen.queryByTestId('traffic-forecast-validation')).not.toBeInTheDocument()
+   expect(apiRequest.mock.calls.some(([url])=> /\/api\/customer-traffic\/(forecast|validation)/.test(url))).toBe(false)
  })
 
- it('loads the predictive report only in Reports & Sessions with shared bounds and retains preview filters',async()=>{
+ it('keeps historical reports and sessions without a predictive report or export',async()=>{
+  vi.clearAllMocks()
   setup()
-  const data={schemaVersion:1,generatedAt:'2026-11-10T08:00:00Z',period:{},forecastThrough:'2026-11-09',dataQuality:{complete:true},
-   summary:{salesStatus:'insufficient_history',salesTotal:null,trafficStatus:'insufficient_history',trafficTotal:null,inventoryItems:0,salesScoredDays:0,trafficScoredDays:0},
-   notes:['Predictions remain separate.'],rows:[{section:'Sales',basis:'Prediction',metric:'Next seven days',value:null,status:'Insufficient history'}],
-   export:{filename:'predictive-report-2026-11-10.csv',csv:'predictive CSV'}}
-  apiRequest.mockResolvedValue({data})
   vi.stubGlobal('fetch',vi.fn(()=>Promise.resolve({ok:true,json:async()=>({data:{summary:{},rows:[],categories:[],meta:{dataSource:'live'}}})})))
   render(<AnalyticsProvider><DashboardContent user={{role:'admin'}} /></AnalyticsProvider>)
-  expect(apiRequest.mock.calls.some(([url])=>url.includes('/api/consolidated-data/predictive'))).toBe(false)
   fireEvent.click(screen.getByRole('tab',{name:'Reports & Sessions'}))
-  await screen.findByRole('table',{name:'Predictive business report preview'})
-  const actualReport = await screen.findByRole('heading', {name:'Consolidated System Data'})
-  expect(actualReport.compareDocumentPosition(screen.getByRole('heading', {name:'Predictive Business Report'})) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-  const calls=()=>apiRequest.mock.calls.filter(([url])=>url.includes('/api/consolidated-data/predictive'))
-  expect(calls()).toHaveLength(1)
-  const url=new URL(calls()[0][0],'http://localhost')
-  expect(url.searchParams.get('start')).toBe(db.getDailySales.mock.lastCall[0]);expect(url.searchParams.get('end')).toBe(db.getDailySales.mock.lastCall[1])
-  fireEvent.change(screen.getByLabelText('Aspect'),{target:{value:'Inventory'}})
+  expect(await screen.findByRole('heading', {name:'Consolidated System Data'})).toBeVisible()
+  expect(screen.getByRole('heading', {name:'Sessions'})).toBeVisible()
   fireEvent.click(screen.getByRole('tab',{name:'Overview'}))
   fireEvent.click(screen.getByRole('tab',{name:'Reports & Sessions'}))
-  expect(screen.getByLabelText('Aspect')).toHaveValue('Inventory');expect(calls()).toHaveLength(1)
+  expect(screen.queryByTestId('predictive-report')).not.toBeInTheDocument()
+  expect(screen.queryByRole('button',{name:'Export full predictive CSV'})).not.toBeInTheDocument()
+  expect(apiRequest.mock.calls.some(([url])=>url.includes('/api/consolidated-data/predictive'))).toBe(false)
+  vi.unstubAllGlobals()
+ })
+
+ it('keeps recorded wastage in Inventory while hiding stock-cover projections',async()=>{
+  vi.clearAllMocks()
+  setup()
+  apiRequest.mockResolvedValue({data:{planning:[{id:'milk',name:'Milk',unit:'L',quantity:'2',sevenDayUsage:'7',shortage:'5',recommendation:'Review replenishment'}],
+   wastage:[],usageWindow:{from:'2026-10-13',through:'2026-11-09',recordedSalesDays:6},dataQuality:{complete:true}}})
+  render(<AnalyticsProvider><DashboardContent user={{role:'admin'}} /></AnalyticsProvider>)
+  fireEvent.click(screen.getByRole('tab',{name:'Inventory'}))
+  expect(await screen.findByRole('heading',{name:'Recorded Wastage'})).toBeVisible()
+  expect(screen.getByRole('heading',{name:'Top-Selling Products'})).toBeVisible()
+  expect(screen.getByRole('heading',{name:'Low Stock Alerts'})).toBeVisible()
+  expect(screen.queryByRole('heading',{name:'Ingredient Usage & Stock Cover'})).not.toBeInTheDocument()
+  expect(screen.queryByRole('table',{name:'Ingredient usage estimates'})).not.toBeInTheDocument()
+  expect(screen.queryByText('Review replenishment')).not.toBeInTheDocument()
  })
 
  it('opens each section at the top of the page while preserving filters and chart detail',async()=>{

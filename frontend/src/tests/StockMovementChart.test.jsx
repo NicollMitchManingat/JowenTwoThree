@@ -1,7 +1,7 @@
 vi.mock('../services/apiClient', () => ({ apiRequest: vi.fn() }));
 import { apiRequest } from '../services/apiClient';
 import InventoryAnalyticsPanel from '../components/analytics/InventoryAnalyticsPanel';
-import { render, screen, waitFor, fireEvent } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent, within } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 vi.mock("react-chartjs-2", () => ({
@@ -114,9 +114,20 @@ describe("StockMovementChart", () => {
 
 describe('Inventory analytics panel',()=>{
  const payload=()=>({planning:[{id:'milk',name:'Milk',unit:'L',quantity:'0.00001',dailyUsage:'0.25',daysCover:'0.00004',sevenDayUsage:'1.75',shortage:'1.74999',status:'estimated',recommendation:'Review replenishment'}],
-  wastage:[{id:'old',name:'Milk',unit:'mL',unitVersion:'0',quantity:'10.5',entries:2,reasons:['expired'],currentUnit:false,active:false},{id:'unknown',name:'Flour',unit:null,quantity:null,entries:3,reasons:['spoiled'],currentUnit:false}],
+  wastage:[{id:'old',name:'Milk',unit:'mL',unitVersion:'0',quantity:'10.5',entries:2,reasons:['expired'],currentUnit:false,active:false},{id:'unknown',name:'Flour',unit:null,quantity:null,entries:3,recordedQuantities:['1','2','0.125'],reasons:['spoiled'],currentUnit:false}],
   usageWindow:{from:'2026-10-13',through:'2026-11-09',recordedSalesDays:6},dataQuality:{complete:true,unmappedLines:0,unknownUnitWastageEntries:3}})
  beforeEach(()=>{vi.clearAllMocks();apiRequest.mockResolvedValue({data:payload()})})
+ it('can hide planning while preserving recorded wastage and its unit warnings',async()=>{
+  const view=render(<InventoryAnalyticsPanel showPlanning={false} />)
+  expect(screen.getByRole('status')).toHaveTextContent('Loading recorded wastage...')
+  expect(await screen.findByRole('table',{name:'Recorded wastage by ingredient and unit'})).toBeInTheDocument()
+  expect(screen.getByText(/3 wastage entries have unrecorded units/)).toBeInTheDocument()
+  expect(screen.queryByRole('table',{name:'Ingredient usage estimates'})).not.toBeInTheDocument()
+  expect(screen.queryByText(/seven-day scenario/)).not.toBeInTheDocument()
+  view.rerender(<InventoryAnalyticsPanel showPlanning />)
+  expect(screen.getByRole('table',{name:'Ingredient usage estimates'})).toBeInTheDocument()
+  expect(apiRequest).toHaveBeenCalledTimes(1)
+ })
  it('shows fitted table rows, precise-source tooltips, estimates and separate unit histories',async()=>{
   render(<InventoryAnalyticsPanel start="2026-11-01T00:00:00+08:00" end="2026-11-09T23:59:59.999+08:00" />)
   expect(await screen.findByRole('table',{name:'Ingredient usage estimates'})).toBeInTheDocument()
@@ -127,10 +138,39 @@ describe('Inventory analytics panel',()=>{
   expect(screen.getByText(/Validation limit: this is a current-recipe scenario/)).toBeInTheDocument()
   expect(screen.getByText(/3 wastage entries have unrecorded units/)).toBeInTheDocument()
   expect(screen.getByText('Archived ingredient')).toBeInTheDocument()
-  expect(screen.getByText('Earlier unit/version; kept separate')).toBeInTheDocument()
+  expect(screen.getByText('Different unit/version; kept separate')).toBeInTheDocument()
   expect(screen.getByRole('table',{name:'Recorded wastage by ingredient and unit'})).toBeInTheDocument()
   expect(screen.getByRole('heading',{name:'Recorded Wastage'}).compareDocumentPosition(screen.getByRole('heading',{name:'Ingredient Usage & Stock Cover'})) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-  expect(screen.getByText('Quantity not comparable')).toBeInTheDocument()
+  expect(screen.getByText('Recorded values shown separately; confirm the original unit')).toBeInTheDocument()
+ })
+ it('shows a legacy loss quantity without filling in a guessed unit',async()=>{
+  const data=payload();data.wastage=[{id:'legacy',name:'Arabica Beans (Dark)',unit:null,quantity:null,entries:1,recordedQuantities:['1'],reasons:['spoiled'],currentUnit:false}]
+  data.dataQuality.unknownUnitWastageEntries=1;apiRequest.mockResolvedValue({data})
+  render(<InventoryAnalyticsPanel showPlanning={false} />)
+  const row=(await screen.findByText('Arabica Beans (Dark)')).closest('tr')
+  expect(within(row).getByTitle('1')).toHaveTextContent('1')
+  expect(within(row).getByText('Needs unit review')).toBeInTheDocument()
+  expect(within(row).getByText('Spoiled')).toBeInTheDocument()
+  expect(row).not.toHaveTextContent('\u2014')
+ })
+ it('shows a confirmed Arabica wastage entry with a complete quantity, unit and reason',async()=>{
+  const data=payload();data.wastage=[{id:'arabica',name:'Arabica Beans (Dark)',unit:'g',unitVersion:'0',quantity:'1',entries:1,reasons:['spoiled'],currentUnit:false}]
+  data.dataQuality.unknownUnitWastageEntries=0;apiRequest.mockResolvedValue({data})
+  render(<InventoryAnalyticsPanel showPlanning={false} />)
+  const row=(await screen.findByText('Arabica Beans (Dark)')).closest('tr')
+  expect(within(row).getByText('g')).toBeInTheDocument()
+  expect(within(row).getByTitle('1')).toHaveTextContent('1')
+  expect(within(row).getByText('Spoiled')).toBeInTheDocument()
+  expect(within(row).getByText('Different unit/version; kept separate')).toBeInTheDocument()
+  expect(row).not.toHaveTextContent(/Needs unit review|unavailable|\u2014/)
+ })
+ it('lists unknown-unit quantities individually without displaying a combined total',async()=>{
+  render(<InventoryAnalyticsPanel showPlanning={false} />)
+  const row=(await screen.findByText('Flour')).closest('tr')
+  expect(within(row).getByTitle('0.125')).toHaveTextContent('0.13')
+  expect(within(row).getByText('Entry 1')).toBeInTheDocument()
+  expect(within(row).getByText('Entry 3')).toBeInTheDocument()
+  expect(within(row).queryByText('3.13')).not.toBeInTheDocument()
  })
  it('leaves unavailable estimates blank and does not manufacture zero wastage',async()=>{
   const data=payload();Object.assign(data.planning[0],{status:'unit_review',dailyUsage:null,daysCover:null,sevenDayUsage:null,shortage:null,recommendation:'Review recipe unit versions'});data.wastage=[];data.dataQuality.unknownUnitWastageEntries=0;apiRequest.mockResolvedValue({data})

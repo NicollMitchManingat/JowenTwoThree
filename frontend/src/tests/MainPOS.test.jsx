@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import MainPOS, { resolveDiscount } from '../pages/MainPOS'
+import OrderPanelSplit from '../components/pos/OrderPanelSplit'
 import { db, isRetryableError } from '../services/db'
 import { offlineQueue, processQueue } from '../services/offlineQueue'
 import { saveMenuCache, clearMenuCache } from '../services/menuCache'
@@ -72,6 +73,7 @@ describe('MainPOS', () => {
       expect(screen.getByPlaceholderText('Search menu...')).toBeInTheDocument()
     })
     expect(screen.getByText('Espresso')).toBeInTheDocument()
+    expect(screen.getByRole('separator', { name: 'Resize current order and payment sections' })).toBeInTheDocument()
   })
 
   it('removes a saved unpaid order from POS and refreshes the badge', async () => {
@@ -557,5 +559,157 @@ describe('MainPOS', () => {
 
     await user.click(screen.getByTestId('radial-fab-add'))
     expect(screen.getByText('Add New Product')).toBeInTheDocument()
+  })
+})
+
+describe('POS order panel divider', () => {
+  const storageKey = 'jowen-pos-order-split-v1'
+  beforeEach(() => localStorage.clear())
+
+  function renderSplit(props = {}) {
+    const view = render(<OrderPanelSplit {...props}><div>Order items</div><div>Payment controls</div></OrderPanelSplit>)
+    const divider = screen.getByRole('separator')
+    const frame = divider.parentElement
+    let height = 524
+    frame.getBoundingClientRect = () => ({ height })
+    divider.getBoundingClientRect = () => ({ height: 24 })
+    divider.setPointerCapture = vi.fn()
+    divider.releasePointerCapture = vi.fn()
+    fireEvent(window, new Event('resize'))
+    return { ...view, divider, frame, resize: next => { height = next; fireEvent(window, new Event('resize')) } }
+  }
+
+  // jsdom does not provide native PointerEvent geometry/capture.
+  function pointer(target, type, { y = 200, id = 1, pointerType = 'mouse', primary = true, button = 0 } = {}) {
+    const event = new MouseEvent(type, { bubbles: true, cancelable: true, clientY: y, button })
+    Object.defineProperties(event, {
+      pointerId: { value: id }, pointerType: { value: pointerType }, isPrimary: { value: primary },
+    })
+    fireEvent(target, event)
+  }
+
+  it('supports keyboard resizing, bounded extremes and resetting to the default', () => {
+    const { divider, frame } = renderSplit()
+    expect(divider).toHaveAttribute('aria-valuenow', '45')
+    fireEvent.keyDown(divider, { key: 'ArrowDown' })
+    expect(divider).toHaveAttribute('aria-valuenow', '50')
+    expect(frame.style.getPropertyValue('--order-payment-row')).toBe('50fr')
+    fireEvent.keyDown(divider, { key: 'ArrowUp', shiftKey: true })
+    expect(divider).toHaveAttribute('aria-valuenow', '40')
+    fireEvent.keyDown(divider, { key: 'End' })
+    expect(divider).toHaveAttribute('aria-valuenow', '68')
+    fireEvent.keyDown(divider, { key: 'Home' })
+    expect(divider).toHaveAttribute('aria-valuenow', '16')
+    fireEvent.keyDown(divider, { key: 'Enter' })
+    expect(divider).toHaveAttribute('aria-valuenow', '45')
+    expect(localStorage.getItem(storageKey)).toBe('45')
+    expect(screen.getByText('Order items')).toBeInTheDocument()
+    expect(screen.getByText('Payment controls')).toBeInTheDocument()
+  })
+
+  it.each(['mouse', 'touch', 'pen'])('drags with %s and persists only a completed adjustment', pointerType => {
+    const { divider, frame, unmount } = renderSplit()
+    pointer(divider, 'pointerdown', { pointerType })
+    pointer(divider, 'pointermove', { pointerType, y: 300 })
+    expect(divider).toHaveAttribute('aria-valuenow', '65')
+    expect(frame.style.getPropertyValue('--order-items-row')).toBe('65fr')
+    expect(frame.style.getPropertyValue('--order-payment-row')).toBe('35fr')
+    expect(localStorage.getItem(storageKey)).toBeNull()
+    expect(document.body).toHaveClass('pos-order-resizing')
+    pointer(divider, 'pointerup', { pointerType, y: 300 })
+    expect(localStorage.getItem(storageKey)).toBe('65')
+    expect(document.body).not.toHaveClass('pos-order-resizing')
+    expect(divider.releasePointerCapture).toHaveBeenCalledWith(1)
+    unmount()
+    expect(renderSplit().divider).toHaveAttribute('aria-valuenow', '65')
+  })
+
+  it('ignores secondary buttons and other fingers, and keeps both panels bounded', () => {
+    const { divider } = renderSplit()
+    pointer(divider, 'pointerdown', { button: 2 })
+    pointer(divider, 'pointermove', { y: 400 })
+    expect(divider).toHaveAttribute('aria-valuenow', '45')
+    pointer(divider, 'pointerdown', { primary: false })
+    expect(document.body).not.toHaveClass('pos-order-resizing')
+    pointer(divider, 'pointerdown')
+    pointer(divider, 'pointermove', { id: 2, y: 400 })
+    pointer(divider, 'pointerup', { id: 2 })
+    expect(divider).toHaveAttribute('aria-valuenow', '45')
+    pointer(divider, 'pointermove', { y: 2000 })
+    expect(divider).toHaveAttribute('aria-valuenow', '68')
+    pointer(divider, 'pointermove', { y: -2000 })
+    expect(divider).toHaveAttribute('aria-valuenow', '16')
+    pointer(divider, 'pointerup')
+  })
+
+  it.each(['pointercancel', 'lostpointercapture', 'blur', 'Escape'])('rolls back interrupted dragging on %s', interruption => {
+    const { divider } = renderSplit()
+    pointer(divider, 'pointerdown')
+    pointer(divider, 'pointermove', { y: 300 })
+    if (interruption === 'blur') fireEvent(window, new Event('blur'))
+    else if (interruption === 'Escape') fireEvent.keyDown(divider, { key: 'Escape' })
+    else pointer(divider, interruption)
+    expect(divider).toHaveAttribute('aria-valuenow', '45')
+    expect(document.body).not.toHaveClass('pos-order-resizing')
+    expect(localStorage.getItem(storageKey)).toBeNull()
+  })
+
+  it('clamps smaller layouts without overwriting the device preference', () => {
+    localStorage.setItem(storageKey, '65')
+    const { divider, resize } = renderSplit()
+    resize(324)
+    expect(divider).toHaveAttribute('aria-valuenow', '46')
+    expect(localStorage.getItem(storageKey)).toBe('65')
+    resize(524)
+    expect(divider).toHaveAttribute('aria-valuenow', '65')
+    fireEvent.doubleClick(divider)
+    expect(divider).toHaveAttribute('aria-valuenow', '45')
+  })
+
+  it('cancels dragging on layout changes and cleans up capture on unmount', () => {
+    const { divider, resize, unmount } = renderSplit()
+    pointer(divider, 'pointerdown')
+    pointer(divider, 'pointermove', { y: 300 })
+    resize(324)
+    expect(divider).toHaveAttribute('aria-valuenow', '45')
+    expect(document.body).not.toHaveClass('pos-order-resizing')
+    pointer(divider, 'pointerdown')
+    unmount()
+    expect(document.body).not.toHaveClass('pos-order-resizing')
+    expect(divider.releasePointerCapture).toHaveBeenCalledTimes(2)
+  })
+
+  it('falls back safely when the stored preference is invalid', () => {
+    localStorage.setItem(storageKey, 'not a number')
+    expect(renderSplit().divider).toHaveAttribute('aria-valuenow', '45')
+  })
+
+  it('lets empty orders shrink to the compact message and restores that position on tall layouts', () => {
+    const { divider, frame, resize, unmount } = renderSplit({ minimumItemsHeight: 48 })
+    fireEvent.keyDown(divider, { key: 'Home' })
+    expect(Number(divider.getAttribute('aria-valuenow'))).toBeCloseTo(9.6)
+    expect(parseFloat(frame.style.getPropertyValue('--order-items-row')) / 100 * 500).toBeCloseTo(48)
+    resize(1024)
+    pointer(divider, 'pointerdown')
+    pointer(divider, 'pointermove', { y: -2000 })
+    pointer(divider, 'pointerup')
+    expect(Number(divider.getAttribute('aria-valuenow'))).toBeCloseTo(4.8)
+    expect(Number(localStorage.getItem(storageKey))).toBeCloseTo(4.8)
+    unmount()
+    const restored = renderSplit({ minimumItemsHeight: 48 })
+    restored.resize(1024)
+    expect(Number(restored.divider.getAttribute('aria-valuenow'))).toBeCloseTo(4.8)
+  })
+
+  it('keeps populated orders usable after an empty order was reduced to its minimum', () => {
+    const { divider, rerender } = renderSplit({ minimumItemsHeight: 48 })
+    fireEvent.keyDown(divider, { key: 'Home' })
+    pointer(divider, 'pointerdown')
+    pointer(divider, 'pointermove', { y: 230 })
+    rerender(<OrderPanelSplit minimumItemsHeight={80}><div>Order items</div><div>Payment controls</div></OrderPanelSplit>)
+    expect(divider).toHaveAttribute('aria-valuenow', '16')
+    expect(divider).toHaveAttribute('aria-valuemin', '16')
+    expect(divider.parentElement).not.toHaveClass('is-resizing')
+    expect(document.body).not.toHaveClass('pos-order-resizing')
   })
 })

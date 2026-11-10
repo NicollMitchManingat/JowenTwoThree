@@ -4,6 +4,7 @@ import { db } from '../services/db';
 import { productAPI } from '../services/productAPI';
 import RadialFabMenu from '../components/pos/RadialFabMenu';
 import RemoveUnpaidOrderModal from '../components/pos/RemoveUnpaidOrderModal';
+import OrderPanelSplit from '../components/pos/OrderPanelSplit';
 import LowStockBell from '../components/inventory/LowStockBell';
 import LoadingSkeleton from '../components/analytics/LoadingSkeleton';
 import { saveMenuCache, loadMenuCache } from '../services/menuCache';
@@ -961,6 +962,7 @@ export default function MainPOS({ user, resumeOrderId, onResumeHandled }) {
               <button className="btn-icon-small text-danger" onClick={resetOrder} title="Clear Order"><RefreshCcw size={16} /></button>
             </div>
           </div>
+          <OrderPanelSplit minimumItemsHeight={cart.length === 0 ? 48 : 80}>
           <div className="order-items">
             {cart.length === 0 ? (
               <div className="empty-cart">No items added yet.</div>
@@ -1095,6 +1097,7 @@ export default function MainPOS({ user, resumeOrderId, onResumeHandled }) {
               {checkoutLoading ? 'Processing...' : 'Checkout & Log Traffic'}
             </button>
           </div>
+          </OrderPanelSplit>
         </div>
       </div>
       {pendingDiscount && <div className="modal-overlay"><form className="modal-content card" role="dialog" aria-label="Authorize discount" onSubmit={e => { e.preventDefault(); if (!approvalWorking) void requestDiscountApproval(); }}>

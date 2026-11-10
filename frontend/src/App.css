@@ -1289,6 +1289,7 @@
 }
 
 .order-section {
+  --order-divider-size: 24px;
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -1303,7 +1304,7 @@
   align-items: center;
   padding-bottom: 0.75rem;
   border-bottom: 1px solid var(--border-color);
-  margin-bottom: 0.75rem;
+  margin-bottom: calc(var(--order-divider-size) / 2);
 }
 
 .order-header h3 {
@@ -1398,6 +1399,99 @@
 
 .order-items {
   min-height: 80px;
+}
+
+.order-panel-split {
+  display: grid;
+  grid-template-rows: minmax(0, var(--order-items-row)) var(--order-divider-size) minmax(0, var(--order-payment-row));
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.order-split-pane {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.order-panel-split .order-items,
+.order-panel-split .order-summary {
+  flex: 1;
+  min-height: 0;
+  overscroll-behavior-y: contain;
+}
+
+.order-panel-split .order-summary {
+  max-height: none;
+  margin-top: 0;
+  border-top: 0;
+}
+
+.order-panel-split .order-items > *,
+.order-panel-split .order-summary > * {
+  flex-shrink: 0;
+}
+
+.order-panel-split .order-items > .empty-cart {
+  height: 48px;
+  padding: 0.5rem 0.75rem;
+  border-width: 1px;
+  border-radius: 6px;
+}
+
+.order-panel-divider {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  cursor: row-resize;
+  touch-action: none;
+  user-select: none;
+  border-radius: 4px;
+}
+
+.order-panel-divider::before,
+.order-panel-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border-color);
+}
+
+.order-panel-divider-grip {
+  width: 36px;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--text-muted);
+}
+
+.order-panel-divider:hover .order-panel-divider-grip,
+.order-panel-divider:focus-visible .order-panel-divider-grip,
+.order-panel-split.is-resizing .order-panel-divider-grip {
+  background: var(--color-primary);
+}
+
+.order-panel-divider:focus-visible {
+  outline: none;
+}
+
+.order-panel-split:not(.is-resizing) .order-panel-divider:focus-visible .order-panel-divider-grip {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 3px;
+}
+
+.pos-order-resizing,
+.pos-order-resizing * {
+  cursor: row-resize !important;
+  user-select: none !important;
+}
+
+@media (pointer: coarse) {
+  .order-section { --order-divider-size: 32px; }
 }
 
 /* Payment method + cash tender: vertical stack so multi-line content

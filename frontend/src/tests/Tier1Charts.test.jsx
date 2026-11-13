@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor, fireEvent, act } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent, act, within } from '@testing-library/react'
 import PaymentMixChart from '../components/analytics/PaymentMixChart'
 import { ChartFactsProvider, useChartFacts, PublishChartFacts } from '../components/analytics/ChartFactsContext'
 import VoucherEffectivenessChart from '../components/analytics/VoucherEffectivenessChart'
@@ -210,7 +210,7 @@ describe('chart explanation controls', () => {
   const [path,options]=apiRequest.mock.calls[0]
   expect(path).toBe('/api/ai-insights/charts/explain');expect(options.body.expected).toEqual([['CASH',100,1]])
   expect(options.body).not.toHaveProperty('prompt')
-  fireEvent.click(screen.getByRole('button',{name:'Hide explanation'}))
+  fireEvent.click(screen.getByRole('button',{name:'Close explanation'}))
   fireEvent.click(screen.getByRole('button',{name:'Explain chart'}))
   expect(apiRequest).toHaveBeenCalledTimes(1)
  })
@@ -258,6 +258,92 @@ describe('chart explanation controls', () => {
    expect(await screen.findByRole('alert')).toHaveTextContent('Connect to the internet')
    expect(apiRequest).not.toHaveBeenCalled()
   } finally {online.mockRestore()}
+ })
+ it('opens outside the chart layout without changing the trigger or scroll styles',async()=>{
+  const view=render(<div className="charts-grid" style={{overflowY:'auto',width:'640px'}}><div className="card">{content()}</div><div className="card" data-testid="neighbor">Neighbor chart</div></div>)
+  const chart=view.container.querySelector('.card'),neighbor=screen.getByTestId('neighbor')
+  const previousNeighbor=neighbor.outerHTML,previousScroll=document.body.style.overflow
+  const button=screen.getByRole('button',{name:'Explain chart'})
+  fireEvent.click(button)
+  const dialog=await screen.findByRole('dialog',{name:'Payment Mix'})
+  expect(dialog.parentElement.parentElement).toBe(document.body)
+  expect(chart).not.toContainElement(dialog)
+  expect(neighbor.outerHTML).toBe(previousNeighbor)
+  expect(button).toHaveTextContent('Explain chart')
+  expect(button).toHaveAttribute('aria-expanded','true')
+  expect(view.container.firstChild.style.width).toBe('640px')
+  expect(view.container.firstChild.style.overflowY).toBe('auto')
+  expect(document.body.style.overflow).toBe(previousScroll)
+  expect(within(dialog).getByRole('heading',{name:'Key findings'})).toBeInTheDocument()
+  expect(within(dialog).getByRole('heading',{name:'Suggested review'})).toBeInTheDocument()
+  expect(dialog.querySelector('details')).not.toHaveAttribute('open')
+  fireEvent.click(within(dialog).getByRole('button',{name:'Done'}))
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  expect(document.body.style.overflow).toBe(previousScroll)
+ })
+ it('traps keyboard focus and restores focus and existing inert state on Escape',async()=>{
+  const existing=document.createElement('div');existing.setAttribute('inert','');document.body.append(existing)
+  const view=render(content())
+  try {
+   const button=screen.getByRole('button',{name:'Explain chart'});button.focus();fireEvent.click(button)
+   const dialog=await screen.findByRole('dialog'),close=within(dialog).getByRole('button',{name:'Close explanation'})
+   expect(close).toHaveFocus()
+   expect(view.container).toHaveAttribute('inert')
+   fireEvent.keyDown(close,{key:'Tab',shiftKey:true})
+   expect(within(dialog).getByRole('button',{name:'Done'})).toHaveFocus()
+   fireEvent.keyDown(document.activeElement,{key:'Tab'})
+   expect(close).toHaveFocus()
+   fireEvent.keyDown(close,{key:'Escape'})
+   expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+   expect(button).toHaveFocus()
+   expect(view.container).not.toHaveAttribute('inert')
+   expect(existing).toHaveAttribute('inert')
+  } finally {existing.remove()}
+ })
+ it('closes on backdrop taps, cancels loading and ignores a late response',async()=>{
+  let resolveOld;apiRequest.mockImplementationOnce(()=>new Promise(resolve=>{resolveOld=resolve}))
+  render(content());const button=screen.getByRole('button',{name:'Explain chart'});fireEvent.click(button)
+  const dialog=screen.getByRole('dialog'),signal=apiRequest.mock.calls[0][1].signal
+  fireEvent.pointerDown(dialog)
+  expect(screen.getByRole('dialog')).toBeInTheDocument()
+  fireEvent.pointerDown(dialog.parentElement)
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  expect(signal.aborted).toBe(true)
+  expect(button).toHaveFocus()
+  await act(async()=>resolveOld(response('gemini','Cancelled result.')))
+  expect(screen.queryByText('Cancelled result.')).not.toBeInTheDocument()
+  fireEvent.click(button)
+  expect(await screen.findByText('Basic summary')).toBeInTheDocument()
+  expect(apiRequest).toHaveBeenCalledTimes(2)
+ })
+ it('keeps only one explanation open and cancels the previous chart request',async()=>{
+  apiRequest.mockImplementationOnce(()=>new Promise(()=>{}))
+  render(<ChartFactsProvider scope={scope}><PublishChartFacts chartId="payment-mix" rows={[]} /><PublishChartFacts chartId="refunds" rows={[]} /><ChartExplanation chartId="payment-mix" /><ChartExplanation chartId="refunds" /></ChartFactsProvider>)
+  const buttons=screen.getAllByRole('button',{name:'Explain chart'})
+  fireEvent.click(buttons[0]);const firstSignal=apiRequest.mock.calls[0][1].signal
+  apiRequest.mockResolvedValueOnce({data:{...response().data,chartId:'refunds'}})
+  // Programmatic activation also must not create stacked modal panels.
+  fireEvent.click(buttons[1])
+  expect(screen.getAllByRole('dialog')).toHaveLength(1)
+  expect(screen.getByRole('dialog',{name:'Refunds'})).toBeInTheDocument()
+  expect(firstSignal.aborted).toBe(true)
+  expect(buttons[0].closest('[inert]')).not.toBeNull()
+  expect(within(screen.getByRole('dialog')).getByRole('button',{name:'Close explanation'})).toHaveFocus()
+  expect(await screen.findByText('Basic summary')).toBeInTheDocument()
+ })
+ it('closes an explanation when switching sections and restores background state on unmount',async()=>{
+  const contentFor=key=><ChartFactsProvider scope={scope} viewKey={key}><PublishChartFacts chartId="payment-mix" rows={[]} /><ChartExplanation chartId="payment-mix" /></ChartFactsProvider>
+  const view=render(contentFor('sales'))
+  fireEvent.click(screen.getByRole('button',{name:'Explain chart'}))
+  await screen.findByText('Basic summary')
+  view.rerender(contentFor('inventory'))
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  expect(view.container).not.toHaveAttribute('inert')
+  fireEvent.click(screen.getByRole('button',{name:'Explain chart'}))
+  expect(screen.getByRole('dialog')).toBeInTheDocument()
+  view.unmount()
+  expect(view.container).not.toHaveAttribute('inert')
+  expect(document.querySelector('.chart-explanation-overlay')).toBeNull()
  })
 })
 

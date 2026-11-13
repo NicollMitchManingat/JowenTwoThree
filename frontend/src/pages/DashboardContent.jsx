@@ -774,7 +774,7 @@ export default function DashboardContent({ activeTab, user, onNavigate }) {
 
   return (
     <ChartFactsProvider scope={{ start: dateRange.start, end: dateRange.end, sessionId: sessionScopeId, detail: granularity,
-      sessionBasis: sessionScopeId ? 'selected_session_calendar_bounds' : null, refreshKey: chartRefreshKey }} onRefresh={refreshCharts}>
+      sessionBasis: sessionScopeId ? 'selected_session_calendar_bounds' : null, refreshKey: chartRefreshKey }} onRefresh={refreshCharts} viewKey={activeGroup}>
     <div ref={pageRef} className="page-content analytics-page">
       <div className="analytics-sticky-bar analytics-group-header">
         <div className="analytics-header-row">

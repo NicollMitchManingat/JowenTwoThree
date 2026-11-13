@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState, u
 import { canonicalChartValue, createChartFacts } from '../../services/chartFacts'
 
 const ChartFactsContext = createContext(null)
+const ChartExplanationContext = createContext(null)
 const subscribeNothing = () => () => {}
 const readNothing = () => null
 
@@ -22,11 +23,15 @@ function createRegistry() {
   }
 }
 
-export function ChartFactsProvider({ scope = {}, children, onRefresh }) {
+export function ChartFactsProvider({ scope = {}, children, onRefresh, viewKey }) {
   const [registry] = useState(createRegistry)
+  const [activeExplanation, setActiveExplanation] = useState(null)
+  const closeExplanation = useCallback(id => setActiveExplanation(active => active === id ? null : active), [])
+  const explanations = useMemo(() => ({ active: activeExplanation, open: setActiveExplanation, close: closeExplanation }), [activeExplanation, closeExplanation])
+  useEffect(() => { setActiveExplanation(null) }, [viewKey])
   const scopeKey = canonicalChartValue(scope)
   const value = useMemo(() => ({ registry, scope: JSON.parse(scopeKey), scopeKey, onRefresh }), [registry, scopeKey, onRefresh])
-  return <ChartFactsContext.Provider value={value}>{children}</ChartFactsContext.Provider>
+  return <ChartFactsContext.Provider value={value}><ChartExplanationContext.Provider value={explanations}>{children}</ChartExplanationContext.Provider></ChartFactsContext.Provider>
 }
 
 export function usePublishChartFacts(input) {
@@ -67,3 +72,4 @@ export function PublishChartFacts(props) {
 
 export const useChartRefreshKey = () => useContext(ChartFactsContext)?.scope.refreshKey || 0
 export const useRefreshCharts = () => useContext(ChartFactsContext)?.onRefresh
+export const useChartExplanation = () => useContext(ChartExplanationContext)

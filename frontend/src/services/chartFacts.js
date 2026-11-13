@@ -85,3 +85,32 @@ export function chartSeries(data, { unit = 'PHP', keys, bases } = {}) {
 }
 
 export const chartMetric = (value, unit, display) => ({ value, unit, ...(display === undefined ? {} : { display }) })
+
+// Compare semantic display values, not locale labels, formatting or fetch times.
+// The server rebuilds this projection from database reads before any AI call.
+export function chartEvidence(facts) {
+  const value = entry => entry && typeof entry === 'object' ? entry.value : entry
+  const rows = facts.rows || [], metrics = facts.metrics || {}
+  switch (facts.chartId) {
+    case 'revenue-trend': case 'weekday-pattern': case 'sales-forecast':
+      return { series: (facts.series || []).map(series => ({ unit: series.unit, basis: series.basis,
+        points: series.points.map(point => [point.key, point.value]) })) }
+    case 'traffic-forecast':
+      return { series: (facts.series || []).map(series => ({ unit: series.unit, basis: series.basis,
+        points: series.points.map(point => [point.key, point.value]) })),
+        hours: rows.map(row => [row.hour, row.samples, row.predictedCustomers]) }
+    case 'payment-mix': return rows.map(row => [row.method, value(row.amount), value(row.transactions)])
+    case 'voucher-effectiveness': return rows.map(row => [row.key, row.name, value(row.discounted), value(row.redemptions)])
+    case 'refunds': return { summary: [value(metrics.count), value(metrics.amount), value(metrics.rate)],
+      rows: rows.map(row => [row.reason, value(row.count), value(row.amount)]) }
+    case 'top-selling': return rows.map(row => [row.name, value(row.sold)])
+    case 'low-stock': return rows.map(row => [row.id, row.name, row.quantity, row.unit, row.unitVersion, row.threshold, row.status])
+    case 'traffic-comparison': return rows.map(row => [row.hour, value(row.recordedCustomers), value(row.transactions)])
+    case 'traffic-heatmap': return rows.map(row => [row.hour, row.customers, row.male, row.female, row.unspecified])
+    case 'recorded-wastage': return rows.map(row => [row.id, row.name, row.unit, row.unitVersion ?? null, row.quantity,
+      row.entries, row.reasons, row.recordedQuantities || [], row.active !== false])
+    case 'inventory-planning': return rows.map(row => [row.id, row.name, row.unit, row.quantity, row.dailyUsage,
+      row.daysCover, row.sevenDayUsage, row.shortage, row.status, row.recommendation])
+    default: throw new Error('Unknown analytics chart')
+  }
+}

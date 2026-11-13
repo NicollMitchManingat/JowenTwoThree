@@ -1,4 +1,4 @@
-import { manilaDay, manilaHour } from '../utils/analyticsTime'
+import { manilaDay, manilaHour } from '../utils/analyticsTime.js'
 
 // Pure aggregation helpers for the Analytics tab. No Supabase calls here —
 // callers fetch once per date range and pass rows in, so every widget shares
@@ -192,4 +192,40 @@ export function refundSummary(txns, refunds) {
     rate: gross > 0 ? (amount / gross) * 100 : 0,
     byReason: [...byReason.values()].sort((a, b) => b.amount - a.amount),
   }
+}
+
+export function aggregateWeeklySales(salesData) {
+  if (!salesData || typeof salesData !== "object") return [];
+  const buckets = new Map();
+  for (const [day, amount] of Object.entries(salesData)) {
+    const d = new Date(`${day}T12:00:00Z`);
+    if (Number.isNaN(d.getTime())) continue;
+    const n = Number(amount);
+    if (!Number.isFinite(n) || n < 0) continue;
+    // ISO week: shift to Thursday, then derive Monday + week number.
+    const tmp = new Date(d);
+    const dayIdx = (tmp.getUTCDay() + 6) % 7; // Mon=0..Sun=6
+    tmp.setUTCDate(tmp.getUTCDate() - dayIdx + 3); // Thursday
+    const isoYear = tmp.getUTCFullYear();
+    const firstThursday = new Date(Date.UTC(isoYear, 0, 4, 12));
+    const fIdx = (firstThursday.getUTCDay() + 6) % 7;
+    firstThursday.setUTCDate(firstThursday.getUTCDate() - fIdx + 3);
+    const weekNum = 1 + Math.round((tmp - firstThursday) / (7 * 24 * 3600 * 1000));
+    const key = `${isoYear}-W${String(weekNum).padStart(2, "0")}`;
+    const monday = new Date(d);
+    monday.setUTCDate(monday.getUTCDate() - dayIdx);
+    const prev = buckets.get(key);
+    if (prev) {
+      prev.total += n;
+      if (monday < prev.weekStart) prev.weekStart = monday;
+    } else {
+      buckets.set(key, { key, weekStart: monday, total: n });
+    }
+  }
+  return [...buckets.values()]
+    .sort((a, b) => a.weekStart - b.weekStart)
+    .map((b) => ({
+      ...b,
+      label: `W${b.key.slice(-2)} ${b.weekStart.toLocaleDateString("en-US", { timeZone: "UTC", month: "short", day: "numeric" })}`,
+    }));
 }

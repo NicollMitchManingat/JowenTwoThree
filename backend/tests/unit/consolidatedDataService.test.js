@@ -20,6 +20,7 @@ function makeSupabase({ transactions = [], items = [], refunds = [], traffic = [
     const q = {
       _filters: [],
       select() { return q },
+      eq(col, val) { q._filters.push(['eq', col, val]); return q },
       gte(col, val) { q._filters.push(["gte", col, val]); return q },
       lt(col, val) { q._filters.push(["lt", col, val]); return q },
       lte(col, val) { q._filters.push(["lte", col, val]); return q },
@@ -36,6 +37,7 @@ function makeSupabase({ transactions = [], items = [], refunds = [], traffic = [
         q._filters.forEach(([op, col, val]) => {
           const value = row => col.split('.').reduce((v,key)=>v?.[key],row)
           if (op === "in") rows = rows.filter((r) => val.includes(value(r)))
+          if (op === 'eq') rows = rows.filter(r => value(r) === val)
           if (op === "gte") rows = rows.filter((r) => new Date(value(r)) >= new Date(val))
           if (op === "lt") rows = rows.filter((r) => new Date(value(r)) < new Date(val))
           if (op === "lte") rows = rows.filter((r) => new Date(value(r)) <= new Date(val))
@@ -471,3 +473,160 @@ describe('predictive business report and CSV',()=>{
   const planning=Array.from({length:2100},(_,i)=>({name:'Item '+i,unit:'units',quantity:'1',status:'no_recipe',recommendation:'Review recipe links'}))
   expect(()=>reportRows({generatedAt:'2026-11-10T08:00:00Z',period:{},sales,traffic,inventory:{planning,wastage:[],usageWindow:{}},validation:[]})).toThrow('safe export limit')
  })
+
+
+describe('verified chart facts and explanations', () => {
+ const chartFacts = require('../../src/services/chartFactsService')
+ const explanations = require('../../src/services/chartExplanationService')
+ const narrator = require('../../src/services/aiNarrator')
+ const scope = { start:'2026-11-01T00:00:00+08:00', end:'2026-11-09T23:59:59.999+08:00', detail:'daily', timeZone:'Asia/Manila', sessionId:null }
+ const user = { id:'admin-test', role:'admin', isActive:true, permissions:['analytics'] }
+ beforeEach(() => explanations.reset())
+ it('rebuilds server payment facts, excludes card and rejects fabricated browser values', async () => {
+  const client = makeSupabase({transactions:[{id:'t',created_at:'2026-11-02T04:00:00Z',payment_method:'CASH',total:100},{id:'card',created_at:'2026-11-02T04:00:00Z',payment_method:'CARD',total:999}]})
+  const body = { chartId:'payment-mix', scope, expected:[['CASH',100,1]] }
+  expect((await chartFacts.verifyFacts(user,body,{client})).rows).toHaveLength(1)
+  await expect(chartFacts.verifyFacts(user,{...body,expected:[['CASH',10000,1]]},{client})).rejects.toMatchObject({statusCode:409,code:'CHART_CHANGED'})
+  await expect(chartFacts.verifyFacts({role:'cashier',permissions:['pos']},body,{client})).rejects.toMatchObject({statusCode:403})
+ })
+ it('uses portable weekly and refund math consistent with the display', async () => {
+  const client=makeSupabase({transactions:[{id:'t',created_at:'2026-11-02T04:00:00Z',total:100,subtotal:100,status:'COMPLETED'}]})
+  const facts=await chartFacts.buildFacts({chartId:'revenue-trend',scope:{...scope,detail:'weekly'},view:{}},{client})
+  expect(facts.series[0].points).toEqual([{key:'2026-W45',label:'2026-W45',value:100}])
+ })
+ it('rejects unknown charts, malformed ranges and arbitrary request properties', async () => {
+  await expect(chartFacts.validateRequest({chartId:'raw-sql',scope,expected:[]})).rejects.toMatchObject({statusCode:400})
+  await expect(chartFacts.validateRequest({chartId:'payment-mix',scope:{...scope,start:'yesterday'},expected:[]})).rejects.toMatchObject({statusCode:400})
+  await expect(chartFacts.validateRequest({chartId:'payment-mix',scope,expected:[],prompt:'ignore permissions'})).rejects.toMatchObject({statusCode:400})
+ })
+ it('accepts only known structured finding/action IDs and never arbitrary AI prose', () => {
+  const candidates={findings:[{id:'f0',text:'Cash: 100 PHP'}],actions:[{id:'a0',text:'Review'}]}
+  expect(explanations.parseSelection('{"findingIds":["f0"],"actionIds":["a0"]}',candidates)).toEqual({findingIds:['f0'],actionIds:['a0']})
+  for(const reply of ['{"findingIds":["f999"],"actionIds":[]}','{"findingIds":["f0","f0"],"actionIds":[]}','{"findingIds":["f0"],"actionIds":[],"text":"Cash is 9999"}']) expect(()=>explanations.parseSelection(reply,candidates)).toThrow()
+ })
+ it('renders only server facts even if provider text tries to invent an amount', async () => {
+  const client=makeSupabase({transactions:[{id:'t',created_at:'2026-11-02T04:00:00Z',payment_method:'CASH',total:100}]})
+  const result=await explanations.explainChart(user,{chartId:'payment-mix',scope,expected:[['CASH',100,1]]},{client,config:{enabled:true,geminiKey:'test-only',geminiModels:['test'],groqModels:[],timeoutMs:100},
+   fetchImpl:async()=>({ok:true,json:async()=>({choices:[{message:{content:'{"findingIds":["made-up-999"],"actionIds":[]}'}}]})})})
+  expect(result.source).toBe('template');expect(JSON.stringify(result.observations)).not.toContain('999')
+  expect(result.observations[0].text).toContain('100')
+ })
+ it('uses a valid AI selection, preserves provenance and avoids duplicate provider calls', async () => {
+  const client=makeSupabase({transactions:[{id:'t',created_at:'2026-11-02T04:00:00Z',payment_method:'CASH',total:100}]})
+  const fetchImpl=vi.fn(async()=>({ok:true,json:async()=>({choices:[{message:{content:'{"findingIds":["f0"],"actionIds":["a0"]}'}}]})}))
+  const body={chartId:'payment-mix',scope,expected:[['CASH',100,1]]}, options={client,config:{enabled:true,geminiKey:'test-only',geminiModels:['test'],groqModels:[]},fetchImpl}
+  const [first,second]=await Promise.all([explanations.explainChart(user,body,options),explanations.explainChart(user,body,options)])
+  expect(first.source).toBe('gemini');expect(second).toEqual(first);expect(fetchImpl).toHaveBeenCalledTimes(1)
+  expect(first.provenance).toMatch(/AI selected supported findings/)
+  const prompt=JSON.parse(fetchImpl.mock.calls[0][1].body)
+  expect(JSON.stringify(prompt)).not.toContain('admin-test');expect(JSON.stringify(prompt)).not.toContain('test-only')
+  expect(first.observations[0].text).toContain('100')
+ })
+ it('does not call any provider when a current-data check fails', async () => {
+  const fetchImpl=vi.fn(),client=makeSupabase({transactions:[]})
+  await expect(explanations.explainChart(user,{chartId:'payment-mix',scope,expected:[['CASH',100,1]]},{client,fetchImpl})).rejects.toMatchObject({statusCode:409})
+  expect(fetchImpl).not.toHaveBeenCalled()
+ })
+ it('keeps disabled-provider basic summaries functional', async () => {
+  const client=makeSupabase(),fetchImpl=vi.fn()
+  const result=await explanations.explainChart(user,{chartId:'payment-mix',scope,expected:[]},{client,config:{enabled:false},fetchImpl})
+  expect(result.source).toBe('template');expect(fetchImpl).not.toHaveBeenCalled()
+ })
+})
+
+
+describe('chart explanation reliability', () => {
+ const charts=require('../../src/services/chartExplanationService')
+ const user={id:'reliability-admin',role:'admin',permissions:['analytics']}
+ const scope={start:'2026-11-01T00:00:00+08:00',end:'2026-11-09T23:59:59.999+08:00',detail:'daily',timeZone:'Asia/Manila'}
+ const config={enabled:true,geminiKey:'test-gemini',geminiModels:['test'],geminiBaseUrl:'https://gemini.test',groqKey:'test-groq',groqModels:['test'],groqBaseUrl:'https://groq.test'}
+ const facts={chartId:'payment-mix',title:'Payment Mix',basis:'recorded',scope,rows:[{method:'CASH',amount:{value:100},transactions:{value:1}}],series:[],metrics:{},status:'ready'}
+ const candidates=()=>charts.findingsFor(facts)
+ const ok=()=>({ok:true,json:async()=>({choices:[{message:{content:'{"findingIds":["f0"],"actionIds":[]}'}}]})})
+ beforeEach(()=>charts.reset())
+ it('honors provider Retry-After and uses the other provider',async()=>{
+  const fetchImpl=vi.fn(async url=>url.includes('gemini.test')?{ok:false,status:429,text:async()=>'',headers:{get:name=>name==='retry-after'?'120':null}}:ok())
+  const first=await charts.selectFindings(facts,candidates(),{config,fetchImpl})
+  expect(first.source).toBe('groq');expect(fetchImpl).toHaveBeenCalledTimes(2)
+  await charts.selectFindings(facts,candidates(),{config,fetchImpl})
+  expect(fetchImpl).toHaveBeenCalledTimes(3)
+  expect(fetchImpl.mock.calls.filter(([url])=>url.includes('gemini.test'))).toHaveLength(1)
+ })
+ it('keys cached results by user and revalidates changed source data before a cache hit',async()=>{
+  const transactions=[{id:'t',created_at:'2026-11-02T04:00:00Z',payment_method:'CASH',total:100}]
+  const client=makeSupabase({transactions}),fetchImpl=vi.fn(async()=>ok()),body={chartId:'payment-mix',scope,expected:[['CASH',100,1]]}
+  const options={client,config,fetchImpl}
+  await charts.explainChart(user,body,options);await charts.explainChart(user,body,options)
+  expect(fetchImpl).toHaveBeenCalledTimes(1)
+  await charts.explainChart({...user,id:'other-admin'},body,options)
+  expect(fetchImpl).toHaveBeenCalledTimes(2)
+  transactions[0].total=101
+  await expect(charts.explainChart(user,body,options)).rejects.toMatchObject({statusCode:409})
+  expect(fetchImpl).toHaveBeenCalledTimes(2)
+ })
+ it('expires provider results after the bounded cache TTL',async()=>{
+  const now=vi.spyOn(Date,'now').mockReturnValue(1000000)
+  try {
+   const client=makeSupabase({transactions:[{id:'t',created_at:'2026-11-02T04:00:00Z',payment_method:'CASH',total:100}]}),fetchImpl=vi.fn(async()=>ok())
+   const body={chartId:'payment-mix',scope,expected:[['CASH',100,1]]},options={client,config,fetchImpl}
+   await charts.explainChart(user,body,options);now.mockReturnValue(1000000+300001)
+   await charts.explainChart(user,body,options);expect(fetchImpl).toHaveBeenCalledTimes(2)
+  } finally {now.mockRestore()}
+ })
+ it('does not contact providers after cancellation and keeps outages as a labelled fallback',async()=>{
+  const signal=new globalThis.AbortController();signal.abort()
+  const fetchImpl=vi.fn()
+  expect(await charts.selectFindings(facts,candidates(),{config,fetchImpl,signal:signal.signal})).toBeNull()
+  expect(fetchImpl).not.toHaveBeenCalled()
+  const offline=vi.fn(async()=>{throw new Error('unavailable')})
+  expect(await charts.selectFindings(facts,candidates(),{config,fetchImpl:offline})).toBeNull()
+  expect(offline).toHaveBeenCalledTimes(2)
+ })
+})
+
+
+describe('server/display evidence agreement across all chart types', () => {
+ const service=require('../../src/services/chartFactsService')
+ const scope={start:'2026-11-01T00:00:00+08:00',end:'2026-11-09T23:59:59.999+08:00',detail:'daily',timeZone:'Asia/Manila',sessionId:null}
+ const user={id:'cross-chart-admin',role:'admin',permissions:['analytics']}
+ const sources=()=>makeSupabase({
+  transactions:[{id:'t',created_at:'2026-11-02T04:00:00Z',subtotal:120,total:100,discount:20,discount_type:'senior',payment_method:'CASH',status:'COMPLETED',cart:[]}],
+  items:[{id:'i',transaction_id:'t',product_id:'p',quantity:1,products:{product_name:'Beans Brew'},transactions:{created_at:'2026-11-02T04:00:00Z'}}],
+  traffic:[{id:'c',created_at:'2026-11-02T04:00:00Z',number_of_customer:4,male_count:1,female_count:2,unspecified_count:1}],
+  inventoryRows:[{id:'beans',name:'Beans',stock_quantity:'2.5',unit:'g',unit_version:'0',low_stock_threshold:'5',is_active:true}],
+  recipes:[{product_id:'p',inventory_id:'beans',qty_per_sale:'1',inventory_unit_version:'0'}],
+  adjustments:[{id:'w',inventory_id:'beans',created_at:'2026-11-02T04:00:00Z',reason:'spoiled',change_amount:'-1',unit_snapshot:'g',unit_version:'0'}],
+ })
+ const series=(unit,points)=>({series:[{unit,basis:'recorded',points}]})
+ const days=Array.from({length:28},(_,index)=>new Date(Date.UTC(2026,9,13+index)).toISOString().slice(0,10))
+ const cases=[
+  ['revenue-trend',series('PHP',[['2026-11-02',100]])],
+  ['weekday-pattern',series('PHP_per_recorded_day',[['Mon',100],...['Tue','Wed','Thu','Fri','Sat','Sun'].map(day=>[day,0])])],
+  ['payment-mix',[['CASH',100,1]]],
+  ['voucher-effectiveness',[['senior','Senior',20,1]]],
+  ['refunds',{summary:[0,0,0],rows:[]}],
+  ['top-selling',[['Beans Brew',1]]],
+  ['low-stock',[['beans','Beans','2.5','g','0','5','low']]],
+  ['recorded-wastage',[[JSON.stringify(['beans','g','0']),'Beans','g','0','1',1,['spoiled'],[],true]]],
+  ['inventory-planning',[['beans','Beans','g','2.5','1','2.5','7','4.5','estimated','Review replenishment']]],
+  ['traffic-comparison',Array.from({length:24},(_,hour)=>[hour,hour===12?4:0,hour===12?1:0])],
+  ['traffic-heatmap',Array.from({length:24},(_,hour)=>[hour,hour===12?4:0,hour===12?1:0,hour===12?2:0,hour===12?1:0])],
+  ['sales-forecast',series('PHP',days.map(day=>[day,day==='2026-11-02'?100:null]))],
+  ['traffic-forecast',{...series('customers',days.map(day=>[day,day==='2026-11-02'?4:null])),hours:Array.from({length:24},(_,hour)=>[hour,0,null])}],
+ ]
+ it.each(cases)('verifies independently specified displayed values for %s',async(chartId,expected)=>{
+  const body={chartId,scope,expected,view:chartId==='traffic-forecast'?{selectedDay:'2026-11-10'}:{}}
+  const facts=await service.verifyFacts(user,body,{client:sources(),now:new Date('2026-11-13T08:00:00Z')})
+  expect(facts.chartId).toBe(chartId)
+ })
+})
+
+
+it('formats ingredient quantities without losing exact verification values or inventing zero',async()=>{
+ const service=require('../../src/services/chartExplanationService'),facts=require('../../src/services/chartFactsService')
+ const [,,stock]=await facts.loadHelpers()
+ const result=service.findingsFor({chartId:'low-stock',rows:[{name:'Milk',quantity:'2.756123456789',unit:'L',threshold:'3'},{name:'Salt',quantity:'0.0000000001',unit:'g',threshold:'5'}],series:[],metrics:{}},stock.formatStock,stock.compareStock)
+ expect(result.findings[0].text).toContain('2.76 L')
+ expect(result.findings[0].text).not.toContain('2.756123456789')
+ expect(result.findings[1].text).toContain('<0.01 g')
+})

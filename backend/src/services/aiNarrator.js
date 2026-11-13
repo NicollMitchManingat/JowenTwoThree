@@ -164,16 +164,19 @@ async function failureDetail(res) {
   let rateLimit = {}
   try {
     const get = (n) => (res && res.headers && typeof res.headers.get === "function" ? res.headers.get(n) : undefined)
-    rateLimit = { limit: get("x-ratelimit-limit"), remaining: get("x-ratelimit-remaining"), reset: get("x-ratelimit-reset") }
+    rateLimit = { limit: get("x-ratelimit-limit"), remaining: get("x-ratelimit-remaining"), reset: get("x-ratelimit-reset"), retryAfter: get('retry-after') }
   } catch {
     // Headers unreadable — return the empty default above.
   }
   return { snippet, rateLimit }
 }
 
-async function callModel({ baseUrl, apiKey, model, system, user, timeoutMs, fetchImpl }) {
+async function callModel({ baseUrl, apiKey, model, system, user, timeoutMs, fetchImpl, parse = parseReply, signal, jsonOutput = false, maxTokens = 120, reasoningEffort }) {
   const fetchFn = fetchImpl || globalThis.fetch
   const controller = new globalThis.AbortController()
+  const cancel = () => controller.abort()
+  if (signal?.aborted) controller.abort()
+  signal?.addEventListener('abort', cancel, { once: true })
   const timer = globalThis.setTimeout(() => controller.abort(), timeoutMs)
   try {
     const res = await fetchFn(`${baseUrl}/chat/completions`, {
@@ -189,7 +192,9 @@ async function callModel({ baseUrl, apiKey, model, system, user, timeoutMs, fetc
           { role: "user", content: user },
         ],
         temperature: 0.2,
-        max_tokens: 120,
+        max_tokens: maxTokens,
+        ...(jsonOutput ? { response_format: { type: 'json_object' } } : {}),
+        ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
       }),
       signal: controller.signal,
     })
@@ -204,9 +209,10 @@ async function callModel({ baseUrl, apiKey, model, system, user, timeoutMs, fetc
       throw error
     }
     const json = await res.json()
-    return parseReply(json && json.choices && json.choices[0] && json.choices[0].message && json.choices[0].message.content)
+    return parse(json && json.choices && json.choices[0] && json.choices[0].message && json.choices[0].message.content)
   } finally {
     globalThis.clearTimeout(timer)
+    signal?.removeEventListener('abort', cancel)
   }
 }
 

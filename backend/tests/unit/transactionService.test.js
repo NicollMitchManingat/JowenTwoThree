@@ -1,6 +1,36 @@
 import { describe, it, expect, beforeEach } from "vitest";
 
-const TransactionService = require("../../src/services/transactionService.js");
+// Exercise the real service with a file-local memory adapter. A unit test must
+// never load local credentials or insert synthetic sales into the live database.
+const records = [];
+const memoryClient = {
+  from(table) {
+    if (table !== 'transactions') throw new Error('Unexpected unit-test table');
+    let inserted, filter;
+    const query = {
+      insert(values) { inserted = values; return query; },
+      select() { return query; },
+      eq(column, value) { filter = [column, value]; return query; },
+      async order() { return { data: [...records].reverse(), error: null }; },
+      async single() {
+        if (inserted) {
+          const row = { id: `unit-${records.length}`, created_at: new Date().toISOString(), ...inserted[0] };
+          records.push(row); return { data: row, error: null };
+        }
+        return { data: records.find(row => row[filter?.[0]] === filter?.[1]) || null, error: null };
+      },
+    };
+    return query;
+  },
+};
+const servicePath = require.resolve('../../src/services/transactionService.js');
+const localRequire = require('node:module').createRequire(servicePath);
+const isolatedModule = { exports: {} };
+const serviceCode = require('node:fs').readFileSync(servicePath, 'utf8');
+const load = require('node:vm').runInThisContext(require('node:module').wrap(serviceCode), { filename: servicePath });
+load(isolatedModule.exports, name => name === '../config/supabaseClient' ? { supabase: memoryClient } : localRequire(name),
+  isolatedModule, servicePath, require('node:path').dirname(servicePath));
+const TransactionService = isolatedModule.exports;
 
 const createBaseProps = () => ({
   cart: [
@@ -28,6 +58,7 @@ const createBaseProps = () => ({
 
 describe("TransactionService", () => {
   beforeEach(() => {
+    records.length = 0;
     TransactionService.clearHistory();
   });
 
@@ -132,6 +163,9 @@ describe("TransactionService", () => {
         receiptId: saved.transaction_number,
         createdAt: saved.created_at,
         customerCount: 2,
+        maleCount: 0,
+        femaleCount: 0,
+        unspecifiedCount: 2,
         items: saved.cart,
         subtotal: 250,
         discountType: "none",

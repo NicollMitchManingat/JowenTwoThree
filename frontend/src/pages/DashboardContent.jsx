@@ -1,4 +1,4 @@
-import { useContext, useEffect, useState, useMemo, useRef, useLayoutEffect } from "react";
+import { useContext, useEffect, useState, useMemo, useRef, useLayoutEffect, useCallback } from "react";
 import { AnalyticsContext } from "./AnalyticsContext";
 import { TrendingUp, AlertTriangle, Package, BarChart3, ShoppingBag, Calendar, ChevronDown, Plus, X, AlertCircle, CheckCircle, Percent, Undo2, Clock, Receipt } from 'lucide-react';
 import { db } from '../services/db';
@@ -6,7 +6,7 @@ import { formatElapsed, loadSessionSummary, HISTORY_PAGE_SIZE } from '../service
 import { productAPI } from '../services/productAPI';
 import { manilaClock, manilaDay, manilaStart, manilaEnd, DAY_MS } from '../utils/analyticsTime';
 import { formatStock, inventoryStatus } from '../utils/formatStock';
-import { netRevenue, paymentMix, voucherStats, refundSummary, customerTotals, bucketHourlySales, aggregateWeekdayPattern } from '../services/salesAnalytics';
+import { netRevenue, paymentMix, voucherStats, refundSummary, customerTotals, bucketHourlySales, aggregateWeekdayPattern, aggregateWeeklySales } from '../services/salesAnalytics';
 
 import SummaryCard from "../components/analytics/SummaryCard";
 import TabMenu, { ANALYTICS_GROUPS } from "../components/analytics/TabMenu";
@@ -27,6 +27,7 @@ import TrafficConversionChart from "../components/analytics/TrafficConversionCha
 import AiInsights, { RESOLVE_TARGETS } from "../components/analytics/AiInsights";
 import { ChartFactsProvider, PublishChartFacts } from '../components/analytics/ChartFactsContext';
 import { chartRequestKey } from '../services/chartFacts';
+import ChartExplanation from '../components/analytics/ChartExplanation';
 
 function getDateRange(filter) {
   const now = manilaClock(), today = manilaDay();
@@ -43,47 +44,13 @@ function formatDateForInput(date) { return manilaDay(date); }
 // Set VITE_API_URL=http://localhost:3001 for local `vite dev` without a proxy.
 const INSIGHTS_API_BASE = import.meta.env.VITE_API_URL || "";
 
-// Temporarily hide forecast UI until its source history is ready for use.
-// Keep the panels available for restoration; AI Insights remains independent.
-const SHOW_FORECASTING = false;
+// Forecast panels retain their server-side recording-support checks. Unsupported
+// projections remain explicitly unavailable; AI never supplies missing values.
+const SHOW_FORECASTING = true;
 
 // Group { 'YYYY-MM-DD': amount } daily sales into ISO-week buckets (Monday start).
 // Returns [{ key: 'YYYY-Www', label: 'Www MMM d', weekStart: Date, total }] sorted by week.
-export function aggregateWeeklySales(salesData) {
-  if (!salesData || typeof salesData !== "object") return [];
-  const buckets = new Map();
-  for (const [day, amount] of Object.entries(salesData)) {
-    const d = new Date(`${day}T12:00:00Z`);
-    if (Number.isNaN(d.getTime())) continue;
-    const n = Number(amount);
-    if (!Number.isFinite(n) || n < 0) continue;
-    // ISO week: shift to Thursday, then derive Monday + week number.
-    const tmp = new Date(d);
-    const dayIdx = (tmp.getUTCDay() + 6) % 7; // Mon=0..Sun=6
-    tmp.setUTCDate(tmp.getUTCDate() - dayIdx + 3); // Thursday
-    const isoYear = tmp.getUTCFullYear();
-    const firstThursday = new Date(Date.UTC(isoYear, 0, 4, 12));
-    const fIdx = (firstThursday.getUTCDay() + 6) % 7;
-    firstThursday.setUTCDate(firstThursday.getUTCDate() - fIdx + 3);
-    const weekNum = 1 + Math.round((tmp - firstThursday) / (7 * 24 * 3600 * 1000));
-    const key = `${isoYear}-W${String(weekNum).padStart(2, "0")}`;
-    const monday = new Date(d);
-    monday.setUTCDate(monday.getUTCDate() - dayIdx);
-    const prev = buckets.get(key);
-    if (prev) {
-      prev.total += n;
-      if (monday < prev.weekStart) prev.weekStart = monday;
-    } else {
-      buckets.set(key, { key, weekStart: monday, total: n });
-    }
-  }
-  return [...buckets.values()]
-    .sort((a, b) => a.weekStart - b.weekStart)
-    .map((b) => ({
-      ...b,
-      label: `W${b.key.slice(-2)} ${b.weekStart.toLocaleDateString("en-US", { timeZone: "UTC", month: "short", day: "numeric" })}`,
-    }));
-}
+export { aggregateWeeklySales } from '../services/salesAnalytics';
 
 export default function DashboardContent({ activeTab, user, onNavigate }) {
   const initialGroup = ANALYTICS_GROUPS.find(group => group.id === activeTab || group.label === activeTab)?.id || 'overview';
@@ -108,6 +75,9 @@ export default function DashboardContent({ activeTab, user, onNavigate }) {
   const [inventoryError, setInventoryError] = useState(null);
   const [inventoryRetryKey, setInventoryRetryKey] = useState(0);
   const [inventoryObservedAt, setInventoryObservedAt] = useState(null);
+  const [inventoryRefreshKey, setInventoryRefreshKey] = useState(null);
+  const [chartRefreshKey, setChartRefreshKey] = useState(0);
+  const refreshCharts = useCallback(() => { setChartRefreshKey(key => key + 1); setInventoryRetryKey(key => key + 1) }, []);
   const [salesData, setSalesData] = useState(null);
   const [salesError, setSalesError] = useState(null);
   const [salesRetryKey, setSalesRetryKey] = useState(0);
@@ -189,6 +159,7 @@ export default function DashboardContent({ activeTab, user, onNavigate }) {
   useEffect(() => {
     let cancelled = false;
     async function loadDiscounts() {
+      setDiscountLoading(true);
       try {
         const list = typeof db.getDiscountsForAnalytics === 'function' ? await db.getDiscountsForAnalytics() : typeof db.getActiveDiscounts === 'function' ? await db.getActiveDiscounts() : [];
         if (!cancelled) { setDiscountList(list || []); setDiscountError(null); }
@@ -200,7 +171,7 @@ export default function DashboardContent({ activeTab, user, onNavigate }) {
     }
     loadDiscounts();
     return () => { cancelled = true; };
-  }, []);
+  }, [chartRefreshKey]);
   const [showAddProductModal, setShowAddProductModal] = useState(false);
   const [addProductForm, setAddProductForm] = useState({ name: '', price: '', category: '' });
   const [productCategories, setProductCategories] = useState([]);
@@ -234,12 +205,13 @@ export default function DashboardContent({ activeTab, user, onNavigate }) {
       if (!cancelled) {
         setLowStock((items || []).filter(item => inventoryStatus(item) !== 'good'));
         setInventoryObservedAt(new Date().toISOString());
+        setInventoryRefreshKey(chartRefreshKey);
       }
     }).catch(err => {
       if (!cancelled) setInventoryError(err.message || 'Failed to load current inventory.');
     }).finally(() => { if (!cancelled) setInventoryLoading(false); });
     return () => { cancelled = true; };
-  }, [inventoryVisited, inventoryRetryKey]);
+  }, [inventoryVisited, inventoryRetryKey, chartRefreshKey]);
 
   // Load sales data for charts when date range changes
   useEffect(() => {
@@ -264,7 +236,7 @@ export default function DashboardContent({ activeTab, user, onNavigate }) {
         setSalesData(dailySales);
         setRangeTxns(txns);
         setRangeRefunds(refunds || []);
-        setSalesSourceKey(chartRequestKey(dateRange.start, dateRange.end));
+        setSalesSourceKey(chartRequestKey(dateRange.start, dateRange.end, chartRefreshKey));
       } catch (err) {
         console.error('Sales data load error:', err);
         if (!cancelled) {
@@ -281,7 +253,7 @@ export default function DashboardContent({ activeTab, user, onNavigate }) {
     return () => {
       cancelled = true;
     };
-  }, [dateRange, salesRetryKey]);
+  }, [dateRange, salesRetryKey, chartRefreshKey]);
 
   // Chronological hourly buckets derived from the shared range fetch
   // (no second Supabase scan). Each clock hour is its own point.
@@ -406,7 +378,7 @@ export default function DashboardContent({ activeTab, user, onNavigate }) {
   const mix = useMemo(() => paymentMix(rangeTxns), [rangeTxns]);
   const vouchers = useMemo(() => voucherStats(rangeTxns, discountList), [rangeTxns, discountList]);
   const refundInfo = useMemo(() => refundSummary(rangeTxns, rangeRefunds), [rangeTxns, rangeRefunds]);
-  const salesFactsStatus = salesError ? 'error' : loading || !salesData || salesSourceKey !== chartRequestKey(dateRange.start, dateRange.end) ? 'loading' : 'ready';
+  const salesFactsStatus = salesError ? 'error' : loading || !salesData || salesSourceKey !== chartRequestKey(dateRange.start, dateRange.end, chartRefreshKey) ? 'loading' : 'ready';
   const sortedLowStock = useMemo(() => [...lowStock].sort((a, b) => Number(a.stock_quantity) - Number(b.stock_quantity)), [lowStock]);
 
   // Reconnect retries the sales load silently (no skeleton flash when data
@@ -531,6 +503,7 @@ export default function DashboardContent({ activeTab, user, onNavigate }) {
         <div className="card analytics-chart-card">
           <div className="card-header">
             <h3 className="m-0">Revenue Trend{granularity === 'hourly' ? ' (Hourly)' : granularity === 'weekly' ? ' (Weekly)' : ''}</h3>
+            <ChartExplanation chartId="revenue-trend" />
           </div>
           {granularity === 'hourly' && hourlySpanDays > 7 && (
             <p className="text-sm text-muted analytics-chart-note" data-testid="hourly-range-hint">
@@ -554,6 +527,7 @@ export default function DashboardContent({ activeTab, user, onNavigate }) {
         <div className="card analytics-chart-card">
           <div className="card-header">
             <h3 className="m-0">Weekday Pattern</h3>
+            <ChartExplanation chartId="weekday-pattern" />
           </div>
           <div className="chart-container analytics-chart-area">
             <SalesTrendChart
@@ -575,6 +549,7 @@ export default function DashboardContent({ activeTab, user, onNavigate }) {
         <div className="card analytics-chart-card">
           <div className="card-header">
             <h3 className="m-0">Payment Mix</h3>
+            <ChartExplanation chartId="payment-mix" />
           </div>
           <div className="chart-container analytics-chart-area">
             <PaymentMixChart mix={mix} factsStatus={salesFactsStatus} />
@@ -583,6 +558,7 @@ export default function DashboardContent({ activeTab, user, onNavigate }) {
         <div className="card analytics-chart-card">
           <div className="card-header">
             <h3 className="m-0">Voucher Effectiveness</h3>
+            <ChartExplanation chartId="voucher-effectiveness" />
           </div>
           <div className="chart-container analytics-chart-area">
             {discountError ? <p role="alert">{discountError}</p> : <VoucherEffectivenessChart stats={vouchers} factsStatus={discountLoading ? 'loading' : salesFactsStatus} />}
@@ -594,6 +570,7 @@ export default function DashboardContent({ activeTab, user, onNavigate }) {
         <div className="card analytics-chart-card analytics-chart-card--wide">
           <div className="card-header">
             <h3 className="m-0">Refunds</h3>
+            <ChartExplanation chartId="refunds" />
           </div>
           <div className="chart-container analytics-chart-area">
             <RefundInsights summary={refundInfo} factsStatus={salesFactsStatus} />
@@ -608,6 +585,7 @@ export default function DashboardContent({ activeTab, user, onNavigate }) {
         <div className="card analytics-chart-card">
           <div className="card-header">
             <h3 className="m-0">Top-Selling Products</h3>
+            <ChartExplanation chartId="top-selling" />
           </div>
           <div className="chart-container analytics-chart-area">
             <StockMovementChart startDate={dateRange?.start} endDate={dateRange?.end} />
@@ -615,7 +593,7 @@ export default function DashboardContent({ activeTab, user, onNavigate }) {
         </div>
       <div className="card">
         <PublishChartFacts chartId="low-stock"
-          status={inventoryError ? 'error' : inventoryLoading || !inventoryObservedAt ? 'loading' : sortedLowStock.length ? 'ready' : 'empty'}
+          status={inventoryError ? 'error' : inventoryLoading || !inventoryObservedAt || inventoryRefreshKey !== chartRefreshKey ? 'loading' : sortedLowStock.length ? 'ready' : 'empty'}
           rows={sortedLowStock.map(item => ({ id: item.id, name: item.name, quantity: String(item.stock_quantity),
             displayedQuantity: Number(item.stock_quantity) <= 0 ? 'Out of stock' : formatStock(item.stock_quantity, { maximumFractionDigits: 2 }) + ' left',
             unit: item.unit || null, unitVersion: item.unit_version ?? null,
@@ -623,6 +601,7 @@ export default function DashboardContent({ activeTab, user, onNavigate }) {
           coverage={{ observedAt: inventoryObservedAt }} limitations={['These are current balances, not stock at the selected historical date. Quantities in different units cannot be added.']} />
         <div className="card-header">
           <h3 className="m-0">Low Stock Alerts</h3>
+          <ChartExplanation chartId="low-stock" />
         </div>
         <div className="card-body">
           <div className="stock-list">
@@ -664,6 +643,7 @@ export default function DashboardContent({ activeTab, user, onNavigate }) {
         <div className="card analytics-chart-card">
           <div className="card-header">
             <h3 className="m-0">Recorded Customers vs Transactions</h3>
+            <ChartExplanation chartId="traffic-comparison" />
           </div>
           <div className="chart-container analytics-chart-area">
             <TrafficConversionChart startDate={dateRange?.start} endDate={dateRange?.end} />
@@ -671,6 +651,7 @@ export default function DashboardContent({ activeTab, user, onNavigate }) {
         </div>        <div className="card analytics-chart-card">
           <div className="card-header">
             <h3 className="m-0">Customer Traffic Heatmap</h3>
+            <ChartExplanation chartId="traffic-heatmap" />
           </div>
           <div className="chart-container analytics-chart-area">
             <CustomerTrafficHeatmap startDate={dateRange?.start} endDate={dateRange?.end} />
@@ -793,7 +774,7 @@ export default function DashboardContent({ activeTab, user, onNavigate }) {
 
   return (
     <ChartFactsProvider scope={{ start: dateRange.start, end: dateRange.end, sessionId: sessionScopeId, detail: granularity,
-      sessionBasis: sessionScopeId ? 'selected_session_calendar_bounds' : null }}>
+      sessionBasis: sessionScopeId ? 'selected_session_calendar_bounds' : null, refreshKey: chartRefreshKey }} onRefresh={refreshCharts}>
     <div ref={pageRef} className="page-content analytics-page">
       <div className="analytics-sticky-bar analytics-group-header">
         <div className="analytics-header-row">

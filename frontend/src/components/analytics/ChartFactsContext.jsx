@@ -22,10 +22,10 @@ function createRegistry() {
   }
 }
 
-export function ChartFactsProvider({ scope = {}, children }) {
+export function ChartFactsProvider({ scope = {}, children, onRefresh }) {
   const [registry] = useState(createRegistry)
   const scopeKey = canonicalChartValue(scope)
-  const value = useMemo(() => ({ registry, scope: JSON.parse(scopeKey), scopeKey }), [registry, scopeKey])
+  const value = useMemo(() => ({ registry, scope: JSON.parse(scopeKey), scopeKey, onRefresh }), [registry, scopeKey, onRefresh])
   return <ChartFactsContext.Provider value={value}>{children}</ChartFactsContext.Provider>
 }
 
@@ -64,3 +64,6 @@ export function PublishChartFacts(props) {
   usePublishChartFacts(props)
   return null
 }
+
+export const useChartRefreshKey = () => useContext(ChartFactsContext)?.scope.refreshKey || 0
+export const useRefreshCharts = () => useContext(ChartFactsContext)?.onRefresh

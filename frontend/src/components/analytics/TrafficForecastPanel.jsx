@@ -4,8 +4,9 @@ import { apiRequest } from '../../services/apiClient'
 import { manilaStart, manilaDay } from '../../utils/analyticsTime'
 import SalesTrendChart from './SalesTrendChart'
 import { formatHour } from './CustomerTrafficHeatmap'
-import { usePublishChartFacts } from './ChartFactsContext'
+import { usePublishChartFacts, useChartRefreshKey } from './ChartFactsContext'
 import { chartRequestKey, chartSeries, chartMetric } from '../../services/chartFacts'
+import ChartExplanation from './ChartExplanation'
 
 const dateLabel = date => manilaStart(date).toLocaleDateString('en-PH', { timeZone: 'Asia/Manila', month: 'short', day: 'numeric' })
 const count = value => Number(value).toLocaleString('en-PH')
@@ -16,7 +17,8 @@ export default function TrafficForecastPanel({ asOf }) {
   const [result, setResult] = useState(null), [error, setError] = useState(null)
   const [loading, setLoading] = useState(true), [retry, setRetry] = useState(0), [selected, setSelected] = useState('')
   const [sourceKey, setSourceKey] = useState(null)
-  const requestKey = chartRequestKey(asOf ?? null)
+  const refreshKey = useChartRefreshKey()
+  const requestKey = chartRequestKey(asOf ?? null, refreshKey);
   useEffect(() => {
     const controller = new AbortController(), timer = setTimeout(() => controller.abort(), 8000)
     let cancelled = false
@@ -44,7 +46,7 @@ export default function TrafficForecastPanel({ asOf }) {
     }
     load()
     return () => { cancelled = true; clearTimeout(timer); controller.abort() }
-  }, [asOf, retry])
+  }, [asOf, retry, refreshKey])
   const chartData = useMemo(() => result && ({
     labels: [...result.history, ...result.forecast].map(row => dateLabel(row.date)),
     datasets: [{ label: 'Recorded customers', data: [...result.history.map(row => row.customers), ...result.forecast.map(() => null)],
@@ -69,7 +71,7 @@ export default function TrafficForecastPanel({ asOf }) {
   const hoursLabel = hours => hours.map(formatHour).join(', ')
   return <><div className="card analytics-forecast-card" data-testid="traffic-forecast-panel">
     <div className="card-header"><h3 className="m-0">Customer Traffic Forecast</h3>
-      {result?.historical && <span className="badge badge-warning">Historical forecast</span>}</div>
+      {result?.historical && <span className="badge badge-warning">Historical forecast</span>}<ChartExplanation chartId="traffic-forecast" /></div>
     <div className="card-body analytics-forecast-body">
       {loading ? <p role="status">Loading traffic forecast...</p> : error ? <div role="alert"><p>{error}</p>
         <button type="button" className="btn btn-secondary" onClick={() => setRetry(n => n + 1)}>Retry traffic forecast</button></div> : result && <>
@@ -81,7 +83,7 @@ export default function TrafficForecastPanel({ asOf }) {
         </div>
         <p className="text-sm text-muted">{result.notice}</p>
         <p className="text-sm text-muted">Based on the period end, using complete Manila days only. Predictions stay separate from actual customer totals. Checkout traffic is included once; transactions are not added again.</p>
-        {result.status === 'insufficient_history' && <p role="status" className="font-semibold">Insufficient history for a seven-day daily forecast.</p>}
+        {result.status === 'insufficient_history' && <div role="status"><span className="badge badge-warning">Forecast unavailable</span><p className="font-semibold">Insufficient history for a seven-day daily forecast.</p></div>}
         <div className="chart-container analytics-forecast-chart"><SalesTrendChart data={chartData} valueType="count" showLegend showSummary={false} allowZeroValues /></div>
         <div className="analytics-traffic-forecast-heading"><h4>Expected hourly traffic</h4>
           <label>Forecast day <select className="form-input" value={selected} onChange={event => setSelected(event.target.value)} aria-label="Forecast day">

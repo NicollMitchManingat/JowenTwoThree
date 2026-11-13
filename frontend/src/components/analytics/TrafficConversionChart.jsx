@@ -10,7 +10,7 @@ import {
 import { Bar } from "react-chartjs-2";
 import { db } from "../../services/db";
 import { formatHour } from "./CustomerTrafficHeatmap";
-import { usePublishChartFacts } from './ChartFactsContext';
+import { usePublishChartFacts, useChartRefreshKey } from './ChartFactsContext';
 import { chartRequestKey, chartMetric } from '../../services/chartFacts';
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Tooltip, Legend);
@@ -41,7 +41,8 @@ export default function TrafficConversionChart({ startDate, endDate }) {
   const [error, setError] = useState(null);
   const [retryKey, setRetryKey] = useState(0);
   const [sourceKey, setSourceKey] = useState(null);
-  const requestKey = chartRequestKey(startDate ?? null, endDate ?? null);
+  const refreshKey = useChartRefreshKey()
+  const requestKey = chartRequestKey(startDate ?? null, endDate ?? null, refreshKey);
 
   useEffect(() => {
     let cancelled = false;
@@ -65,7 +66,7 @@ export default function TrafficConversionChart({ startDate, endDate }) {
     return () => {
       cancelled = true;
     };
-  }, [startDate, endDate, retryKey]);
+  }, [startDate, endDate, retryKey, refreshKey]);
 
   const rows = Array.isArray(hourly) ? hourly : [];
   const walkIns = rows.reduce((s, h) => s + (Number(h.walkIns) || 0), 0);

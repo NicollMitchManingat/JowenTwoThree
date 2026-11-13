@@ -1,4 +1,5 @@
 const aiNarrator = require("../services/aiNarrator")
+const chartExplanations = require('../services/chartExplanationService')
 
 function validInsight(body) {
   return (
@@ -31,4 +32,20 @@ async function explainInsight(req, res) {
 
 module.exports = {
   explainInsight,
+  async explainChart(req, res, next) {
+    const controller = new globalThis.AbortController()
+    const cancel = () => { if (!res.writableFinished) controller.abort() }
+    req.on('aborted', cancel); res.on('close', cancel)
+    const timeout = globalThis.setTimeout(() => controller.abort(), 18000)
+    const aborted = new Promise((_resolve, reject) => controller.signal.addEventListener('abort', () => reject(Object.assign(new Error('Chart explanation timed out.'), { statusCode: 504 })), { once: true }))
+    try {
+      const data = await Promise.race([chartExplanations.explainChart(req.user, req.body, { signal: controller.signal }), aborted])
+      if (!controller.signal.aborted) res.json({ data })
+      else if (!res.destroyed) res.status(504).json({ error: 'Chart explanation timed out. Try again.' })
+    } catch (err) {
+      if (res.destroyed) return
+      if (err.statusCode === 499 && !res.destroyed) res.status(504).json({ error: 'Chart explanation timed out. Try again.' })
+      else next(err)
+    } finally { globalThis.clearTimeout(timeout); req.off('aborted', cancel); res.off('close', cancel) }
+  },
 }

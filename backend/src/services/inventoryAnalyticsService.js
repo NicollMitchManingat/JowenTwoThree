@@ -131,7 +131,7 @@ function buildInventoryAnalytics({ inventory, recipes, transactions, items, adju
   }
 }
 
-async function getInventoryAnalytics({ start, end, client, now = new Date() } = {}) {
+async function getInventoryAnalytics({ start, end, client, now = new Date(), signal } = {}) {
   const timestamp = value => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})$/.test(value) && Number.isFinite(new Date(value).getTime())
   if ((start !== undefined && !timestamp(start)) || (end !== undefined && !timestamp(end))) throw Object.assign(new Error('Provide valid start/end timestamps with a timezone.'), { statusCode: 400 })
   const stop = new Date(Math.min(end ? new Date(end).getTime() : now.getTime(), now.getTime()))
@@ -143,13 +143,14 @@ async function getInventoryAnalytics({ start, end, client, now = new Date() } = 
   const usageFrom = new Date(usageUntil.getTime() - 28 * DAY_MS)
   const database = client !== undefined ? client : require('../config/supabaseClient').supabase
   if (!database) throw unavailable()
-  const read = (label, build) => readAll(build, { label })
+  const cancellable = query => signal && query.abortSignal ? query.abortSignal(signal) : query
+  const read = (label, build) => readAll((a, b) => cancellable(build(a, b)), { label })
   const [inventory, recipes, transactions, items, adjustments] = await Promise.all([
-    read('Inventory', (a, b) => units.readUnitRows(versioned => database.from('inventory').select(units.inventoryColumns(versioned)).order('id').range(a, b))),
+    read('Inventory', (a, b) => units.readUnitRows(versioned => cancellable(database.from('inventory').select(units.inventoryColumns(versioned)).order('id').range(a, b)))),
     read('Recipes', (a, b) => database.from('product_recipes').select('product_id,inventory_id,qty_per_sale:qty_per_sale::text,inventory_unit_version:inventory_unit_version::text').order('product_id').order('inventory_id').range(a, b)),
     read('Sales', (a, b) => database.from('transactions').select('id,created_at,cart').gte('created_at', usageFrom.toISOString()).lt('created_at', usageUntil.toISOString()).order('id').range(a, b)),
     read('Sold items', (a, b) => database.from('transaction_items').select('id,transaction_id,product_id,quantity,transactions!inner(created_at)').gte('transactions.created_at', usageFrom.toISOString()).lt('transactions.created_at', usageUntil.toISOString()).order('id').range(a, b)),
-    read('Wastage', (a, b) => units.readUnitRows(versioned => database.from('inventory_adjustments').select('id,inventory_id,created_at,reason,change_amount:change_amount::text' + (versioned ? ',unit_snapshot,unit_version:unit_version::text' : '')).gte('created_at', first.toISOString()).lte('created_at', stop.toISOString()).order('id').range(a, b))),
+    read('Wastage', (a, b) => units.readUnitRows(versioned => cancellable(database.from('inventory_adjustments').select('id,inventory_id,created_at,reason,change_amount:change_amount::text' + (versioned ? ',unit_snapshot,unit_version:unit_version::text' : '')).gte('created_at', first.toISOString()).lte('created_at', stop.toISOString()).order('id').range(a, b)))),
   ])
   return buildInventoryAnalytics({ inventory, recipes, transactions, items, adjustments,
     usageWindow: { from: dayKey(usageFrom), through: dayKey(new Date(usageUntil.getTime() - 1)), calendarDays: 28 },

@@ -3,8 +3,9 @@ import { useEffect, useMemo, useState } from 'react'
 import { apiRequest } from '../../services/apiClient'
 import { manilaStart } from '../../utils/analyticsTime'
 import SalesTrendChart, { formatPeso } from './SalesTrendChart'
-import { usePublishChartFacts } from './ChartFactsContext'
+import { usePublishChartFacts, useChartRefreshKey } from './ChartFactsContext'
 import { chartRequestKey, chartSeries, chartMetric } from '../../services/chartFacts'
+import ChartExplanation from './ChartExplanation'
 
 const dateLabel = date => manilaStart(date).toLocaleDateString('en-PH', {
   timeZone: 'Asia/Manila', month: 'short', day: 'numeric',
@@ -16,7 +17,8 @@ export default function SalesForecastPanel({ asOf }) {
   const [loading, setLoading] = useState(true)
   const [retry, setRetry] = useState(0)
   const [sourceKey, setSourceKey] = useState(null)
-  const requestKey = chartRequestKey(asOf ?? null)
+  const refreshKey = useChartRefreshKey()
+  const requestKey = chartRequestKey(asOf ?? null, refreshKey);
 
   useEffect(() => {
     const controller = new AbortController()
@@ -47,7 +49,7 @@ export default function SalesForecastPanel({ asOf }) {
     }
     load()
     return () => { cancelled = true; clearTimeout(timer); controller.abort() }
-  }, [asOf, retry])
+  }, [asOf, retry, refreshKey])
 
   const chartData = useMemo(() => {
     if (!result) return null
@@ -79,6 +81,7 @@ export default function SalesForecastPanel({ asOf }) {
   return <><div className="card analytics-forecast-card" data-testid="sales-forecast-panel">
     <div className="card-header"><h3 className="m-0">Sales Forecast</h3>
       {result?.historical && <span className="badge badge-warning">Historical forecast</span>}
+      <ChartExplanation chartId="sales-forecast" />
     </div>
     <div className="card-body analytics-forecast-body">
       {loading ? <p role="status">Loading sales forecast...</p> : error ?
@@ -95,7 +98,7 @@ export default function SalesForecastPanel({ asOf }) {
           </div>
           <p className="text-sm text-muted" data-testid="sales-forecast-notice">{result.notice}</p>
           <p className="text-sm text-muted">Based on the period end, using complete days only. Predictions are separate from actual revenue totals.</p>
-          {result.status === 'insufficient_history' && <p role="status" className="font-semibold">Insufficient history for a seven-day forecast.</p>}
+          {result.status === 'insufficient_history' && <div role="status"><span className="badge badge-warning">Forecast unavailable</span><p className="font-semibold">Insufficient history for a seven-day forecast.</p></div>}
           <div className="chart-container analytics-forecast-chart">
             <SalesTrendChart data={chartData} showLegend showSummary={false} allowZeroValues />
           </div>

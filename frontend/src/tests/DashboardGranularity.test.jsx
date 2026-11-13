@@ -42,9 +42,13 @@ const TXNS = [
 ]
 
 function setup() {
-  apiRequest.mockResolvedValue({data:{status:'insufficient_history',total:null,forecast:[],history:[],
-    generatedAt:'2026-11-02T02:00:00Z',method:{label:'Same-weekday moving average',windowDays:28,occurrences:4},
-    training:{from:'2026-10-05',through:'2026-11-01',observedDays:0,missingDays:28},dataQuality:{complete:true},notice:'Insufficient history.'}})
+  apiRequest.mockImplementation(async url => {
+    const base={status:'insufficient_history',total:null,forecast:[],history:[],generatedAt:'2026-11-10T02:00:00Z',method:{label:'Same-weekday moving average',windowDays:28,occurrences:4},training:{from:'2026-10-13',through:'2026-11-09',observedDays:0,missingDays:28},dataQuality:{complete:true},notice:'Insufficient history.'}
+    if(url.includes('/consolidated-data/inventory')) return {data:{planning:[],wastage:[],usageWindow:{from:'2026-10-13',through:'2026-11-09',recordedSalesDays:0},dataQuality:{complete:true}}}
+    if(url.includes('/customer-traffic/forecast')) return {data:{...base,hourlyForecast:Array.from({length:7},(_,index)=>({date:'2026-11-'+(10+index),hours:Array.from({length:24},(_,hour)=>({hour,samples:0,predictedCustomers:null})),staffing:{supportedHours:0,peakHours:[],leanHours:[]}}))}}
+    if(url.includes('/consolidated-data/predictive')) return {data:{schemaVersion:1,generatedAt:base.generatedAt,period:{},forecastThrough:'2026-11-09',dataQuality:{complete:true},summary:{salesStatus:'insufficient_history',salesTotal:null,trafficStatus:'insufficient_history',trafficTotal:null,inventoryItems:0,salesScoredDays:0,trafficScoredDays:0},notes:['Insufficient recording history.'],rows:[{section:'Sales',basis:'Limitation',metric:'Recording coverage',value:null,status:'Insufficient history'}],export:{filename:'predictive-report-2026-11-10.csv',csv:'data'}}}
+    return {data:base}
+  })
   db.getTodayStats.mockResolvedValue({ totalCustomers: 0 })
   db.getInventoryStatus.mockResolvedValue([])
   db.getAdjustments.mockResolvedValue([])
@@ -252,9 +256,9 @@ describe('DashboardContent granularity', () => {
       expect(screen.getAllByTestId('sales-summary').some((s) => /Best day/.test(s.textContent))).toBe(true)
     })
     expect(screen.getByRole('heading', { name: 'Refunds' })).toBeVisible()
-    expect(screen.queryByTestId('sales-forecast-panel')).not.toBeInTheDocument()
-    expect(screen.queryByTestId('sales-forecast-validation')).not.toBeInTheDocument()
-    expect(apiRequest.mock.calls.some(([url]) => url.includes('/api/predictive-forecast'))).toBe(false)
+    expect(screen.getByTestId('sales-forecast-panel')).toBeInTheDocument()
+    expect(screen.getByTestId('sales-forecast-validation')).toBeInTheDocument()
+    expect(apiRequest.mock.calls.some(([url]) => url.includes('/api/predictive-forecast'))).toBe(true)
   })
 
   it('should mark out-of-stock rows danger and low rows warning', async () => {
@@ -335,7 +339,7 @@ describe('DashboardContent granularity', () => {
   })
 })
 
- it('keeps historical traffic charts without mounting or requesting forecasts',async()=>{
+ it('keeps historical traffic charts first and marks unsupported forecasts unavailable',async()=>{
    vi.clearAllMocks()
    setup()
    render(<AnalyticsProvider><DashboardContent user={{role:'admin'}} /></AnalyticsProvider>)
@@ -344,12 +348,12 @@ describe('DashboardContent granularity', () => {
    expect(screen.getByRole('heading',{name:'Recorded Customers vs Transactions'})).toBeVisible()
    fireEvent.click(screen.getByRole('tab',{name:'Overview'}))
    fireEvent.click(screen.getByRole('tab',{name:'Customer Traffic'}))
-   expect(screen.queryByTestId('traffic-forecast-panel')).not.toBeInTheDocument()
-   expect(screen.queryByTestId('traffic-forecast-validation')).not.toBeInTheDocument()
-   expect(apiRequest.mock.calls.some(([url])=> /\/api\/customer-traffic\/(forecast|validation)/.test(url))).toBe(false)
+   expect(screen.getByTestId('traffic-forecast-panel')).toBeInTheDocument()
+   expect(screen.getByTestId('traffic-forecast-validation')).toBeInTheDocument()
+   expect(apiRequest.mock.calls.some(([url])=> /\/api\/customer-traffic\/forecast/.test(url))).toBe(true)
  })
 
- it('keeps historical reports and sessions without a predictive report or export',async()=>{
+ it('keeps historical reports and sessions with an explicitly separate predictive report',async()=>{
   vi.clearAllMocks()
   setup()
   vi.stubGlobal('fetch',vi.fn(()=>Promise.resolve({ok:true,json:async()=>({data:{summary:{},rows:[],categories:[],meta:{dataSource:'live'}}})})))
@@ -359,13 +363,13 @@ describe('DashboardContent granularity', () => {
   expect(screen.getByRole('heading', {name:'Sessions'})).toBeVisible()
   fireEvent.click(screen.getByRole('tab',{name:'Overview'}))
   fireEvent.click(screen.getByRole('tab',{name:'Reports & Sessions'}))
-  expect(screen.queryByTestId('predictive-report')).not.toBeInTheDocument()
-  expect(screen.queryByRole('button',{name:'Export full predictive CSV'})).not.toBeInTheDocument()
-  expect(apiRequest.mock.calls.some(([url])=>url.includes('/api/consolidated-data/predictive'))).toBe(false)
+  expect(screen.getByTestId('predictive-report')).toBeInTheDocument()
+  expect(screen.getByRole('button',{name:'Export full predictive CSV'})).toBeInTheDocument()
+  expect(apiRequest.mock.calls.some(([url])=>url.includes('/api/consolidated-data/predictive'))).toBe(true)
   vi.unstubAllGlobals()
  })
 
- it('keeps recorded wastage in Inventory while hiding stock-cover projections',async()=>{
+ it('keeps recorded wastage before the separate current-recipe scenario',async()=>{
   vi.clearAllMocks()
   setup()
   apiRequest.mockResolvedValue({data:{planning:[{id:'milk',name:'Milk',unit:'L',quantity:'2',sevenDayUsage:'7',shortage:'5',recommendation:'Review replenishment'}],
@@ -375,9 +379,9 @@ describe('DashboardContent granularity', () => {
   expect(await screen.findByRole('heading',{name:'Recorded Wastage'})).toBeVisible()
   expect(screen.getByRole('heading',{name:'Top-Selling Products'})).toBeVisible()
   expect(screen.getByRole('heading',{name:'Low Stock Alerts'})).toBeVisible()
-  expect(screen.queryByRole('heading',{name:'Ingredient Usage & Stock Cover'})).not.toBeInTheDocument()
-  expect(screen.queryByRole('table',{name:'Ingredient usage estimates'})).not.toBeInTheDocument()
-  expect(screen.queryByText('Review replenishment')).not.toBeInTheDocument()
+  expect(screen.getByRole('heading',{name:'Ingredient Usage & Stock Cover'})).toBeInTheDocument()
+  expect(screen.getByRole('table',{name:'Ingredient usage estimates'})).toBeInTheDocument()
+  expect(screen.getByText('Review replenishment')).toBeInTheDocument()
  })
 
  it('opens each section at the top of the page while preserving filters and chart detail',async()=>{
@@ -433,7 +437,7 @@ it('publishes the displayed revenue, weekday averages and current-stock facts wi
     expect(stock.rows[0]).toMatchObject({ quantity: '2.756123456789', displayedQuantity: '2.76 left', unit: 'L', unitVersion: '9007199254740993' })
     expect(stock.coverage.observedAt).toMatch(/^\d{4}-/)
     expect(screen.getByText('2.76 left')).toBeInTheDocument()
-    expect(apiRequest.mock.calls.some(([url]) => /forecast|predictive|explain/.test(url))).toBe(false)
+    expect(apiRequest.mock.calls.some(([url]) => /charts\/explain/.test(url))).toBe(false)
   } finally { spy.mockRestore() }
 })
 

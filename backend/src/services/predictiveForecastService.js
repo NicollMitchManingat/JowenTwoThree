@@ -3,12 +3,14 @@ const { buildSalesForecast } = require('./salesForecastMath')
 const { netDailySales } = require('./insightsService')
 const config = require('./insightsConfig')
 
-async function readSalesHistory(client, from, until) {
+async function readSalesHistory(client, from, until, signal) {
   const supabase = client !== undefined ? client : require('../config/supabaseClient').supabase
   if (!supabase) throw Object.assign(new Error('Sales forecast data is unavailable. Please retry.'), { statusCode: 503 })
-  const read = (table, columns) => readAll((start, stop) => supabase.from(table).select(columns)
-    .gte('created_at', from.toISOString()).lt('created_at', until.toISOString())
-    .order('created_at').order('id').range(start, stop), { label: 'Sales forecast' })
+  const read = (table, columns) => readAll((start, stop) => {
+    const query = supabase.from(table).select(columns).gte('created_at', from.toISOString()).lt('created_at', until.toISOString())
+      .order('created_at').order('id').range(start, stop)
+    return signal && query.abortSignal ? query.abortSignal(signal) : query
+  }, { label: 'Sales forecast' })
   const [transactions, refunds] = await Promise.all([
     read('transactions', 'id,created_at,total,status'),
     read('refunds', 'id,transaction_id,created_at,refund_amount'),
@@ -21,7 +23,7 @@ async function readSalesHistory(client, from, until) {
   return { transactions: inWindow(transactions), refunds: inWindow(refunds) }
 }
 
-async function getSalesForecast({ asOf, client, now = new Date() } = {}) {
+async function getSalesForecast({ asOf, client, now = new Date(), signal } = {}) {
   const today = dayStart(now)
   if (!today) throw new Error('Forecast clock is unavailable.')
   const requested = asOf === undefined ? today : calendarStart(asOf)
@@ -30,7 +32,7 @@ async function getSalesForecast({ asOf, client, now = new Date() } = {}) {
   const end = requested < today ? requested : new Date(today.getTime() - DAY_MS)
   const from = new Date(end.getTime() - (config.TRAILING_DAYS - 1) * DAY_MS)
   const until = new Date(end.getTime() + DAY_MS)
-  const { transactions, refunds } = await readSalesHistory(client, from, until)
+  const { transactions, refunds } = await readSalesHistory(client, from, until, signal)
   return {
     ...buildSalesForecast(netDailySales(transactions, refunds), dayKey(end), config),
     generatedAt: new Date(now).toISOString(),

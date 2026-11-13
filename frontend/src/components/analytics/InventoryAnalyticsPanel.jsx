@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
 import { apiRequest } from '../../services/apiClient'
 import { compareStock, formatStock } from '../../utils/formatStock'
-import { usePublishChartFacts } from './ChartFactsContext'
+import { usePublishChartFacts, useChartRefreshKey } from './ChartFactsContext'
 import { chartRequestKey } from '../../services/chartFacts'
+import ChartExplanation from './ChartExplanation'
 
 const PAGE_SIZE = 15
 function quantity(value) {
@@ -27,7 +28,8 @@ export default function InventoryAnalyticsPanel({ start, end, showPlanning = tru
   const [usagePage, setUsagePage] = useState(0)
   const [wastePage, setWastePage] = useState(0)
   const [sourceKey, setSourceKey] = useState(null)
-  const requestKey = chartRequestKey(start ?? null, end ?? null)
+  const refreshKey = useChartRefreshKey()
+  const requestKey = chartRequestKey(start ?? null, end ?? null, refreshKey);
   useEffect(() => {
     let cancelled = false
     const controller = new AbortController()
@@ -48,7 +50,7 @@ export default function InventoryAnalyticsPanel({ start, end, showPlanning = tru
     }
     load()
     return () => { cancelled = true; clearTimeout(timer); controller.abort() }
-  }, [start, end, retry])
+  }, [start, end, retry, refreshKey])
 
   const visibleWastage = data?.wastage.slice(wastePage * PAGE_SIZE, (wastePage + 1) * PAGE_SIZE) || []
   const visiblePlanning = data?.planning.slice(usagePage * PAGE_SIZE, (usagePage + 1) * PAGE_SIZE) || []
@@ -81,7 +83,7 @@ export default function InventoryAnalyticsPanel({ start, end, showPlanning = tru
         : <p role="status">{showPlanning ? 'Loading inventory usage and wastage...' : 'Loading recorded wastage...'}</p>}
     </div></div> : <>
       <div className="card">
-        <div className="card-header"><h3 className="m-0">Recorded Wastage</h3></div>
+        <div className="card-header"><h3 className="m-0">Recorded Wastage</h3><ChartExplanation chartId="recorded-wastage" /></div>
         <div className="card-body inventory-analytics-notes">
           <p className="text-sm text-muted">Follows the selected period. Totals stay separate for each ingredient, recorded unit and unit version. Entries without a saved unit show their individually recorded quantities.</p>
           {data.dataQuality.unknownUnitWastageEntries > 0 && <p role="status">{data.dataQuality.unknownUnitWastageEntries} wastage entries have unrecorded units; their recorded values are listed separately and are not combined.</p>}
@@ -104,7 +106,7 @@ export default function InventoryAnalyticsPanel({ start, end, showPlanning = tru
         <Pages page={wastePage} count={data.wastage.length} onChange={setWastePage} label="Wastage" />
       </div>
       {showPlanning && <div className="card">
-        <div className="card-header"><h3 className="m-0">Ingredient Usage &amp; Stock Cover</h3></div>
+        <div className="card-header"><h3 className="m-0">Ingredient Usage &amp; Stock Cover</h3><ChartExplanation chartId="inventory-planning" /></div>
         <div className="card-body inventory-analytics-notes">
           <p>Current quantities with sales from {data.usageWindow.from} to {data.usageWindow.through}: {data.usageWindow.recordedSalesDays} recorded sales days.</p>
           <p className="text-sm text-muted">Current recipe estimate, not exact historical consumption. Daily usage averages recorded sales days only; missing days are unknown. The seven-day scenario assumes that rate repeats each day. Purchases, deliveries and future adjustments are not included.</p>

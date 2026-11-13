@@ -10,7 +10,7 @@ import {
 
 import { Bar } from "react-chartjs-2";
 import { db } from "../../services/db";
-import { usePublishChartFacts } from './ChartFactsContext';
+import { usePublishChartFacts, useChartRefreshKey } from './ChartFactsContext';
 import { chartRequestKey, chartMetric } from '../../services/chartFacts';
 
 ChartJS.register(
@@ -40,7 +40,8 @@ export default function StockMovementChart({ data, startDate, endDate }) {
   const [error, setError] = useState(null);
   const [retryKey, setRetryKey] = useState(0);
   const [sourceKey, setSourceKey] = useState(null);
-  const requestKey = chartRequestKey(startDate ?? null, endDate ?? null);
+  const refreshKey = useChartRefreshKey()
+  const requestKey = chartRequestKey(startDate ?? null, endDate ?? null, refreshKey);
 
   useEffect(() => {
     if (Array.isArray(data)) {
@@ -69,7 +70,7 @@ export default function StockMovementChart({ data, startDate, endDate }) {
     return () => {
       cancelled = true;
     };
-  }, [data, startDate, endDate, retryKey]);
+  }, [data, startDate, endDate, retryKey, refreshKey]);
 
   const items = useMemo(() => normalizeItems(Array.isArray(data) ? data : liveItems), [data, liveItems]);
 

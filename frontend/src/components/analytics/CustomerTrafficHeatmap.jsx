@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { db } from "../../services/db";
-import { usePublishChartFacts } from './ChartFactsContext';
+import { usePublishChartFacts, useChartRefreshKey } from './ChartFactsContext';
 import { chartRequestKey, chartMetric } from '../../services/chartFacts';
 
 
@@ -70,7 +70,8 @@ export default function CustomerTrafficHeatmap({ startDate, endDate }) {
   const [hoveredHour, setHoveredHour] = useState(null);
   const [retryKey, setRetryKey] = useState(0);
   const [sourceKey, setSourceKey] = useState(null);
-  const requestKey = chartRequestKey(startDate ?? null, endDate ?? null);
+  const refreshKey = useChartRefreshKey()
+  const requestKey = chartRequestKey(startDate ?? null, endDate ?? null, refreshKey);
 
   useEffect(() => {
     let cancelled = false;
@@ -96,7 +97,7 @@ export default function CustomerTrafficHeatmap({ startDate, endDate }) {
     return () => {
       cancelled = true;
     };
-  }, [startDate, endDate, retryKey]);
+  }, [startDate, endDate, retryKey, refreshKey]);
 
   const { total, max, peakHour, avg, maleTotal, femaleTotal, unspecifiedTotal } = useMemo(() => {
     const list = hourly || [];

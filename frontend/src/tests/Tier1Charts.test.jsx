@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor, fireEvent } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent, act } from '@testing-library/react'
 import PaymentMixChart from '../components/analytics/PaymentMixChart'
 import { ChartFactsProvider, useChartFacts, PublishChartFacts } from '../components/analytics/ChartFactsContext'
 import VoucherEffectivenessChart from '../components/analytics/VoucherEffectivenessChart'
@@ -7,6 +7,9 @@ import RefundInsights from '../components/analytics/RefundInsights'
 import TrafficConversionChart from '../components/analytics/TrafficConversionChart'
 import { db } from '../services/db'
 import { Doughnut } from 'react-chartjs-2'
+import ChartExplanation from '../components/analytics/ChartExplanation'
+import { apiRequest } from '../services/apiClient'
+vi.mock('../services/apiClient', () => ({ apiRequest: vi.fn() }))
 
 vi.mock('react-chartjs-2', async importOriginal => ({
   ...(await importOriginal()),
@@ -186,4 +189,90 @@ describe('rendered chart facts', () => {
     expect(readFact('traffic-comparison').metrics.transactions.value).toBe(3)
     expect(readFact('traffic-comparison').limitations.join(' ')).toMatch(/not a customer conversion rate/)
   })
+})
+
+
+describe('chart explanation controls', () => {
+ const scope={start:'2026-11-01T00:00:00+08:00',end:'2026-11-09T23:59:59.999+08:00',detail:'daily'}
+ const response=(source='template',text='CASH: 100 PHP from verified data.')=>({data:{chartId:'payment-mix',source,observations:[{id:'f0',text}],actions:[{id:'a0',text:'Review the recorded pattern.'}],limitations:['Missing recordings are unknown.']}})
+ const content=(selected=scope,onRefresh)=> <ChartFactsProvider scope={selected} onRefresh={onRefresh}>
+  <PublishChartFacts chartId="payment-mix" rows={[{method:'CASH',amount:{value:100,unit:'PHP'},transactions:{value:1,unit:'transactions'}}]} />
+  <ChartExplanation chartId="payment-mix" />
+ </ChartFactsProvider>
+ beforeEach(()=>{vi.clearAllMocks();apiRequest.mockResolvedValue(response())})
+ it('requests explanations only on demand and labels a non-AI fallback honestly',async()=>{
+  render(content())
+  expect(apiRequest).not.toHaveBeenCalled()
+  fireEvent.click(await screen.findByRole('button',{name:'Explain chart'}))
+  expect(await screen.findByText('Basic summary')).toBeInTheDocument()
+  expect(screen.getByText('CASH: 100 PHP from verified data.')).toBeInTheDocument()
+  expect(screen.queryByText('AI interpretation')).not.toBeInTheDocument()
+  const [path,options]=apiRequest.mock.calls[0]
+  expect(path).toBe('/api/ai-insights/charts/explain');expect(options.body.expected).toEqual([['CASH',100,1]])
+  expect(options.body).not.toHaveProperty('prompt')
+  fireEvent.click(screen.getByRole('button',{name:'Hide explanation'}))
+  fireEvent.click(screen.getByRole('button',{name:'Explain chart'}))
+  expect(apiRequest).toHaveBeenCalledTimes(1)
+ })
+ it('hides an older interpretation immediately when the selection changes',async()=>{
+  apiRequest.mockResolvedValue(response('groq','Earlier verified observation.'))
+  const view=render(content())
+  fireEvent.click(await screen.findByRole('button',{name:'Explain chart'}))
+  expect(await screen.findByText('AI interpretation')).toBeInTheDocument()
+  expect(screen.getByText('Earlier verified observation.')).toBeInTheDocument()
+  view.rerender(content({...scope,detail:'weekly'}))
+  expect(screen.queryByText('Earlier verified observation.')).not.toBeInTheDocument()
+  expect(screen.getByRole('button',{name:'Explain this view'})).toBeInTheDocument()
+  expect(apiRequest).toHaveBeenCalledTimes(1)
+ })
+ it('ignores a late response after a range change and cancels the old request',async()=>{
+  let resolveOld;apiRequest.mockImplementationOnce(()=>new Promise(resolve=>{resolveOld=resolve}))
+  const view=render(content())
+  fireEvent.click(await screen.findByRole('button',{name:'Explain chart'}))
+  expect(screen.getByRole('status')).toBeInTheDocument()
+  const signal=apiRequest.mock.calls[0][1].signal
+  view.rerender(content({...scope,start:'2026-11-02T00:00:00+08:00'}))
+  expect(signal.aborted).toBe(true)
+  resolveOld(response('gemini','Stale response must stay hidden.'))
+  await waitFor(()=>expect(screen.queryByText('Stale response must stay hidden.')).not.toBeInTheDocument())
+ })
+ it('offers a real chart refresh when server data no longer matches the display',async()=>{
+  const refresh=vi.fn();apiRequest.mockRejectedValueOnce(Object.assign(new Error('Chart data changed.'),{code:'CHART_CHANGED',status:409}))
+  render(content(scope,refresh))
+  fireEvent.click(await screen.findByRole('button',{name:'Explain chart'}))
+  fireEvent.click(await screen.findByRole('button',{name:'Refresh Analytics'}))
+  expect(refresh).toHaveBeenCalledTimes(1)
+ })
+ it('rejects incomplete explanation responses and permits retry',async()=>{
+  apiRequest.mockResolvedValueOnce({data:{source:'gemini',observations:[]}})
+  render(content())
+  fireEvent.click(await screen.findByRole('button',{name:'Explain chart'}))
+  expect(await screen.findByRole('alert')).toHaveTextContent('incomplete')
+  fireEvent.click(screen.getByRole('button',{name:'Retry explanation'}))
+  expect(await screen.findByText('Basic summary')).toBeInTheDocument()
+ })
+ it('does not queue an AI request while offline',async()=>{
+  const online=vi.spyOn(navigator,'onLine','get').mockReturnValue(false)
+  try {
+   render(content());fireEvent.click(await screen.findByRole('button',{name:'Explain chart'}))
+   expect(await screen.findByRole('alert')).toHaveTextContent('Connect to the internet')
+   expect(apiRequest).not.toHaveBeenCalled()
+  } finally {online.mockRestore()}
+ })
+})
+
+
+it('bounds an explanation request timeout and clears the loading state', async () => {
+ vi.useFakeTimers()
+ const view=render(<ChartFactsProvider scope={{start:'2026-11-01T00:00:00+08:00',end:'2026-11-09T23:59:59.999+08:00',detail:'daily'}}>
+  <PublishChartFacts chartId="payment-mix" rows={[{method:'CASH',amount:{value:100},transactions:{value:1}}]} /><ChartExplanation chartId="payment-mix" />
+ </ChartFactsProvider>)
+ try {
+  apiRequest.mockImplementationOnce((_url,{signal})=>new Promise((_resolve,reject)=>signal.addEventListener('abort',()=>reject(new Error('aborted')),{once:true})))
+  fireEvent.click(screen.getByRole('button',{name:'Explain chart'}))
+  expect(screen.getByRole('status')).toBeInTheDocument()
+  await act(async()=>{await vi.advanceTimersByTimeAsync(20001)})
+  expect(screen.getByRole('alert')).toHaveTextContent('timed out')
+  expect(screen.queryByRole('status')).not.toBeInTheDocument()
+ } finally {view.unmount();vi.useRealTimers()}
 })

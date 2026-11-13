@@ -1,6 +1,8 @@
 import { Chart as ChartJS, ArcElement, Tooltip, Legend } from "chart.js";
 import { Doughnut } from "react-chartjs-2";
 import { formatPeso } from "./SalesTrendChart";
+import { usePublishChartFacts } from './ChartFactsContext';
+import { chartMetric } from '../../services/chartFacts';
 
 ChartJS.register(ArcElement, Tooltip, Legend);
 
@@ -21,10 +23,16 @@ const doughnutOptions = {
 };
 
 // Card is excluded from this chart only. mix = [{ method, orders, amount }].
-export default function PaymentMixChart({ mix }) {
+export default function PaymentMixChart({ mix, factsStatus }) {
   const rows = Array.isArray(mix) ? mix.filter((m) => String(m.method).trim().toUpperCase() !== 'CARD' && m.amount > 0) : [];
   const total = rows.reduce((s, m) => s + m.amount, 0);
   const top = rows[0] || null;
+  usePublishChartFacts({ chartId: 'payment-mix', status: factsStatus && factsStatus !== 'ready' ? factsStatus : rows.length ? 'ready' : 'empty',
+    rows: rows.map(row => ({ method: row.method, amount: chartMetric(row.amount, 'PHP', formatPeso(row.amount)), transactions: chartMetric(row.orders, 'transactions') })),
+    metrics: { total: chartMetric(total, 'PHP', formatPeso(total)), topMethod: top?.method || null,
+      topShare: chartMetric(top && total > 0 ? Math.round(top.amount / total * 100) : null, 'percent') },
+    limitations: ['Card payments are excluded from this chart. Amounts follow transaction payment totals and are not a net-revenue measure.'],
+  });
 
   if (rows.length === 0) {
     return (

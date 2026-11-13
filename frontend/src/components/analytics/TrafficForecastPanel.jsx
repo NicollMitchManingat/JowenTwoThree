@@ -4,6 +4,8 @@ import { apiRequest } from '../../services/apiClient'
 import { manilaStart, manilaDay } from '../../utils/analyticsTime'
 import SalesTrendChart from './SalesTrendChart'
 import { formatHour } from './CustomerTrafficHeatmap'
+import { usePublishChartFacts } from './ChartFactsContext'
+import { chartRequestKey, chartSeries, chartMetric } from '../../services/chartFacts'
 
 const dateLabel = date => manilaStart(date).toLocaleDateString('en-PH', { timeZone: 'Asia/Manila', month: 'short', day: 'numeric' })
 const count = value => Number(value).toLocaleString('en-PH')
@@ -13,6 +15,8 @@ const validDate = value => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.te
 export default function TrafficForecastPanel({ asOf }) {
   const [result, setResult] = useState(null), [error, setError] = useState(null)
   const [loading, setLoading] = useState(true), [retry, setRetry] = useState(0), [selected, setSelected] = useState('')
+  const [sourceKey, setSourceKey] = useState(null)
+  const requestKey = chartRequestKey(asOf ?? null)
   useEffect(() => {
     const controller = new AbortController(), timer = setTimeout(() => controller.abort(), 8000)
     let cancelled = false
@@ -33,7 +37,7 @@ export default function TrafficForecastPanel({ asOf }) {
               Number.isInteger(hour) && hour >= 0 && hour < 24 && day.hours[hour].predictedCustomers !== null)))) {
           throw new Error('Traffic forecast data is unavailable or incomplete. Please retry.')
         }
-        if (!cancelled) { setResult(data); setSelected(data.hourlyForecast[0].date) }
+        if (!cancelled) { setResult(data); setSourceKey(requestKey); setSelected(data.hourlyForecast[0].date) }
       } catch (err) {
         if (!cancelled) setError(controller.signal.aborted ? 'Traffic forecast request timed out. Please retry.' : err.message || 'Traffic forecast is unavailable.')
       } finally { clearTimeout(timer); if (!cancelled) setLoading(false) }
@@ -49,6 +53,19 @@ export default function TrafficForecastPanel({ asOf }) {
       borderColor: '#2563eb', backgroundColor: '#2563eb', borderDash: [6, 4], fill: false, tension: 0, pointRadius: 3, spanGaps: false }] : [])],
   }), [result])
   const day = result?.hourlyForecast.find(row => row.date === selected)
+  usePublishChartFacts({ chartId: 'traffic-forecast', scope: { asOf },
+    requestKey: error ? undefined : requestKey, sourceKey,
+    status: error ? 'error' : loading || !result ? 'loading' : result.status,
+    series: chartSeries(chartData, { unit: 'customers', keys: result ? [...result.history, ...result.forecast].map(row => row.date) : [], bases: ['recorded', 'forecast'] }),
+    rows: day?.hours.map(row => ({ ...row, unit: 'customers', basis: 'forecast' })) || [],
+    metrics: { forecastTotal: chartMetric(result?.total ?? null, 'customers'), staffing: day?.staffing || null },
+    view: { selectedDay: selected || null },
+    coverage: { ...result?.dataQuality, historyWindow: result?.training, method: result?.method, generatedAt: result?.generatedAt },
+    limitations: [result?.hourlyNotice || 'Hourly recording coverage is unknown.',
+      'Forecasts use their complete-day history window through the selected period end, independently of the selected period start.',
+      'Unknown hours are not confirmed zero visits. Daily and hourly availability are evaluated separately.',
+      'Peak/lean-hour advice is conditional and does not specify staff headcount. Forecasts are separate from recorded totals.'],
+  })
   const hoursLabel = hours => hours.map(formatHour).join(', ')
   return <><div className="card analytics-forecast-card" data-testid="traffic-forecast-panel">
     <div className="card-header"><h3 className="m-0">Customer Traffic Forecast</h3>

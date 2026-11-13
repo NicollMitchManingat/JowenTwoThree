@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { db } from "../../services/db";
+import { usePublishChartFacts } from './ChartFactsContext';
+import { chartRequestKey, chartMetric } from '../../services/chartFacts';
 
 
 function getColor(value, max) {
@@ -67,6 +69,8 @@ export default function CustomerTrafficHeatmap({ startDate, endDate }) {
   const [error, setError] = useState(null);
   const [hoveredHour, setHoveredHour] = useState(null);
   const [retryKey, setRetryKey] = useState(0);
+  const [sourceKey, setSourceKey] = useState(null);
+  const requestKey = chartRequestKey(startDate ?? null, endDate ?? null);
 
   useEffect(() => {
     let cancelled = false;
@@ -79,6 +83,7 @@ export default function CustomerTrafficHeatmap({ startDate, endDate }) {
         const normalized = normalizeHourly(data);
         if (!normalized) throw new Error("Traffic data is incomplete. Please retry.");
         setHourly(normalized);
+        setSourceKey(requestKey);
       } catch (err) {
         if (cancelled) return;
         setHourly(null);
@@ -112,6 +117,16 @@ export default function CustomerTrafficHeatmap({ startDate, endDate }) {
     });
     return { total: t, max: m, peakHour: peak, avg: list.length ? t / list.length : 0, maleTotal: maleT, femaleTotal: femaleT, unspecifiedTotal: unspecifiedT };
   }, [hourly]);
+  usePublishChartFacts({ chartId: 'traffic-heatmap', scope: { start: startDate, end: endDate },
+    requestKey: error ? undefined : requestKey, sourceKey,
+    status: error ? 'error' : loading ? 'loading' : total > 0 ? 'ready' : 'empty',
+    rows: (hourly || []).map(row => ({ ...row, label: formatHour(row.hour), unit: 'customers' })),
+    metrics: { total: chartMetric(total, 'customers'), maximum: chartMetric(max, 'customers'), peakHour: max > 0 ? peakHour : null,
+      averagePerHour: chartMetric(avg, 'customers', avg.toFixed(1)), male: maleTotal, female: femaleTotal, unspecified: unspecifiedTotal },
+    limitations: ['Cells aggregate recorded counts by Manila clock hour across the selected period; they are not individual day/hour observations.',
+      'Displayed zero bins can include missing recordings. Zero bins do not establish observed lean hours.',
+      'Staffing numbers require service-capacity information; customer counts alone do not determine headcount.'],
+  });
 
   if (loading) {
     return <div data-testid="traffic-loading">Loading traffic heatmap...</div>;

@@ -10,6 +10,8 @@ import {
 } from "chart.js";
 
 import { Line, Bar } from "react-chartjs-2";
+import { usePublishChartFacts } from './ChartFactsContext';
+import { chartMetric, chartSeries } from '../../services/chartFacts';
 
 ChartJS.register(
   CategoryScale,
@@ -102,7 +104,26 @@ export default function SalesTrendChart({
   showSummary = true,
   allowZeroValues = false,
   valueType = "currency",
+  chartId,
+  factsStatus,
+  pointKeys,
+  pointSamples,
 }) {
+  const factsEmpty = !data?.labels?.length || (data.datasets?.[0]?.data || []).every(value => !(Number(value) > 0));
+  const factsSummary = summarize(data);
+  const factsUnit = valueType === 'count' ? 'customers' : chartId === 'weekday-pattern' ? 'PHP_per_recorded_day' : 'PHP';
+  const factsFormat = valueType === 'count' ? value => Number(value).toLocaleString('en-PH', { maximumFractionDigits: 0 }) : formatPeso;
+  usePublishChartFacts({ chartId, status: error ? 'error' : loading ? 'loading' : factsStatus && factsStatus !== 'ready' ? factsStatus : factsEmpty ? 'empty' : 'ready',
+    series: chartSeries(data, { keys: pointKeys, unit: factsUnit }),
+    metrics: showSummary && !factsEmpty ? { displayedSeriesTotal: chartMetric(factsSummary.total, factsUnit, factsFormat(factsSummary.total)), maximum: chartMetric(factsSummary.max, factsUnit, factsFormat(factsSummary.max)),
+      average: chartMetric(factsSummary.avg, factsUnit, factsFormat(factsSummary.avg)), peakLabel: factsSummary.peakLabel, averageLabel: avgLabel } : {},
+    view: { variant, averageLabel: avgLabel },
+    coverage: { observationsPerPoint: pointSamples },
+    limitations: chartId === 'weekday-pattern'
+      ? ['Bars are rounded averages over recorded days for each weekday, not weekday totals. Missing days are not confirmed zero sales.',
+        'The sum of weekday-average bars is not total revenue for the period. Zero bars without observations do not prove lean weekdays.']
+      : ['Only recorded buckets are represented. Missing recordings do not establish zero sales. Revenue follows the existing refund accounting.'],
+  });
   if (loading) {
     return <div data-testid="sales-loading">Loading sales chart...</div>;
   }

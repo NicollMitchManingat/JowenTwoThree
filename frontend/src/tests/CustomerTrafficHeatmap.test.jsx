@@ -7,6 +7,7 @@ import { apiRequest } from "../services/apiClient";
 vi.mock("../services/apiClient", () => ({ apiRequest: vi.fn() }));
 vi.mock("react-chartjs-2", () => ({ Line: vi.fn(() => <canvas data-testid="traffic-forecast-canvas" />), Bar: () => <canvas /> }));
 import { Line } from "react-chartjs-2";
+import { ChartFactsProvider, useChartFacts } from '../components/analytics/ChartFactsContext';
 
 vi.mock("../services/db", () => ({
   db: { getHourlyTraffic: vi.fn() },
@@ -297,3 +298,37 @@ describe('TrafficForecastPanel',()=>{
      expect(screen.getByRole('alert')).toHaveTextContent('Traffic forecast request timed out')
    } finally {vi.useRealTimers()}
  })
+
+
+function TrafficFactReader({ id }) {
+  const facts = useChartFacts(id)
+  return <output data-testid={'facts-' + id}>{JSON.stringify(facts)}</output>
+}
+it('keeps heatmap facts identical to normalized hourly counts and records missing-coverage limits', async () => {
+  vi.clearAllMocks(); db.getHourlyTraffic.mockResolvedValue(toHourly(FALLBACK_TRAFFIC))
+  render(<ChartFactsProvider scope={{ start: '2026-11-01', end: '2026-11-09' }}>
+    <CustomerTrafficHeatmap startDate="2026-11-01" endDate="2026-11-09" /><TrafficFactReader id="traffic-heatmap" />
+  </ChartFactsProvider>)
+  const read = () => JSON.parse(screen.getByTestId('facts-traffic-heatmap').textContent)
+  await waitFor(() => expect(read()?.status).toBe('ready'))
+  expect(read().rows.map(row => row.customers)).toEqual(FALLBACK_TRAFFIC)
+  expect(read().metrics.total.value).toBe(FALLBACK_TRAFFIC.reduce((a, b) => a + b, 0))
+  expect(read().metrics.unspecified).toBe(read().metrics.total.value)
+  expect(read().limitations.join(' ')).toMatch(/do not establish observed lean hours/)
+})
+it('changes traffic forecast facts with the selected day and preserves unknown hourly predictions', async () => {
+  vi.clearAllMocks(); apiRequest.mockResolvedValue({ data: forecastResult() })
+  render(<ChartFactsProvider><TrafficForecastPanel asOf="2026-11-09" /><TrafficFactReader id="traffic-forecast" /></ChartFactsProvider>)
+  const read = () => JSON.parse(screen.getByTestId('facts-traffic-forecast').textContent)
+  await waitFor(() => expect(read()?.status).toBe('ready'))
+  const first = read()
+  expect(first.series.map(series => series.basis)).toEqual(['recorded', 'forecast'])
+  expect(first.rows[0].predictedCustomers).toBeNull()
+  expect(first.rows[12].predictedCustomers).toBe(20)
+  expect(first.metrics.forecastTotal).toMatchObject({ value: 168, unit: 'customers' })
+  fireEvent.change(screen.getByLabelText('Forecast day'), { target: { value: '2026-11-11' } })
+  await waitFor(() => expect(read().view.selectedDay).toBe('2026-11-11'))
+  expect(read().rows[12].predictedCustomers).toBe(21)
+  expect(read().identity).not.toBe(first.identity)
+  expect(apiRequest).toHaveBeenCalledTimes(1)
+})

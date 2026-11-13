@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest'
+import { createChartFacts, chartSeries, CHART_FACTS, chartRequestKey } from '../services/chartFacts'
 import {
   summarizeTransactions,
   netRevenue,
@@ -157,5 +158,82 @@ describe('salesAnalytics', () => {
     // Total Revenue (dailySales, refund-netted) equals this by construction.
     expect(s.total - net.refunds).toBe(net.net)
     expect(net.gross - net.discounts - net.refunds).toBe(net.net)
+  })
+})
+
+
+describe('chart facts display contract', () => {
+  const scope = { start: '2026-11-01T00:00:00+08:00', end: '2026-11-09T23:59:59.999+08:00', sessionId: null, detail: 'daily' }
+  const input = () => ({ chartId: 'revenue-trend', scope, series: chartSeries({ labels: ['Nov 1', 'Nov 2'], datasets: [{ label: 'Revenue', data: [100.25, null] }] }, { keys: ['2026-11-01', '2026-11-02'] }) })
+
+  it('preserves exact plotted values, null gaps and point/date associations', () => {
+    const facts = createChartFacts(input())
+    expect(facts.series[0]).toMatchObject({ unit: 'PHP', basis: 'recorded' })
+    expect(facts.series[0].points).toEqual([
+      { id: 'series-0:point-0', key: '2026-11-01', label: 'Nov 1', value: 100.25 },
+      { id: 'series-0:point-1', key: '2026-11-02', label: 'Nov 2', value: null },
+    ])
+    expect(facts.scope.timeZone).toBe('Asia/Manila')
+    expect(facts.coverage.recordingCoverage).toBe('unknown')
+  })
+
+  it('uses stable complete identities without freezing or mutating chart inputs', () => {
+    const source = input(), facts = createChartFacts(source)
+    const same = createChartFacts({ scope: { detail: 'daily', sessionId: null, end: scope.end, start: scope.start }, series: source.series, chartId: source.chartId })
+    expect(same.identity).toBe(facts.identity)
+    expect(same.fingerprint).toBe(facts.fingerprint)
+    expect(Object.isFrozen(facts.series[0].points)).toBe(true)
+    source.series[0].points[0].value = 999
+    expect(facts.series[0].points[0].value).toBe(100.25)
+    expect(createChartFacts(source).fingerprint).not.toBe(facts.fingerprint)
+  })
+
+  it.each([
+    { start: '2026-10-01T00:00:00+08:00' }, { end: '2026-11-10T00:00:00+08:00' },
+    { sessionId: 'session-2' }, { detail: 'hourly' },
+  ])('changes identity when selection metadata changes: %j', change => {
+    const source = input()
+    expect(createChartFacts({ ...source, scope: { ...scope, ...change } }).identity).not.toBe(createChartFacts(source).identity)
+  })
+
+  it('withholds old values under a new range and preserves error states', () => {
+    const oldKey = chartRequestKey('old-start', 'old-end'), requestKey = chartRequestKey(scope.start, scope.end)
+    const pending = createChartFacts({ ...input(), sourceKey: oldKey, requestKey })
+    expect(pending).toMatchObject({ status: 'loading', series: [], metrics: {}, rows: [] })
+    expect(createChartFacts({ ...input(), status: 'error', sourceKey: oldKey, requestKey }).status).toBe('error')
+    expect(createChartFacts({ ...input(), sourceKey: requestKey, requestKey }).series[0].points[0].value).toBe(100.25)
+  })
+
+  it('fails closed on incomplete or invalid values instead of converting them to zero', () => {
+    const incomplete = createChartFacts({ ...input(), coverage: { complete: false } })
+    expect(incomplete).toMatchObject({ status: 'error', series: [] })
+    const invalid = input(); invalid.series[0].points[0].value = Infinity
+    expect(createChartFacts(invalid)).toMatchObject({ status: 'error', series: [], rows: [], metrics: {} })
+  })
+
+  it('retains exact fractions and unit versions without aggregating unlike units', () => {
+    const rows = [{ name: 'Milk', unit: 'mL', unitVersion: '0', quantity: '0.1234567890123456789' },
+      { name: 'Milk', unit: 'L', unitVersion: '9007199254740993', quantity: '1' },
+      { name: 'Beans', unit: null, quantity: null, recordedQuantities: ['1', '2'] }]
+    const facts = createChartFacts({ chartId: 'recorded-wastage', scope, rows })
+    expect(facts.rows).toEqual(rows)
+    expect(facts.metrics).toEqual({})
+    expect(createChartFacts({ chartId: 'recorded-wastage', scope, rows, view: { page: 1 } }).identity).not.toBe(facts.identity)
+  })
+
+  it('retains supported history but no invented predictions for insufficient-history forecasts', () => {
+    const facts = createChartFacts({ chartId: 'sales-forecast', scope, status: 'insufficient_history',
+      series: chartSeries({ labels: ['Nov 1'], datasets: [{ label: 'Actual revenue', data: [0] }] }),
+      metrics: { forecastTotal: { value: null, unit: 'PHP' } } })
+    expect(facts.basis).toBe('forecast')
+    expect(facts.metrics.forecastTotal.value).toBeNull()
+    expect(facts.series[0].points[0].value).toBe(0)
+    expect(facts.series).toHaveLength(1)
+  })
+
+  it('defines the thirteen chart/panel contracts and separates current/scenario bases', () => {
+    expect(Object.keys(CHART_FACTS)).toHaveLength(13)
+    expect(createChartFacts({ chartId: 'low-stock' }).basis).toBe('current')
+    expect(createChartFacts({ chartId: 'inventory-planning' }).basis).toBe('scenario')
   })
 })

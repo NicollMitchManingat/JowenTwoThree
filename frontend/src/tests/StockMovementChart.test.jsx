@@ -29,6 +29,7 @@ vi.mock("../services/db", () => ({
 import StockMovementChart from "../components/analytics/StockMovementChart";
 import { db } from "../services/db";
 import inventoryData from "../data/inventoryData";
+import { ChartFactsProvider, useChartFacts } from '../components/analytics/ChartFactsContext';
 
 describe("StockMovementChart", () => {
   beforeEach(() => {
@@ -206,4 +207,75 @@ describe('Inventory analytics panel',()=>{
   pending[0].resolve({data:{...payload(),planning:[]}})
   await waitFor(()=>expect(screen.getByText('Review replenishment')).toBeInTheDocument())
  })
+})
+
+
+function InventoryFactReader({ id }) {
+  const facts = useChartFacts(id)
+  return <output data-testid={'facts-' + id}>{JSON.stringify(facts)}</output>
+}
+const readInventoryFact = id => JSON.parse(screen.getByTestId('facts-' + id).textContent)
+
+it('records exactly the displayed top five products and withholds stale-range stock facts', async () => {
+  vi.clearAllMocks()
+  db.getTopSellingItems.mockResolvedValueOnce(Array.from({ length: 7 }, (_, index) => ({ item: 'Product ' + index, sold: 10 - index })))
+  let resolveNew
+  db.getTopSellingItems.mockImplementationOnce(() => new Promise(resolve => { resolveNew = resolve }))
+  const content = start => <ChartFactsProvider scope={{ start, end: '2026-11-09' }}>
+    <StockMovementChart startDate={start} endDate="2026-11-09" /><InventoryFactReader id="top-selling" />
+  </ChartFactsProvider>
+  const view = render(content('2026-11-01'))
+  await waitFor(() => expect(readInventoryFact('top-selling')?.status).toBe('ready'))
+  expect(readInventoryFact('top-selling').rows).toHaveLength(5)
+  expect(readInventoryFact('top-selling').rows[0]).toMatchObject({ name: 'Product 0', sold: { value: 10, unit: 'product_units' } })
+  expect(screen.getByTestId('stock-summary')).toHaveTextContent('Products shown: 5')
+  view.rerender(content('2026-11-02'))
+  await waitFor(() => expect(readInventoryFact('top-selling')?.status).toBe('loading'))
+  expect(readInventoryFact('top-selling').rows).toEqual([])
+  resolveNew([{ item: 'New product', sold: 3 }])
+  await waitFor(() => expect(readInventoryFact('top-selling')?.rows[0]?.name).toBe('New product'))
+})
+
+it('preserves visible wastage unit histories, exact source values and page identity with planning hidden', async () => {
+  apiRequest.mockResolvedValue({ data: {
+    planning: [], usageWindow: {}, dataQuality: { complete: true, unknownUnitWastageEntries: 1 },
+    wastage: Array.from({ length: 16 }, (_, index) => ({ id: 'w' + index, name: 'Ingredient ' + index,
+      unit: index === 0 ? null : 'g', unitVersion: index === 0 ? null : '9007199254740993',
+      quantity: index === 0 ? null : '0.1234567890123456789', recordedQuantities: index === 0 ? ['1', '2'] : [],
+      entries: index === 0 ? 2 : 1, reasons: ['spoiled'], currentUnit: false })),
+  } })
+  render(<ChartFactsProvider scope={{ start: '2026-11-01', end: '2026-11-09' }}>
+    <InventoryAnalyticsPanel start="2026-11-01" end="2026-11-09" showPlanning={false} />
+    <InventoryFactReader id="recorded-wastage" /><InventoryFactReader id="inventory-planning" />
+  </ChartFactsProvider>)
+  await waitFor(() => expect(readInventoryFact('recorded-wastage')?.status).toBe('ready'))
+  const first = readInventoryFact('recorded-wastage')
+  expect(first.rows).toHaveLength(15)
+  expect(first.rows[0]).toMatchObject({ quantity: null, unit: null, recordedQuantities: ['1', '2'], quantityBasis: 'individual_recorded_values' })
+  expect(first.rows[1]).toMatchObject({ quantity: '0.1234567890123456789', unitVersion: '9007199254740993', displayedQuantities: ['0.12'] })
+  expect(readInventoryFact('inventory-planning')).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: 'Next wastage' }))
+  await waitFor(() => expect(readInventoryFact('recorded-wastage').view.page).toBe(1))
+  expect(readInventoryFact('recorded-wastage').rows[0].name).toBe('Ingredient 15')
+  expect(readInventoryFact('recorded-wastage').identity).not.toBe(first.identity)
+  expect(apiRequest).toHaveBeenCalledTimes(1)
+})
+
+
+it('separates current stock and current-recipe scenarios from selected-period wastage', async () => {
+  apiRequest.mockResolvedValue({ data: {
+    planning: [{ id: 'milk', name: 'Milk', unit: 'L', quantity: '0.00001', dailyUsage: null, daysCover: null, sevenDayUsage: null, shortage: null, status: 'unit_review', recommendation: 'Review recipe units' }],
+    wastage: [], generatedAt: '2026-11-10T02:00:00Z', usageWindow: { from: '2026-10-13', through: '2026-11-09', recordedSalesDays: 2 }, dataQuality: { complete: true },
+  } })
+  render(<ChartFactsProvider scope={{ start: '2026-11-01', end: '2026-11-09', sessionId: 'session-1' }}>
+    <InventoryAnalyticsPanel start="2026-11-01" end="2026-11-09" /><InventoryFactReader id="inventory-planning" />
+  </ChartFactsProvider>)
+  await waitFor(() => expect(readInventoryFact('inventory-planning')?.status).toBe('ready'))
+  const facts = readInventoryFact('inventory-planning')
+  expect(facts.basis).toBe('scenario')
+  expect(facts.scope.sessionId).toBe('session-1')
+  expect(facts.coverage.usageWindow.from).toBe('2026-10-13')
+  expect(facts.rows[0]).toMatchObject({ quantity: '0.00001', dailyUsage: null, quantityBasis: 'current_balance', usageBasis: 'current_recipe_scenario', displayedQuantities: { quantity: '<0.01' } })
+  expect(facts.rows[0].displayedQuantities.dailyUsage).not.toBe('0')
+  expect(screen.getByTitle('0.00001')).toHaveTextContent('<0.01')
 })

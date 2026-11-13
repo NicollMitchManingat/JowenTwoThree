@@ -8,6 +8,8 @@ import {
 } from "chart.js";
 import { Bar } from "react-chartjs-2";
 import { formatPeso } from "./SalesTrendChart";
+import { usePublishChartFacts } from './ChartFactsContext';
+import { chartMetric } from '../../services/chartFacts';
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Tooltip, Legend);
 
@@ -37,11 +39,16 @@ const barOptions = {
 
 // Pesos discounted per voucher + redemption counts.
 // stats = [{ key, name, redemptions, pesos }] from voucherStats().
-export default function VoucherEffectivenessChart({ stats }) {
+export default function VoucherEffectivenessChart({ stats, factsStatus }) {
   const rows = Array.isArray(stats) ? stats.filter((s) => s.pesos > 0) : [];
   const totalPesos = rows.reduce((s, r) => s + r.pesos, 0);
   const totalUses = rows.reduce((s, r) => s + r.redemptions, 0);
   const top = rows[0] || null;
+  usePublishChartFacts({ chartId: 'voucher-effectiveness', status: factsStatus && factsStatus !== 'ready' ? factsStatus : rows.length ? 'ready' : 'empty',
+    rows: rows.map(row => ({ key: row.key, name: row.name, discounted: chartMetric(row.pesos, 'PHP', formatPeso(row.pesos)), redemptions: chartMetric(row.redemptions, 'transactions') })),
+    metrics: { discounted: chartMetric(totalPesos, 'PHP', formatPeso(totalPesos)), redemptions: chartMetric(totalUses, 'transactions'), topVoucher: top?.name || null },
+    limitations: ['Bars show pesos discounted, not revenue earned or promotion ROI. These observations do not establish that a voucher caused additional sales.'],
+  });
 
   if (rows.length === 0) {
     return (

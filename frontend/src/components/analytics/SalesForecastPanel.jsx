@@ -3,6 +3,8 @@ import { useEffect, useMemo, useState } from 'react'
 import { apiRequest } from '../../services/apiClient'
 import { manilaStart } from '../../utils/analyticsTime'
 import SalesTrendChart, { formatPeso } from './SalesTrendChart'
+import { usePublishChartFacts } from './ChartFactsContext'
+import { chartRequestKey, chartSeries, chartMetric } from '../../services/chartFacts'
 
 const dateLabel = date => manilaStart(date).toLocaleDateString('en-PH', {
   timeZone: 'Asia/Manila', month: 'short', day: 'numeric',
@@ -13,6 +15,8 @@ export default function SalesForecastPanel({ asOf }) {
   const [error, setError] = useState(null)
   const [loading, setLoading] = useState(true)
   const [retry, setRetry] = useState(0)
+  const [sourceKey, setSourceKey] = useState(null)
+  const requestKey = chartRequestKey(asOf ?? null)
 
   useEffect(() => {
     const controller = new AbortController()
@@ -33,7 +37,7 @@ export default function SalesForecastPanel({ asOf }) {
           (data.status === 'ready' && (data.forecast.length !== 7 || !Number.isFinite(data.total)))) {
           throw new Error('Sales forecast data is unavailable or incomplete. Please retry.')
         }
-        if (!cancelled) setResult(data)
+        if (!cancelled) { setResult(data); setSourceKey(requestKey) }
       } catch (err) {
         if (!cancelled) setError(controller.signal.aborted ? 'Sales forecast request timed out. Please retry.' : err.message || 'Sales forecast is unavailable.')
       } finally {
@@ -60,6 +64,17 @@ export default function SalesForecastPanel({ asOf }) {
       ],
     }
   }, [result])
+
+  usePublishChartFacts({ chartId: 'sales-forecast', scope: { asOf },
+    requestKey: error ? undefined : requestKey, sourceKey,
+    status: error ? 'error' : loading || !result ? 'loading' : result.status,
+    series: chartSeries(chartData, { keys: result ? [...result.history, ...result.forecast].map(row => row.date) : [], bases: ['recorded', 'forecast'] }),
+    metrics: { forecastTotal: chartMetric(result?.total ?? null, 'PHP') },
+    coverage: { ...result?.dataQuality, historyWindow: result?.training, method: result?.method, generatedAt: result?.generatedAt },
+    limitations: [result?.notice || 'Forecast history is unavailable.', 'Forecast values are estimates and are never added to actual revenue.',
+      'Forecasts use their complete-day history window through the selected period end, independently of the selected period start.',
+      'Missing history is unknown rather than zero. Historical comparisons do not prove future accuracy.'],
+  })
 
   return <><div className="card analytics-forecast-card" data-testid="sales-forecast-panel">
     <div className="card-header"><h3 className="m-0">Sales Forecast</h3>

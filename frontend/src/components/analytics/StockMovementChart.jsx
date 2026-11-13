@@ -10,6 +10,8 @@ import {
 
 import { Bar } from "react-chartjs-2";
 import { db } from "../../services/db";
+import { usePublishChartFacts } from './ChartFactsContext';
+import { chartRequestKey, chartMetric } from '../../services/chartFacts';
 
 ChartJS.register(
   CategoryScale,
@@ -37,6 +39,8 @@ export default function StockMovementChart({ data, startDate, endDate }) {
   const [loading, setLoading] = useState(!data || data.length === 0);
   const [error, setError] = useState(null);
   const [retryKey, setRetryKey] = useState(0);
+  const [sourceKey, setSourceKey] = useState(null);
+  const requestKey = chartRequestKey(startDate ?? null, endDate ?? null);
 
   useEffect(() => {
     if (Array.isArray(data)) {
@@ -50,6 +54,7 @@ export default function StockMovementChart({ data, startDate, endDate }) {
       try {
         const top = await db.getTopSellingItems(startDate, endDate, 5);
         if (cancelled) return;
+        setSourceKey(requestKey);
         setLiveItems(top && top.length > 0 ? top : null);
         if (!top || top.length === 0) setLiveItems(null);
       } catch (err) {
@@ -97,6 +102,13 @@ export default function StockMovementChart({ data, startDate, endDate }) {
       isEmpty: items.every((i) => !(i.sold > 0)),
     };
   }, [items]);
+  usePublishChartFacts({ chartId: 'top-selling', scope: { start: startDate, end: endDate },
+    requestKey: error ? undefined : requestKey, sourceKey: Array.isArray(data) ? requestKey : sourceKey,
+    status: error ? 'error' : loading ? 'loading' : isEmpty ? 'empty' : 'ready',
+    rows: items.map(item => ({ name: item.name, sold: chartMetric(item.sold, 'product_units') })),
+    metrics: { topProduct: topSeller.name, topSold: chartMetric(topSeller.sold, 'product_units'), productsShown: items.length },
+    limitations: ['Only the displayed top five products are represented. Product units sold are not ingredient stock quantities.'],
+  });
 
   const options = {
     responsive: true,

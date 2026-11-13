@@ -25,6 +25,7 @@ import SalesForecastPanel from '../components/analytics/SalesForecastPanel';
 
 import SalesTrendChart, { formatPeso } from "../components/analytics/SalesTrendChart";
 import { aggregateWeeklySales } from "../pages/DashboardContent";
+import { ChartFactsProvider, useChartFacts } from '../components/analytics/ChartFactsContext';
 
 const dailyData = {
   labels: ["Mon Jan 5", "Tue Jan 6", "Wed Jan 7"],
@@ -349,3 +350,34 @@ describe('Historical forecast check panel',()=>{
   expect(screen.getByTestId('sales-forecast-total')).toHaveTextContent('700')
   expect(screen.getByTestId('chart-canvas')).toBeInTheDocument()
  })
+
+
+function SalesFactReader() {
+  const facts = useChartFacts('sales-forecast')
+  return <output data-testid="sales-facts">{JSON.stringify(facts)}</output>
+}
+it('binds forecast facts to plotted observations/predictions and clears an old period while loading', async () => {
+  vi.clearAllMocks()
+  const payload = { status: 'ready', total: 700, generatedAt: '2026-11-10T02:00:00Z', dataQuality: { complete: true },
+    training: { from: '2026-10-13', through: '2026-11-09', observedDays: 28 }, method: { label: 'Same-weekday moving average', windowDays: 28, occurrences: 4 },
+    history: [{ date: '2026-11-09', revenue: 50 }], forecast: Array.from({ length: 7 }, (_, index) => ({ date: '2026-11-' + (10 + index), predictedRevenue: 100 })) }
+  let resolveNew
+  apiRequest.mockResolvedValueOnce({ data: payload }).mockImplementationOnce(() => new Promise(resolve => { resolveNew = resolve }))
+  const content = asOf => <ChartFactsProvider scope={{ detail: 'daily' }}><SalesForecastPanel asOf={asOf} /><SalesFactReader /></ChartFactsProvider>
+  const view = render(content('2026-11-09'))
+  const read = () => JSON.parse(screen.getByTestId('sales-facts').textContent)
+  await waitFor(() => expect(read()?.status).toBe('ready'))
+  expect(read().series.map(series => series.basis)).toEqual(['recorded', 'forecast'])
+  expect(read().series[0].points[0]).toMatchObject({ key: '2026-11-09', value: 50 })
+  expect(read().series[1].points[0].value).toBeNull()
+  expect(read().series[1].points[1]).toMatchObject({ key: '2026-11-10', value: 100 })
+  expect(read().metrics.forecastTotal.value).toBe(700)
+  view.rerender(content('2026-11-10'))
+  await waitFor(() => expect(read()?.status).toBe('loading'))
+  expect(read().series).toEqual([]); expect(read().metrics).toEqual({})
+  resolveNew({ data: { ...payload, status: 'insufficient_history', total: null, forecast: [], history: [{ date: '2026-11-10', revenue: null }] } })
+  await waitFor(() => expect(read()?.status).toBe('insufficient_history'))
+  expect(read().metrics.forecastTotal.value).toBeNull()
+  expect(read().series).toHaveLength(1)
+  expect(read().series[0].points[0].value).toBeNull()
+})

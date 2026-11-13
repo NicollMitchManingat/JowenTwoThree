@@ -34,6 +34,7 @@ vi.mock('../services/productAPI', () => ({
 import { db } from '../services/db'
 import DashboardContent from '../pages/DashboardContent'
 import { AnalyticsProvider } from '../pages/AnalyticsContext'
+import * as chartFacts from '../services/chartFacts'
 
 const TXNS = [
   { id: 'a', created_at: '2026-10-04T09:10:00', subtotal: 100, discount: 0, total: 100, payment_method: 'CASH', status: 'COMPLETED', customer_count: 1 },
@@ -403,3 +404,54 @@ describe('DashboardContent granularity', () => {
   expect(screen.getByRole('tab',{name:'Inventory'})).toHaveAttribute('aria-selected','true')
   expect(scroller.scrollTop).toBe(0)
  })
+
+
+it('publishes the displayed revenue, weekday averages and current-stock facts without AI requests', async () => {
+  vi.clearAllMocks(); setup()
+  const spy = vi.spyOn(chartFacts, 'createChartFacts')
+  const latest = id => spy.mock.results.map(result => result.value).filter(fact => fact?.chartId === id).at(-1)
+  db.getInventoryStatus.mockResolvedValue([{ id: 'milk', name: 'Milk', unit: 'L', unit_version: '9007199254740993', stock_quantity: '2.756123456789', low_stock_threshold: '3' }])
+  try {
+    render(<AnalyticsProvider><DashboardContent activeTab="Sales" user={{ role: 'admin' }} /></AnalyticsProvider>)
+    await waitFor(() => expect(latest('revenue-trend')?.status).toBe('ready'))
+    const daily = latest('revenue-trend')
+    expect(daily.series[0].points[0]).toMatchObject({ key: '2026-10-04', value: 300 })
+    expect(daily.scope).toMatchObject({ detail: 'daily', timeZone: 'Asia/Manila' })
+    expect(screen.getAllByTestId('sales-chart')[0]).toHaveAttribute('data-variant', 'line')
+    const weekdays = latest('weekday-pattern')
+    expect(weekdays.series[0].points.map(row => row.value)).toEqual([0, 0, 0, 0, 0, 0, 300])
+    expect(weekdays.coverage.observationsPerPoint).toEqual([0, 0, 0, 0, 0, 0, 1])
+    expect(weekdays.series[0].unit).toBe('PHP_per_recorded_day')
+    fireEvent.click(screen.getByTestId('granularity-weekly'))
+    await waitFor(() => expect(latest('revenue-trend').scope.detail).toBe('weekly'))
+    expect(latest('revenue-trend').identity).not.toBe(daily.identity)
+    expect(latest('revenue-trend').series[0].points[0].value).toBe(300)
+    fireEvent.click(screen.getByRole('tab', { name: 'Inventory' }))
+    await waitFor(() => expect(latest('low-stock')?.status).toBe('ready'))
+    const stock = latest('low-stock')
+    expect(stock.basis).toBe('current')
+    expect(stock.rows[0]).toMatchObject({ quantity: '2.756123456789', displayedQuantity: '2.76 left', unit: 'L', unitVersion: '9007199254740993' })
+    expect(stock.coverage.observedAt).toMatch(/^\d{4}-/)
+    expect(screen.getByText('2.76 left')).toBeInTheDocument()
+    expect(apiRequest.mock.calls.some(([url]) => /forecast|predictive|explain/.test(url))).toBe(false)
+  } finally { spy.mockRestore() }
+})
+
+it('withholds old sales facts while a new period is loading and when its read fails', async () => {
+  vi.clearAllMocks(); setup()
+  const spy = vi.spyOn(chartFacts, 'createChartFacts')
+  const facts = () => spy.mock.results.map(result => result.value).filter(fact => fact?.chartId === 'revenue-trend')
+  try {
+    render(<AnalyticsProvider><DashboardContent activeTab="Sales" user={{ role: 'admin' }} /></AnalyticsProvider>)
+    await waitFor(() => expect(facts().at(-1)?.status).toBe('ready'))
+    const original = facts().at(-1)
+    let rejectNew
+    db.getDailySales.mockImplementationOnce(() => new Promise((_resolve, reject) => { rejectNew = reject }))
+    fireEvent.change(screen.getByLabelText('Date range'), { target: { value: 'Week' } })
+    await waitFor(() => expect(facts().some(fact => fact.scope.start !== original.scope.start && fact.status === 'loading')).toBe(true))
+    expect(facts().filter(fact => fact.scope.start !== original.scope.start).every(fact => fact.series.length === 0)).toBe(true)
+    rejectNew(new Error('Source unavailable'))
+    expect(await screen.findByRole('alert')).toHaveTextContent('Source unavailable')
+    expect(facts().filter(fact => fact.scope.start !== original.scope.start).every(fact => fact.status !== 'ready')).toBe(true)
+  } finally { spy.mockRestore() }
+})

@@ -8,6 +8,8 @@ import {
 } from "chart.js";
 import { Bar } from "react-chartjs-2";
 import { formatPeso } from "./SalesTrendChart";
+import { usePublishChartFacts } from './ChartFactsContext';
+import { chartMetric } from '../../services/chartFacts';
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Tooltip, Legend);
 
@@ -37,9 +39,14 @@ const barOptions = {
 
 // Refund rate KPI + amount-per-reason bars.
 // summary = { count, amount, rate, byReason: [{ reason, count, amount }] } from refundSummary().
-export default function RefundInsights({ summary }) {
+export default function RefundInsights({ summary, factsStatus }) {
   const s = summary || { count: 0, amount: 0, rate: 0, byReason: [] };
   const rows = Array.isArray(s.byReason) ? s.byReason : [];
+  usePublishChartFacts({ chartId: 'refunds', status: factsStatus && factsStatus !== 'ready' ? factsStatus : s.count ? 'ready' : 'empty',
+    rows: rows.map(row => ({ reason: row.reason, amount: chartMetric(row.amount, 'PHP', formatPeso(row.amount)), count: chartMetric(row.count, 'refunds') })),
+    metrics: { amount: chartMetric(s.amount, 'PHP', formatPeso(s.amount)), count: chartMetric(s.count, 'refunds'), rate: chartMetric(s.rate, 'percent', s.rate.toFixed(1) + '%') },
+    limitations: ['Refund rate is refunded pesos divided by gross sales pesos; it is not the percentage of transactions refunded.'],
+  });
 
   if (s.count === 0) {
     return (

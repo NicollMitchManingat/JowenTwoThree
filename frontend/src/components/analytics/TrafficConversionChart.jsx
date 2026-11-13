@@ -10,6 +10,8 @@ import {
 import { Bar } from "react-chartjs-2";
 import { db } from "../../services/db";
 import { formatHour } from "./CustomerTrafficHeatmap";
+import { usePublishChartFacts } from './ChartFactsContext';
+import { chartRequestKey, chartMetric } from '../../services/chartFacts';
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Tooltip, Legend);
 
@@ -38,6 +40,8 @@ export default function TrafficConversionChart({ startDate, endDate }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [retryKey, setRetryKey] = useState(0);
+  const [sourceKey, setSourceKey] = useState(null);
+  const requestKey = chartRequestKey(startDate ?? null, endDate ?? null);
 
   useEffect(() => {
     let cancelled = false;
@@ -47,6 +51,7 @@ export default function TrafficConversionChart({ startDate, endDate }) {
       try {
         const data = await db.getHourlyTrafficSplit(startDate, endDate);
         if (cancelled) return;
+        setSourceKey(requestKey);
         setHourly(Array.isArray(data) ? data : null);
       } catch (err) {
         if (cancelled) return;
@@ -61,6 +66,20 @@ export default function TrafficConversionChart({ startDate, endDate }) {
       cancelled = true;
     };
   }, [startDate, endDate, retryKey]);
+
+  const rows = Array.isArray(hourly) ? hourly : [];
+  const walkIns = rows.reduce((s, h) => s + (Number(h.walkIns) || 0), 0);
+  const buyers = rows.reduce((s, h) => s + (Number(h.buyers) || 0), 0);
+  usePublishChartFacts({ chartId: 'traffic-comparison', scope: { start: startDate, end: endDate },
+    requestKey: error ? undefined : requestKey, sourceKey,
+    status: error ? 'error' : loading ? 'loading' : !walkIns && !buyers ? 'empty' : 'ready',
+    rows: rows.map(row => ({ hour: row.hour, label: formatHour(row.hour),
+      recordedCustomers: chartMetric(Number(row.walkIns) || 0, 'customers'), transactions: chartMetric(Number(row.buyers) || 0, 'transactions') })),
+    metrics: { recordedCustomers: chartMetric(walkIns, 'customers'), transactions: chartMetric(buyers, 'transactions') },
+    limitations: ['Recorded customer counts include checkout traffic once. Do not add transactions to customer totals.',
+      'Transactions count sales, not distinct people or purchasing customers. This comparison is not a customer conversion rate.',
+      'Missing recordings do not establish zero visits.'],
+  });
 
   if (loading && !hourly) {
     return <div data-testid="conversion-loading">Loading traffic conversion...</div>;
@@ -77,10 +96,6 @@ export default function TrafficConversionChart({ startDate, endDate }) {
       </div>
     );
   }
-
-  const rows = Array.isArray(hourly) ? hourly : [];
-  const walkIns = rows.reduce((s, h) => s + (Number(h.walkIns) || 0), 0);
-  const buyers = rows.reduce((s, h) => s + (Number(h.buyers) || 0), 0);
 
   if (walkIns === 0 && buyers === 0) {
     return (

@@ -25,6 +25,8 @@ import VoucherEffectivenessChart from "../components/analytics/VoucherEffectiven
 import RefundInsights from "../components/analytics/RefundInsights";
 import TrafficConversionChart from "../components/analytics/TrafficConversionChart";
 import AiInsights, { RESOLVE_TARGETS } from "../components/analytics/AiInsights";
+import { ChartFactsProvider, PublishChartFacts } from '../components/analytics/ChartFactsContext';
+import { chartRequestKey } from '../services/chartFacts';
 
 function getDateRange(filter) {
   const now = manilaClock(), today = manilaDay();
@@ -105,9 +107,11 @@ export default function DashboardContent({ activeTab, user, onNavigate }) {
   const [inventoryLoading, setInventoryLoading] = useState(false);
   const [inventoryError, setInventoryError] = useState(null);
   const [inventoryRetryKey, setInventoryRetryKey] = useState(0);
+  const [inventoryObservedAt, setInventoryObservedAt] = useState(null);
   const [salesData, setSalesData] = useState(null);
   const [salesError, setSalesError] = useState(null);
   const [salesRetryKey, setSalesRetryKey] = useState(0);
+  const [salesSourceKey, setSalesSourceKey] = useState(null);
   const [loading, setLoading] = useState(false);
   // One narrow-column transaction fetch per range feeds every Tier-1 widget
   // (orders count, net revenue, payment mix, vouchers, refunds).
@@ -115,6 +119,7 @@ export default function DashboardContent({ activeTab, user, onNavigate }) {
   const [rangeRefunds, setRangeRefunds] = useState([]);
   const [discountList, setDiscountList] = useState([]);
   const [discountError, setDiscountError] = useState(null);
+  const [discountLoading, setDiscountLoading] = useState(true);
   // Session scope: picking a past session drives the Period pipeline via a
   // Custom range over the session's calendar days (charts follow untouched).
   const [sessions, setSessions] = useState([]);
@@ -189,6 +194,8 @@ export default function DashboardContent({ activeTab, user, onNavigate }) {
         if (!cancelled) { setDiscountList(list || []); setDiscountError(null); }
       } catch {
         if (!cancelled) { setDiscountList([]); setDiscountError('Voucher information is unavailable. Reload to retry.'); }
+      } finally {
+        if (!cancelled) setDiscountLoading(false);
       }
     }
     loadDiscounts();
@@ -224,7 +231,10 @@ export default function DashboardContent({ activeTab, user, onNavigate }) {
     let cancelled = false;
     setInventoryLoading(true); setInventoryError(null);
     db.getInventoryStatus().then(items => {
-      if (!cancelled) setLowStock((items || []).filter(item => inventoryStatus(item) !== 'good'));
+      if (!cancelled) {
+        setLowStock((items || []).filter(item => inventoryStatus(item) !== 'good'));
+        setInventoryObservedAt(new Date().toISOString());
+      }
     }).catch(err => {
       if (!cancelled) setInventoryError(err.message || 'Failed to load current inventory.');
     }).finally(() => { if (!cancelled) setInventoryLoading(false); });
@@ -254,6 +264,7 @@ export default function DashboardContent({ activeTab, user, onNavigate }) {
         setSalesData(dailySales);
         setRangeTxns(txns);
         setRangeRefunds(refunds || []);
+        setSalesSourceKey(chartRequestKey(dateRange.start, dateRange.end));
       } catch (err) {
         console.error('Sales data load error:', err);
         if (!cancelled) {
@@ -349,8 +360,9 @@ export default function DashboardContent({ activeTab, user, onNavigate }) {
   // Weekday profile (Mon–Sun average revenue) — granularity-independent
   // context answering "which weekday performs best". Never duplicates the
   // primary trend regardless of the toggle.
+  const weekdayBuckets = useMemo(() => aggregateWeekdayPattern(salesData), [salesData]);
   const weekdayChartData = useMemo(() => {
-    const buckets = aggregateWeekdayPattern(salesData);
+    const buckets = weekdayBuckets;
     if (buckets.every((b) => !(b.avg > 0))) return { labels: [], datasets: [{ data: [] }] };
     return {
       labels: buckets.map((b) => b.key),
@@ -361,7 +373,7 @@ export default function DashboardContent({ activeTab, user, onNavigate }) {
         backgroundColor: "#2563eb",
       }],
     };
-  }, [salesData]);
+  }, [weekdayBuckets]);
 
   // Warn when hourly spans a long range — 168+ points get noisy.
   const hourlySpanDays = useMemo(() => {
@@ -394,6 +406,8 @@ export default function DashboardContent({ activeTab, user, onNavigate }) {
   const mix = useMemo(() => paymentMix(rangeTxns), [rangeTxns]);
   const vouchers = useMemo(() => voucherStats(rangeTxns, discountList), [rangeTxns, discountList]);
   const refundInfo = useMemo(() => refundSummary(rangeTxns, rangeRefunds), [rangeTxns, rangeRefunds]);
+  const salesFactsStatus = salesError ? 'error' : loading || !salesData || salesSourceKey !== chartRequestKey(dateRange.start, dateRange.end) ? 'loading' : 'ready';
+  const sortedLowStock = useMemo(() => [...lowStock].sort((a, b) => Number(a.stock_quantity) - Number(b.stock_quantity)), [lowStock]);
 
   // Reconnect retries the sales load silently (no skeleton flash when data
   // is already on screen) instead of waiting for a manual retry.
@@ -525,6 +539,8 @@ export default function DashboardContent({ activeTab, user, onNavigate }) {
           )}
           <div className="chart-container analytics-chart-area">
             <SalesTrendChart
+              chartId="revenue-trend" factsStatus={salesFactsStatus}
+              pointKeys={granularity === 'hourly' ? hourlyBuckets.keys : granularity === 'weekly' ? weeklyBuckets.map(bucket => bucket.key) : Object.keys(salesData || {}).sort()}
               data={chartData}
               variant="line"
               loading={loading && !salesData}
@@ -541,6 +557,8 @@ export default function DashboardContent({ activeTab, user, onNavigate }) {
           </div>
           <div className="chart-container analytics-chart-area">
             <SalesTrendChart
+              chartId="weekday-pattern" factsStatus={salesFactsStatus}
+              pointSamples={weekdayBuckets.map(bucket => bucket.days)}
               data={weekdayChartData}
               variant="bar"
               loading={loading && !salesData}
@@ -559,7 +577,7 @@ export default function DashboardContent({ activeTab, user, onNavigate }) {
             <h3 className="m-0">Payment Mix</h3>
           </div>
           <div className="chart-container analytics-chart-area">
-            <PaymentMixChart mix={mix} />
+            <PaymentMixChart mix={mix} factsStatus={salesFactsStatus} />
           </div>
         </div>
         <div className="card analytics-chart-card">
@@ -567,7 +585,7 @@ export default function DashboardContent({ activeTab, user, onNavigate }) {
             <h3 className="m-0">Voucher Effectiveness</h3>
           </div>
           <div className="chart-container analytics-chart-area">
-            {discountError ? <p role="alert">{discountError}</p> : <VoucherEffectivenessChart stats={vouchers} />}
+            {discountError ? <p role="alert">{discountError}</p> : <VoucherEffectivenessChart stats={vouchers} factsStatus={discountLoading ? 'loading' : salesFactsStatus} />}
           </div>
         </div>
       </div>
@@ -578,7 +596,7 @@ export default function DashboardContent({ activeTab, user, onNavigate }) {
             <h3 className="m-0">Refunds</h3>
           </div>
           <div className="chart-container analytics-chart-area">
-            <RefundInsights summary={refundInfo} />
+            <RefundInsights summary={refundInfo} factsStatus={salesFactsStatus} />
           </div>
         </div>
       </div>
@@ -596,13 +614,19 @@ export default function DashboardContent({ activeTab, user, onNavigate }) {
           </div>
         </div>
       <div className="card">
+        <PublishChartFacts chartId="low-stock"
+          status={inventoryError ? 'error' : inventoryLoading || !inventoryObservedAt ? 'loading' : sortedLowStock.length ? 'ready' : 'empty'}
+          rows={sortedLowStock.map(item => ({ id: item.id, name: item.name, quantity: String(item.stock_quantity),
+            displayedQuantity: Number(item.stock_quantity) <= 0 ? 'Out of stock' : formatStock(item.stock_quantity, { maximumFractionDigits: 2 }) + ' left',
+            unit: item.unit || null, unitVersion: item.unit_version ?? null,
+            threshold: item.low_stock_threshold == null ? '5' : String(item.low_stock_threshold), status: inventoryStatus(item) }))}
+          coverage={{ observedAt: inventoryObservedAt }} limitations={['These are current balances, not stock at the selected historical date. Quantities in different units cannot be added.']} />
         <div className="card-header">
           <h3 className="m-0">Low Stock Alerts</h3>
         </div>
         <div className="card-body">
           <div className="stock-list">
-          {inventoryLoading ? <p role="status">Loading current inventory...</p> : inventoryError ? <div role="alert"><p className="text-danger">{inventoryError}</p><button className="btn btn-secondary" onClick={() => setInventoryRetryKey(key => key + 1)}>Retry</button></div> : lowStock.length > 0 ? [...lowStock]
-            .sort((a, b) => Number(a.stock_quantity) - Number(b.stock_quantity))
+          {inventoryLoading ? <p role="status">Loading current inventory...</p> : inventoryError ? <div role="alert"><p className="text-danger">{inventoryError}</p><button className="btn btn-secondary" onClick={() => setInventoryRetryKey(key => key + 1)}>Retry</button></div> : sortedLowStock.length > 0 ? sortedLowStock
             .map(item => {
               const out = Number(item.stock_quantity) <= 0
               return (
@@ -768,6 +792,8 @@ export default function DashboardContent({ activeTab, user, onNavigate }) {
   };
 
   return (
+    <ChartFactsProvider scope={{ start: dateRange.start, end: dateRange.end, sessionId: sessionScopeId, detail: granularity,
+      sessionBasis: sessionScopeId ? 'selected_session_calendar_bounds' : null }}>
     <div ref={pageRef} className="page-content analytics-page">
       <div className="analytics-sticky-bar analytics-group-header">
         <div className="analytics-header-row">
@@ -923,5 +949,6 @@ export default function DashboardContent({ activeTab, user, onNavigate }) {
         </div>
       )}
     </div>
+    </ChartFactsProvider>
   );
 }

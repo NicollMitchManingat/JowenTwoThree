@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import { apiRequest } from '../../services/apiClient'
 import { compareStock, formatStock } from '../../utils/formatStock'
+import { usePublishChartFacts } from './ChartFactsContext'
+import { chartRequestKey } from '../../services/chartFacts'
 
 const PAGE_SIZE = 15
 function quantity(value) {
@@ -24,6 +26,8 @@ export default function InventoryAnalyticsPanel({ start, end, showPlanning = tru
   const [retry, setRetry] = useState(0)
   const [usagePage, setUsagePage] = useState(0)
   const [wastePage, setWastePage] = useState(0)
+  const [sourceKey, setSourceKey] = useState(null)
+  const requestKey = chartRequestKey(start ?? null, end ?? null)
   useEffect(() => {
     let cancelled = false
     const controller = new AbortController()
@@ -37,7 +41,7 @@ export default function InventoryAnalyticsPanel({ start, end, showPlanning = tru
         if (result?.dataQuality?.complete !== true || !Array.isArray(result.planning) || !Array.isArray(result.wastage) || !result.usageWindow) {
           throw new Error('Inventory analytics is unavailable or incomplete. Please retry.')
         }
-        if (!cancelled) setData(result)
+        if (!cancelled) { setData(result); setSourceKey(requestKey) }
       } catch (err) {
         if (!cancelled) setError(controller.signal.aborted ? 'Inventory analytics request timed out. Please retry.' : err.message || 'Inventory analytics is unavailable.')
       } finally { clearTimeout(timer) }
@@ -45,6 +49,31 @@ export default function InventoryAnalyticsPanel({ start, end, showPlanning = tru
     load()
     return () => { cancelled = true; clearTimeout(timer); controller.abort() }
   }, [start, end, retry])
+
+  const visibleWastage = data?.wastage.slice(wastePage * PAGE_SIZE, (wastePage + 1) * PAGE_SIZE) || []
+  const visiblePlanning = data?.planning.slice(usagePage * PAGE_SIZE, (usagePage + 1) * PAGE_SIZE) || []
+  const factsStatus = error ? 'error' : !data ? 'loading' : 'ready'
+  usePublishChartFacts({ chartId: 'recorded-wastage', scope: { start, end },
+    requestKey: error ? undefined : requestKey, sourceKey,
+    status: factsStatus === 'ready' && !data.wastage.length ? 'empty' : factsStatus,
+    rows: visibleWastage.map(row => ({ ...row,
+      displayedQuantities: row.unit === null ? (row.recordedQuantities || []).map(quantity) : [quantity(row.quantity)],
+      quantityBasis: row.unit === null ? 'individual_recorded_values' : 'recorded_unit_total' })),
+    view: { page: wastePage, pageSize: PAGE_SIZE, totalRows: data?.wastage.length || 0 },
+    coverage: { ...data?.dataQuality, generatedAt: data?.generatedAt, actualPeriod: data?.period },
+    limitations: ['Quantities are comparable only within the same ingredient, recorded unit and unit version.',
+      'Values without a recorded unit are individual entries, not an aggregate. Never infer their unit from current inventory.'],
+  })
+  usePublishChartFacts({ chartId: 'inventory-planning', enabled: showPlanning, scope: { start, end },
+    requestKey: error ? undefined : requestKey, sourceKey,
+    status: factsStatus === 'ready' && !data.planning.length ? 'empty' : factsStatus,
+    rows: visiblePlanning.map(row => ({ ...row, quantityBasis: 'current_balance', usageBasis: 'current_recipe_scenario',
+      displayedQuantities: Object.fromEntries(['quantity', 'dailyUsage', 'daysCover', 'sevenDayUsage', 'shortage'].map(key => [key, quantity(row[key])])) })),
+    view: { page: usagePage, pageSize: PAGE_SIZE, totalRows: data?.planning.length || 0 },
+    coverage: { ...data?.dataQuality, generatedAt: data?.generatedAt, usageWindow: data?.usageWindow },
+    limitations: ['Balances are current, not historical. Usage is an estimate using current recipes and recorded sales days.',
+      'Seven-day usage and shortages are scenarios, not validated forecasts. Historical recipe and stock snapshots are unavailable.'],
+  })
 
   return <div className="inventory-analytics" data-testid="inventory-analytics">
     {!data ? <div className="card"><div className="card-body">
@@ -60,7 +89,7 @@ export default function InventoryAnalyticsPanel({ start, end, showPlanning = tru
         {data.wastage.length ? <table className="inventory-analytics-table" aria-label="Recorded wastage by ingredient and unit">
           <colgroup>{[25, 20, 15, 10, 30].map((width, i) => <col key={i} style={{ width: `${width}%` }} />)}</colgroup>
           <thead><tr><th scope="col">Ingredient</th><th scope="col">Recorded unit</th><th scope="col" className="analytics-number">Quantity</th><th scope="col" className="analytics-number">Entries</th><th scope="col">Details</th></tr></thead>
-          <tbody>{data.wastage.slice(wastePage * PAGE_SIZE, (wastePage + 1) * PAGE_SIZE).map(row => <tr key={row.id}>
+          <tbody>{visibleWastage.map(row => <tr key={row.id}>
             <td>{row.name}{row.active === false && <small className="text-muted inventory-analytics-detail">Archived ingredient</small>}</td>
             <td>{row.unit || 'Needs unit review'}{row.unitVersion != null && <small className="text-muted inventory-analytics-detail">Version {row.unitVersion}</small>}</td>
             <td className="analytics-number" title={row.quantity || undefined}>{row.unit === null
@@ -85,7 +114,7 @@ export default function InventoryAnalyticsPanel({ start, end, showPlanning = tru
         <table className="inventory-analytics-table" aria-label="Ingredient usage estimates">
           <colgroup>{[17, 10, 7, 12, 10, 12, 10, 22].map((width, i) => <col key={i} style={{ width: `${width}%` }} />)}</colgroup>
           <thead><tr>{['Ingredient', 'Quantity', 'Unit', 'Daily usage', 'Days of cover', '7-day usage', 'Shortage', 'Recommendation'].map((label, i) => <th key={label} scope="col" className={i > 0 && i < 7 && i !== 2 ? 'analytics-number' : ''}>{label}</th>)}</tr></thead>
-          <tbody>{data.planning.slice(usagePage * PAGE_SIZE, (usagePage + 1) * PAGE_SIZE).map(row => <tr key={row.id}>
+          <tbody>{visiblePlanning.map(row => <tr key={row.id}>
             <td>{row.name}</td><td className="analytics-number" title={row.quantity}>{quantity(row.quantity)}</td><td>{row.unit}</td>
             <td className="analytics-number" title={row.dailyUsage || ''}>{quantity(row.dailyUsage)}</td>
             <td className="analytics-number" title={row.daysCover || ''}>{quantity(row.daysCover)}</td>

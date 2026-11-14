@@ -63,7 +63,7 @@ export function formatGenderSplit({ male = 0, female = 0, unspecified = 0 } = {}
   return parts.join(" / ");
 }
 
-export default function CustomerTrafficHeatmap({ startDate, endDate }) {
+export default function CustomerTrafficHeatmap({ startDate, endDate, data }) {
   const [hourly, setHourly] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -74,6 +74,12 @@ export default function CustomerTrafficHeatmap({ startDate, endDate }) {
   const requestKey = chartRequestKey(startDate ?? null, endDate ?? null, refreshKey);
 
   useEffect(() => {
+    if (data !== undefined) {
+      const normalized = normalizeHourly(data)
+      setHourly(normalized); setLoading(false); setSourceKey(requestKey)
+      setError(normalized ? null : 'Traffic data is incomplete. Please retry.')
+      return
+    }
     let cancelled = false;
     async function load() {
       setLoading(true);
@@ -97,7 +103,7 @@ export default function CustomerTrafficHeatmap({ startDate, endDate }) {
     return () => {
       cancelled = true;
     };
-  }, [startDate, endDate, retryKey, refreshKey]);
+  }, [startDate, endDate, retryKey, refreshKey, data]);
 
   const { total, max, peakHour, avg, maleTotal, femaleTotal, unspecifiedTotal } = useMemo(() => {
     const list = hourly || [];

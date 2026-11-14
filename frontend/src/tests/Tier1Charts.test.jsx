@@ -6,7 +6,9 @@ import VoucherEffectivenessChart from '../components/analytics/VoucherEffectiven
 import RefundInsights from '../components/analytics/RefundInsights'
 import TrafficConversionChart from '../components/analytics/TrafficConversionChart'
 import { db } from '../services/db'
-import { Doughnut } from 'react-chartjs-2'
+import { Doughnut, Line } from 'react-chartjs-2'
+import ChartFocusPreview from '../components/analytics/ChartFocusPreview'
+import { CHART_FACTS, createChartFacts } from '../services/chartFacts'
 import ChartExplanation from '../components/analytics/ChartExplanation'
 import { apiRequest } from '../services/apiClient'
 vi.mock('../services/apiClient', () => ({ apiRequest: vi.fn() }))
@@ -14,10 +16,12 @@ vi.mock('../services/apiClient', () => ({ apiRequest: vi.fn() }))
 vi.mock('react-chartjs-2', async importOriginal => ({
   ...(await importOriginal()),
   Doughnut: vi.fn(() => <canvas />),
+  Line: vi.fn(() => <canvas />),
+  Bar: vi.fn(() => <canvas />),
 }))
 
 vi.mock('../services/db', () => ({
-  db: { getHourlyTrafficSplit: vi.fn() },
+  db: { getHourlyTrafficSplit: vi.fn(), getHourlyTraffic: vi.fn(), getTopSellingItems: vi.fn() },
 }))
 
 describe('Tier-1 analytics widgets', () => {
@@ -214,6 +218,17 @@ describe('chart explanation controls', () => {
   fireEvent.click(screen.getByRole('button',{name:'Explain chart'}))
   expect(apiRequest).toHaveBeenCalledTimes(1)
  })
+ it('keeps the selected chart and explanation together with the same chart values',async()=>{
+  render(content())
+  fireEvent.click(screen.getByRole('button',{name:'Explain chart'}))
+  const dialog=await screen.findByRole('dialog',{name:'Payment Mix'})
+  expect(within(dialog).getByRole('region',{name:'Selected chart'})).toBeInTheDocument()
+  expect(within(dialog).getByRole('region',{name:'Chart explanation'})).toBeInTheDocument()
+  expect(within(dialog).getByTestId('payment-mix')).toBeInTheDocument()
+  expect(Doughnut.mock.calls.at(-1)[0].data.datasets[0].data).toEqual([100])
+  expect(await screen.findByText('Basic summary')).toBeInTheDocument()
+  expect(apiRequest).toHaveBeenCalledTimes(1)
+ })
  it('hides an older interpretation immediately when the selection changes',async()=>{
   apiRequest.mockResolvedValue(response('groq','Earlier verified observation.'))
   const view=render(content())
@@ -344,6 +359,53 @@ describe('chart explanation controls', () => {
   view.unmount()
   expect(view.container).not.toHaveAttribute('inert')
   expect(document.querySelector('.chart-explanation-overlay')).toBeNull()
+ })
+})
+
+describe('focused chart previews',()=>{
+ const scope={start:'2026-11-01T00:00:00+08:00',end:'2026-11-09T23:59:59.999+08:00',detail:'daily'}
+ const series=[{basis:'recorded',unit:'PHP',points:[{key:'2026-11-01',value:100},{key:'2026-11-02',value:null}]}]
+ const hourly=Array.from({length:24},(_,hour)=>({hour,customers:hour===12?4:0,male:0,female:0,unspecified:hour===12?4:0}))
+ const cases={
+  'revenue-trend':{series}, 'weekday-pattern':{series}, 'sales-forecast':{series,status:'insufficient_history'},
+  'traffic-forecast':{series:series.map(row=>({...row,unit:'customers'})),view:{selectedDay:'2026-11-10'},rows:[{hour:12,samples:0,predictedCustomers:null}]},
+  'payment-mix':{rows:[{method:'CASH',amount:{value:100},transactions:{value:1}}]},
+  'voucher-effectiveness':{rows:[{key:'senior',name:'Senior',discounted:{value:20},redemptions:{value:1}}]},
+  refunds:{metrics:{count:{value:1},amount:{value:20},rate:{value:10}},rows:[{reason:'Other',count:{value:1},amount:{value:20}}]},
+  'top-selling':{rows:[{name:'Coffee',sold:{value:2}}]},
+  'traffic-comparison':{rows:[{hour:12,recordedCustomers:{value:4},transactions:{value:1}}]},
+  'traffic-heatmap':{rows:hourly},
+  'low-stock':{rows:[{name:'Milk',quantity:'0.00001',unit:'L',threshold:'3',status:'low'}]},
+  'recorded-wastage':{rows:[{name:'Beans',unit:null,recordedQuantities:['1','2'],unitVersion:null,entries:2,reasons:['spoiled']}]},
+  'inventory-planning':{rows:[{name:'Beans',quantity:'2',unit:'g',dailyUsage:null,daysCover:null,sevenDayUsage:null,shortage:null,recommendation:'Review recipe links'}]},
+ }
+ beforeEach(()=>vi.clearAllMocks())
+ it.each(Object.keys(CHART_FACTS))('renders %s from displayed facts without another API read',async chartId=>{
+  const facts=createChartFacts({chartId,scope,...cases[chartId]})
+  render(<ChartFocusPreview facts={facts}/> )
+  await waitFor(()=>expect(screen.queryByText('Loading traffic heatmap...')).not.toBeInTheDocument())
+  expect(screen.getByRole('region',{name:'Selected chart'})).toBeInTheDocument()
+  expect(screen.queryByText('Chart preview unavailable.')).not.toBeInTheDocument()
+  expect(apiRequest).not.toHaveBeenCalled()
+  Object.values(db).forEach(fn=>expect(fn).not.toHaveBeenCalled())
+  if(chartId==='low-stock') expect(screen.getByText('<0.01')).toBeInTheDocument()
+  if(chartId==='recorded-wastage') expect(screen.getByText('1, 2 (separate entries)')).toBeInTheDocument()
+  if(chartId==='traffic-forecast') expect(screen.getByText('Unavailable')).toBeInTheDocument()
+  if(chartId==='sales-forecast') expect(Line.mock.calls.at(-1)[0].data.datasets[0].data).toEqual([100,null])
+ })
+ it('isolates preview publications from the authoritative dashboard facts',async()=>{
+  const preview=createChartFacts({chartId:'payment-mix',scope,rows:[{method:'CASH',amount:{value:50},transactions:{value:1}}]})
+  render(<ChartFactsProvider scope={scope}><PublishChartFacts chartId="payment-mix" rows={[{method:'CASH',amount:{value:100}}]}/><ChartFocusPreview facts={preview}/><FactReader id="payment-mix"/></ChartFactsProvider>)
+  await waitFor(()=>expect(readFact('payment-mix')?.rows[0].amount.value).toBe(100))
+  expect(Doughnut.mock.calls.at(-1)[0].data.datasets[0].data).toEqual([50])
+ })
+ it('withholds a stale preview while a changed selection is loading',()=>{
+  const facts=createChartFacts({chartId:'payment-mix',scope,...cases['payment-mix']})
+  const view=render(<ChartFocusPreview facts={facts}/>)
+  expect(screen.getByTestId('payment-mix')).toBeInTheDocument()
+  view.rerender(<ChartFocusPreview facts={createChartFacts({chartId:'payment-mix',scope,status:'loading',rows:facts.rows})}/>)
+  expect(screen.queryByTestId('payment-mix')).not.toBeInTheDocument()
+  expect(screen.getByText('Waiting for the current chart data.')).toBeInTheDocument()
  })
 })
 

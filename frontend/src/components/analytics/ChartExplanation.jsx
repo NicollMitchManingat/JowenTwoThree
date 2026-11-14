@@ -4,6 +4,7 @@ import { AlertCircle, CalendarDays, ClipboardCheck, LoaderCircle, Sparkles, X } 
 import { apiRequest } from '../../services/apiClient'
 import { chartEvidence } from '../../services/chartFacts'
 import { useChartExplanation, useChartFacts, useRefreshCharts } from './ChartFactsContext'
+import ChartFocusPreview from './ChartFocusPreview'
 
 function validExplanation(data, chartId) {
   return data?.chartId === chartId && ['template', 'gemini', 'groq'].includes(data.source) &&
@@ -110,7 +111,9 @@ export default function ChartExplanation({ chartId }) {
           <div className="chart-explanation-title"><p>Chart explanation</p><h2 id={`${id}-title`}>{facts?.title || 'Chart'}</h2></div>
           <button ref={closeButton} type="button" className="chart-explanation-close" aria-label="Close explanation" onClick={dismiss}><X size={20} aria-hidden="true" /></button>
         </header>
-        <div className="chart-explanation-body">
+        <div className="chart-explanation-content">
+        <ChartFocusPreview facts={facts} />
+        <div className="chart-explanation-body" role="region" aria-label="Chart explanation">
           {facts?.scope.start && facts.scope.end && <div className="chart-explanation-period">
             <CalendarDays size={16} aria-hidden="true" /><div><span>Selected period</span><p>{new Date(facts.scope.start).toLocaleDateString('en-PH', { timeZone: 'Asia/Manila' })} to {new Date(facts.scope.end).toLocaleDateString('en-PH', { timeZone: 'Asia/Manila' })} <small>(Manila)</small></p>
               {['current', 'forecast', 'scenario'].includes(facts.basis) && <small>{facts.basis === 'current' ? 'Inventory balances are current.' : facts.basis === 'forecast' ? 'Projection history is based on the period end.' : 'Uses current balances and recipes.'}</small>}</div>
@@ -133,6 +136,7 @@ export default function ChartExplanation({ chartId }) {
             <details className="chart-explanation-limitations"><summary>Data basis and limitations</summary><ul>{current.data.limitations.map((text, index) => <li key={index}>{text}</li>)}</ul></details>
           </> : <div className="chart-explanation-state"><Sparkles size={26} aria-hidden="true" /><h3>{available ? 'The chart selection changed' : 'Waiting for chart data'}</h3><p>{available ? 'Request an explanation for the current view.' : 'Chart data is loading or unavailable.'}</p>
             <button type="button" className="btn btn-secondary" disabled={!available} onClick={explain}>Explain this view</button></div>}
+        </div>
         </div>
         <footer className="chart-explanation-footer"><button type="button" className="btn btn-secondary" onClick={dismiss}>Done</button></footer>
       </section>

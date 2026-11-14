@@ -41,7 +41,9 @@ function validateQuery(body) {
   if (!selections[body.table].includes(columns)) throw a.httpError('Selection is not allowed', 403)
   if (!Array.isArray(body.filters) || body.filters.length > 12) throw a.httpError('Invalid filters')
   for (const f of body.filters) {
-    if (!filterColumns.has(f.column) || !['eq', 'gt', 'gte', 'lt', 'lte', 'is', 'in'].includes(f.op)) throw a.httpError('Invalid filter')
+    // History searches the opening date; do not expose this filter on other resources.
+    const sessionStart = body.table === 'sessions' && f.column === 'started_at'
+    if ((!filterColumns.has(f.column) && !sessionStart) || !['eq', 'gt', 'gte', 'lt', 'lte', 'is', 'in'].includes(f.op)) throw a.httpError('Invalid filter')
     if (f.op === 'in' && (!Array.isArray(f.value) || f.value.length > 1000)) throw a.httpError('Invalid filter values')
   }
   if (!Array.isArray(body.orders) || body.orders.length > 3 || body.orders.some(o => !orderColumns.has(o.column))) throw a.httpError('Invalid sort')

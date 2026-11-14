@@ -30,9 +30,10 @@ module.exports = {
   REFUND_MIN_RATE: 5,
   DISCOUNT_CREEP_PTS: 5,
 
-  // Supported forecast hours compared for peak/lean staffing advice (inclusive).
-  TRADING_START_HOUR: 8,
-  TRADING_END_HOUR: 22,
+  // Inclusive hourly bins for 2 PM opening through 10 PM closing, Manila time.
+  // Bin 21 covers 9:00–9:59 PM; bin 22 is outside trading hours.
+  TRADING_START_HOUR: 14,
+  TRADING_END_HOUR: 21,
 
   // Card order on the dashboard: lower rank first, unknown impacts last.
   // Action-now (High/Reorder) above watch-items (Medium) above good news

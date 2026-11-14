@@ -2,6 +2,13 @@ import { apiRequest } from './apiClient';
 
 export const HISTORY_PAGE_SIZE = 10;
 
+export function formatSessionDateTime(value) {
+  return new Date(value).toLocaleString('en-PH', {
+    timeZone: 'Asia/Manila', year: 'numeric', month: 'short', day: 'numeric',
+    hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true,
+  });
+}
+
 export function formatElapsed(ms) {
   const totalSeconds = Math.max(0, Math.floor(Number(ms) / 1000));
   const h = Math.floor(totalSeconds / 3600);

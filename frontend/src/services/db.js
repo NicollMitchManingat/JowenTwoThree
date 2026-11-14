@@ -644,14 +644,18 @@ export const db = {
     return (await apiRequest('/api/commands/shop-session', { method: 'POST', body: { action: 'end', id, managerPassword } })).data
   },
 
-  async getSessions(limit = 100) {
+  async getSessions(limit = 100, { date } = {}) {
+    const start = date ? manilaStart(date) : null
+    if (date && (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(start.getTime()) || manilaDay(start) !== date)) {
+      throw new Error('Choose a valid session date.')
+    }
     try {
-      return await queryWithTimeout((signal) => supabase
-        .from('sessions')
-        .select('*')
-        .order('started_at', { ascending: false })
-        .limit(limit)
-        .abortSignal(signal))
+      return await queryWithTimeout((signal) => {
+        let query = supabase.from('sessions').select('*')
+        if (start) query = query.gte('started_at', start.toISOString())
+          .lt('started_at', new Date(start.getTime() + 86400000).toISOString())
+        return query.order('started_at', { ascending: false }).limit(limit).abortSignal(signal)
+      })
     } catch (err) {
       if (isMissingColumnError(err) || isMissingTableError(err)) return []
       throw err

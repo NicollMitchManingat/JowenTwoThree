@@ -15,3 +15,16 @@ it('sends approval with the final session-close command',async()=>{
 it('does not retry a failed authorization using a legacy unapproved insert',async()=>{
  apiRequest.mockRejectedValue(new Error('APPROVAL_REQUIRED'));await expect(db.startSession({managerPassword:'wrong'})).rejects.toThrow('APPROVAL_REQUIRED');expect(apiRequest).toHaveBeenCalledTimes(1)
 })
+it('filters session dates before limiting, using an exclusive next Manila midnight',async()=>{
+ const query={select:vi.fn(),gte:vi.fn(),lt:vi.fn(),order:vi.fn(),limit:vi.fn(),abortSignal:vi.fn()}
+ for(const method of ['select','gte','lt','order','limit'])query[method].mockReturnValue(query)
+ query.abortSignal.mockResolvedValue({data:[{id:'older'}],error:null});apiDatabase.from.mockReturnValue(query)
+ expect(await db.getSessions(100,{date:'2026-10-15'})).toEqual([{id:'older'}])
+ expect(query.gte).toHaveBeenCalledWith('started_at','2026-10-14T16:00:00.000Z')
+ expect(query.lt).toHaveBeenCalledWith('started_at','2026-10-15T16:00:00.000Z')
+ expect(query.gte.mock.invocationCallOrder[0]).toBeLessThan(query.limit.mock.invocationCallOrder[0])
+})
+it('rejects invalid calendar dates without sending a database request',async()=>{
+ await expect(db.getSessions(100,{date:'2026-02-30'})).rejects.toThrow('Choose a valid session date')
+ expect(apiDatabase.from).not.toHaveBeenCalled()
+})

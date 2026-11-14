@@ -1,8 +1,8 @@
 import { useContext, useEffect, useState, useMemo, useRef, useLayoutEffect, useCallback } from "react";
 import { AnalyticsContext } from "./AnalyticsContext";
-import { TrendingUp, AlertTriangle, Package, BarChart3, ShoppingBag, Calendar, ChevronDown, Plus, X, AlertCircle, CheckCircle, Percent, Undo2, Clock, Receipt } from 'lucide-react';
+import { TrendingUp, AlertTriangle, Package, BarChart3, ShoppingBag, Calendar, ChevronDown, Plus, X, AlertCircle, CheckCircle, Percent, Undo2, Clock } from 'lucide-react';
 import { db } from '../services/db';
-import { formatElapsed, loadSessionSummary, HISTORY_PAGE_SIZE } from '../services/sessionAnalytics';
+import { formatElapsed, formatSessionDateTime, loadSessionSummary, HISTORY_PAGE_SIZE } from '../services/sessionAnalytics';
 import { productAPI } from '../services/productAPI';
 import { manilaClock, manilaDay, manilaStart, manilaEnd, DAY_MS } from '../utils/analyticsTime';
 import { formatStock, inventoryStatus } from '../utils/formatStock';
@@ -28,6 +28,7 @@ import AiInsights, { RESOLVE_TARGETS } from "../components/analytics/AiInsights"
 import { ChartFactsProvider, PublishChartFacts } from '../components/analytics/ChartFactsContext';
 import { chartRequestKey } from '../services/chartFacts';
 import ChartExplanation from '../components/analytics/ChartExplanation';
+import SessionDetailsModal from '../components/analytics/SessionDetailsModal';
 
 function getDateRange(filter) {
   const now = manilaClock(), today = manilaDay();
@@ -92,28 +93,63 @@ export default function DashboardContent({ activeTab, user, onNavigate }) {
   const [discountLoading, setDiscountLoading] = useState(true);
   // Session scope: picking a past session drives the Period pipeline via a
   // Custom range over the session's calendar days (charts follow untouched).
-  const [sessions, setSessions] = useState([]);
+  const [sessionHistory, setSessionHistory] = useState({ rows: [], loading: true, error: '' });
+  const [sessionsRetry, setSessionsRetry] = useState(0);
+  const sessions = sessionHistory.rows;
   const [sessionScopeId, setSessionScopeId] = useState(null);
   const [historyPage, setHistoryPage] = useState(0);
+  const [historyDate, setHistoryDate] = useState('');
+  const [historySessions, setHistorySessions] = useState([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState('');
+  const [historyRetry, setHistoryRetry] = useState(0);
   const [historyDetail, setHistoryDetail] = useState(null);
-  const [historyDetailLoading, setHistoryDetailLoading] = useState(false);
+  const historyRequest = useRef(0);
 
   const toLocalDay = manilaDay;
 
   useEffect(() => {
     let cancelled = false;
+    setSessionHistory(previous => ({ ...previous, loading: true, error: '' }));
+    async function loadSessionList() {
+      try {
+        const rows = typeof db.getSessions === 'function' ? await db.getSessions(HISTORY_PAGE_SIZE * 10) : [];
+        if (!cancelled) setSessionHistory({ rows: (rows || []).filter(s => s.ended_at), loading: false, error: '' });
+      } catch (err) {
+        if (!cancelled) setSessionHistory({ rows: [], loading: false, error: err.message || 'Session history is unavailable. Please retry.' });
+      }
+    }
+    loadSessionList();
+    return () => { cancelled = true; };
+  }, [sessionsRetry]);
+
+  useEffect(() => {
+    if (!historyDate) { setHistoryLoading(false); setHistoryError(''); return; }
+    let cancelled = false;
     async function loadSessions() {
+      setHistoryLoading(true);
+      setHistoryError('');
       try {
         if (typeof db.getSessions !== 'function') return;
-        const rows = await db.getSessions(HISTORY_PAGE_SIZE * 10);
-        if (!cancelled) setSessions((rows || []).filter((s) => s.ended_at));
-      } catch {
-        if (!cancelled) setSessions([]);
+        const rows = await db.getSessions(HISTORY_PAGE_SIZE * 10, { date: historyDate });
+        if (!cancelled) {
+          const closed = (rows || []).filter(s => s.ended_at);
+          setHistorySessions(closed.filter(s => manilaDay(s.started_at) === historyDate));
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setHistorySessions([]);
+          setHistoryError(err.message || 'Session history is unavailable. Please retry.');
+        }
+      } finally {
+        if (!cancelled) setHistoryLoading(false);
       }
     }
     loadSessions();
     return () => { cancelled = true; };
-  }, []);
+  }, [historyDate, historyRetry]);
+
+  useEffect(() => () => { historyRequest.current += 1; }, []);
 
   const applySessionScope = (id) => {
     if (!id) {
@@ -133,25 +169,30 @@ export default function DashboardContent({ activeTab, user, onNavigate }) {
 
   const clearSessionScope = () => applySessionScope(null);
 
+  const closeHistoryDetail = useCallback(() => {
+    historyRequest.current += 1;
+    setHistoryDetail(null);
+  }, []);
+
   const handleViewSession = async (session) => {
-    if (historyDetail?.session?.id === session.id) {
-      setHistoryDetail(null);
-      return;
-    }
-    setHistoryDetailLoading(true);
+    const request = ++historyRequest.current;
+    setHistoryDetail({ session, summary: null, loading: true, error: '' });
     try {
-      setHistoryDetail({ session, summary: await loadSessionSummary(session) });
+      const summary = await loadSessionSummary(session);
+      if (request === historyRequest.current) setHistoryDetail({ session, summary, loading: false, error: '' });
     } catch (err) {
-      console.error('Failed to load session details:', err);
-    } finally {
-      setHistoryDetailLoading(false);
+      if (request === historyRequest.current) setHistoryDetail({ session, summary: null, loading: false,
+        error: err.message || 'Session details are unavailable. Please retry.' });
     }
   };
 
   const scopedSession = sessions.find((x) => String(x.id) === String(sessionScopeId)) ?? null;
-  const totalHistoryPages = Math.max(1, Math.ceil(sessions.length / HISTORY_PAGE_SIZE));
+  const visibleHistory = historyDate ? historySessions : sessions;
+  const historyBusy = historyDate ? historyLoading : sessionHistory.loading;
+  const visibleHistoryError = historyDate ? historyError : sessionHistory.error;
+  const totalHistoryPages = Math.max(1, Math.ceil(visibleHistory.length / HISTORY_PAGE_SIZE));
   const safeHistoryPage = Math.min(historyPage, totalHistoryPages - 1);
-  const historySlice = sessions.slice(
+  const historySlice = visibleHistory.slice(
     safeHistoryPage * HISTORY_PAGE_SIZE,
     safeHistoryPage * HISTORY_PAGE_SIZE + HISTORY_PAGE_SIZE
   );
@@ -682,11 +723,23 @@ export default function DashboardContent({ activeTab, user, onNavigate }) {
       </>;
       case 'reports': return <>
       <div className="card" style={{ gridColumn: '1 / -1' }}>
-        <div className="card-header">
+        <div className="card-header analytics-sessions-header">
           <h3 className="m-0 flex items-center gap-2">
             <Clock size={20} className="text-primary" /> Sessions
           </h3>
+          <div className="analytics-session-search">
+            <label htmlFor="session-date-search">Session date (Manila)</label>
+            <div className="analytics-session-search-controls">
+              <input id="session-date-search" type="date" className="form-input" value={historyDate}
+                onChange={event => { setHistoryDate(event.target.value); setHistoryPage(0); }} />
+              {historyDate && <button type="button" className="btn btn-secondary" onClick={() => { setHistoryDate(''); setHistoryPage(0); }}>Clear date</button>}
+            </div>
+          </div>
         </div>
+        {visibleHistoryError && <div className="analytics-session-history-error" role="alert">
+          <p>{visibleHistoryError}</p><button type="button" className="btn btn-secondary"
+            onClick={() => historyDate ? setHistoryRetry(value => value + 1) : setSessionsRetry(value => value + 1)}>Retry session history</button>
+        </div>}
         <div className="table-card table-responsive analytics-sessions-table">
           <table className="data-table">
             <thead>
@@ -695,31 +748,33 @@ export default function DashboardContent({ activeTab, user, onNavigate }) {
               </tr>
             </thead>
             <tbody>
-              {historySlice.length > 0 ? historySlice.map((s) => (
+              {historyBusy ? <tr><td colSpan="4" className="text-center py-4 text-muted" role="status">Loading sessions…</td></tr>
+              : historySlice.length > 0 ? historySlice.map((s) => (
                 <tr key={s.id} data-testid={`session-row-${s.id}`}>
-                  <td className="text-muted">{new Date(s.started_at).toLocaleString()}</td>
+                  <td className="text-muted">{formatSessionDateTime(s.started_at)}</td>
                   <td className="font-semibold">{formatElapsed(new Date(s.ended_at) - new Date(s.started_at))}</td>
                   <td style={{ textTransform: 'capitalize' }}>{s.started_by || '—'}</td>
                   <td>
                     <button
                       className="btn btn-secondary"
-                      disabled={historyDetailLoading}
                       onClick={() => handleViewSession(s)}
+                      aria-haspopup="dialog"
+                      aria-label={`View session ${formatSessionDateTime(s.started_at)}`}
                       data-testid={`session-view-${s.id}`}
                     >
-                      {historyDetail?.session?.id === s.id ? 'Hide' : 'View'}
+                      View
                     </button>
                   </td>
                 </tr>
               )) : (
-                <tr><td colSpan="4" className="text-center py-4 text-muted">No past sessions yet.</td></tr>
+                <tr><td colSpan="4" className="text-center py-4 text-muted">{visibleHistoryError ? 'Session history is unavailable.' : historyDate ? 'No sessions found for this date.' : 'No past sessions yet.'}</td></tr>
               )}
             </tbody>
           </table>
-          {sessions.length > 0 && (
+          {!historyBusy && !visibleHistoryError && visibleHistory.length > 0 && (
             <div className="table-pager">
               <span aria-live="polite" data-testid="session-pager-count">
-                Showing {safeHistoryPage * HISTORY_PAGE_SIZE + 1}–{Math.min(safeHistoryPage * HISTORY_PAGE_SIZE + HISTORY_PAGE_SIZE, sessions.length)} of {sessions.length}
+                Showing {safeHistoryPage * HISTORY_PAGE_SIZE + 1}–{Math.min(safeHistoryPage * HISTORY_PAGE_SIZE + HISTORY_PAGE_SIZE, visibleHistory.length)} of {visibleHistory.length}
               </span>
               <div className="action-buttons">
                 <button className="btn btn-secondary" disabled={safeHistoryPage === 0} onClick={() => setHistoryPage(safeHistoryPage - 1)} aria-label="Previous page">Prev</button>
@@ -729,41 +784,6 @@ export default function DashboardContent({ activeTab, user, onNavigate }) {
           )}
         </div>
       </div>
-
-      {historyDetail && (
-        <div className="card analytics-session-detail">
-          <div className="card-header">
-            <h3 className="m-0 flex items-center gap-2">
-              <Receipt size={20} className="text-primary" /> Session Details
-            </h3>
-          </div>
-          <div className="card-body" data-testid="session-handover">
-            <p className="m-0 text-muted text-sm">
-              {new Date(historyDetail.session.started_at).toLocaleString()} → {new Date(historyDetail.session.ended_at).toLocaleString()}
-              {' '}({formatElapsed(new Date(historyDetail.session.ended_at) - new Date(historyDetail.session.started_at))})
-              {historyDetail.session.started_by ? ` · ran by ${historyDetail.session.started_by}` : ''}
-            </p>
-            <p className="m-0 font-semibold text-lg" data-testid="handover-net-cash">
-              Expected cash: ₱{historyDetail.summary.net.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-            </p>
-            <div className="flex items-center gap-4 flex-wrap text-sm text-muted">
-              <span data-testid="handover-orders">{historyDetail.summary.orders} transactions</span>
-              <span>₱{historyDetail.summary.gross.toLocaleString()} gross</span>
-              <span>₱{historyDetail.summary.discounts.toLocaleString()} discounts</span>
-              <span data-testid="handover-refunds">
-                {historyDetail.summary.refundCount} refunds (−₱{historyDetail.summary.refunded.toLocaleString()})
-              </span>
-              <span>
-                {historyDetail.summary.customers.total} customers
-                (M{historyDetail.summary.customers.male}/F{historyDetail.summary.customers.female}/U{historyDetail.summary.customers.unspecified})
-              </span>
-              <span>₱{historyDetail.summary.avgOrder.toFixed(2)}/transaction</span>
-              <span>{historyDetail.summary.salesPerHour.toFixed(1)} sales/hr</span>
-            </div>
-            <button className="btn btn-secondary" onClick={() => setHistoryDetail(null)}>Dismiss</button>
-          </div>
-        </div>
-      )}
 
       <ConsolidatedDataTable sharedRange={{ from: toLocalDay(dateRange.start), to: toLocalDay(dateRange.end), start: dateRange.start, end: dateRange.end }} />
       {SHOW_FORECASTING && <PredictiveReportPanel start={dateRange.start} end={dateRange.end} />}
@@ -856,6 +876,8 @@ export default function DashboardContent({ activeTab, user, onNavigate }) {
           {visitedGroups.has(group.id) ? renderGroup(group.id) : null}
         </section>
       ))}
+      {historyDetail && <SessionDetailsModal detail={historyDetail} onClose={closeHistoryDetail}
+        onRetry={() => handleViewSession(historyDetail.session)} />}
       {showAddProductModal && (
         <div className="modal-overlay" onClick={handleCloseAddProductModal}>
           <div className="modal-content card add-product-modal" onClick={(e) => e.stopPropagation()}>

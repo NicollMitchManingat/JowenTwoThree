@@ -4571,7 +4571,6 @@
 .analytics-page .analytics-validation-body,
 .analytics-page .predictive-report-card > .card-body,
 .analytics-page .analytics-report-body,
-.analytics-page .analytics-session-detail > .card-body,
 .analytics-page .analytics-insights-card > .card-body {
   display: flex;
   flex-direction: column;
@@ -4610,8 +4609,41 @@
 .analytics-page .inventory-analytics-table tr > :last-child,
 .analytics-page .analytics-sessions-table tr > :last-child { padding-right: var(--analytics-card-inset); }
 .analytics-page .analytics-sessions-table { border: 0; border-radius: 0 0 11px 11px; }
-.analytics-page .analytics-session-detail { border-color: var(--color-accent); }
-.analytics-page .analytics-session-detail .card-body > .btn { align-self: flex-start; }
+.analytics-session-search { display: flex; flex-direction: column; gap: .375rem; min-width: 0; }
+.analytics-session-search > label { color: var(--text-muted); font-size: .8rem; font-weight: 600; }
+.analytics-session-search-controls { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
+.analytics-session-search-controls .form-input { width: 11rem; max-width: 100%; min-width: 0; }
+.analytics-session-search-controls .btn { min-height: 44px; }
+.analytics-session-history-error { display: flex; align-items: center; flex-wrap: wrap; gap: .75rem; padding: 1rem var(--analytics-card-inset); }
+.analytics-session-history-error p { margin: 0; color: var(--color-danger); }
+
+.session-details-overlay { overscroll-behavior: contain; }
+.session-details-dialog { max-width: 42rem; max-height: calc(100dvh - 2rem); padding: 0; gap: 0; overflow: hidden; }
+.session-details-dialog > .modal-header { flex-shrink: 0; padding: 1rem 1.25rem; gap: .75rem; }
+.session-details-dialog .modal-header h3 { display: flex; align-items: center; gap: .625rem; min-width: 0; }
+.session-details-dialog .modal-header .btn-icon-small { flex-shrink: 0; min-width: 40px; min-height: 40px; }
+.session-details-body { min-height: 0; padding: 1.25rem; overflow-y: auto; overscroll-behavior: contain; overflow-wrap: anywhere; }
+.session-details-timezone { margin: 0 0 1rem; color: var(--text-muted); font-size: .8rem; }
+.session-details-meta, .session-details-metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; margin: 0; }
+.session-details-meta > div, .session-details-metrics > div { min-width: 0; }
+.session-details-meta dt, .session-details-metrics dt { color: var(--text-muted); font-size: .8rem; margin-bottom: .375rem; line-height: 1.4; }
+.session-details-meta dd, .session-details-metrics dd { margin: 0; line-height: 1.5; font-weight: 600; font-variant-numeric: tabular-nums; }
+.session-details-starter { text-transform: capitalize; }
+.session-details-summary { margin-top: 1.25rem; }
+.session-details-total { display: flex; flex-direction: column; gap: .375rem; padding: 1rem; margin-bottom: 1rem; border: 1px solid var(--border-color); border-radius: 10px; background: var(--bg-main); }
+.session-details-total > span { color: var(--text-muted); font-size: .85rem; }
+.session-details-total > strong { color: var(--color-primary); font-size: clamp(1.5rem, 4vw, 2rem); line-height: 1.2; font-variant-numeric: tabular-nums; }
+.session-details-metrics > div { padding: .875rem; border: 1px solid var(--border-color); border-radius: 8px; }
+.session-details-metrics small { display: block; margin-top: .25rem; font-size: .75rem; font-weight: 400; color: var(--text-muted); }
+.session-details-state { display: flex; flex-direction: column; align-items: flex-start; gap: .75rem; margin: 1.25rem 0 0; padding: 1rem; border: 1px solid var(--border-color); border-radius: 8px; }
+.session-details-state p { margin: 0; }
+.session-details-dialog > .modal-footer { flex-shrink: 0; padding: 1rem 1.25rem; }
+@media (max-width: 480px) {
+  .analytics-session-search { width: 100%; }
+  .analytics-session-search-controls .form-input { flex: 1; }
+  .session-details-dialog > .modal-header, .session-details-body, .session-details-dialog > .modal-footer { padding: 1rem; }
+  .session-details-meta, .session-details-metrics { grid-template-columns: minmax(0, 1fr); gap: .75rem; }
+}
 .analytics-page .insights-grid { gap: var(--analytics-inner-gap); }
 .analytics-page .insight-card { padding: 1rem; gap: .75rem; }
 .analytics-page .insights-dismissed-bar { margin-bottom: var(--analytics-inner-gap); }

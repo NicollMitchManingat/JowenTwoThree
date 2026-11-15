@@ -34,6 +34,7 @@ function reportRows({ generatedAt, period, sales, traffic, inventory, validation
   add({ section: 'Report', basis: 'Metadata', metric: 'Generated at (Manila reporting zone)', value: generatedAt, status: 'Recorded' })
   add({ section: 'Report', basis: 'Metadata', metric: 'Selected period', date: period.start, through: period.end,
     status: 'Selected', note: 'Selected period controls recorded wastage. Forecasts use complete days anchored to the selected end calendar date; current inventory is not a historical balance.' })
+  add({ section: 'Report', basis: 'Metadata', metric: 'Date range (Manila)', date: dayKey(period.start), through: dayKey(period.end), status: 'Selected' })
   for (const [section, model, key, predicted, unit] of [
     ['Sales', sales, 'revenue', 'predictedRevenue', 'PHP'], ['Customer Traffic', traffic, 'customers', 'predictedCustomers', 'customers'],
   ]) {
@@ -140,6 +141,6 @@ async function getPredictiveReport({ start, end, client, now = new Date() } = {}
     summary: { salesStatus: sales.status, salesTotal: sales.total, trafficStatus: traffic.status, trafficTotal: traffic.total,
       inventoryItems: inventory.planning.length, salesScoredDays: validation[0].coverage.scoredDays, trafficScoredDays: validation[1].coverage.scoredDays },
     dataQuality: { complete: true, timeZone: 'Asia/Manila', recordingCoverage: 'unknown', historicalSnapshots: false }, notes, rows,
-    export: { filename: 'predictive-report-' + dayKey(now) + '.csv', contentType: 'text/csv;charset=utf-8', csv: predictiveCsv(rows) } }
+    export: { filename: 'predictive-report-' + dayKey(first) + '_to_' + dayKey(stop) + '.csv', contentType: 'text/csv;charset=utf-8', csv: predictiveCsv(rows) } }
 }
 module.exports = { getPredictiveReport, reportRows, predictiveCsv }

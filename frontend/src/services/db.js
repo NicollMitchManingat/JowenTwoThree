@@ -419,6 +419,10 @@ export const db = {
   async getTransactions() {
     return queryWithTimeout(async signal => ({ data: (await apiRequest('/api/transactions/history', { signal })).history }))
   },
+  async getTransactionExport({ from, to }) {
+    const params = new URLSearchParams({ from, to })
+    return queryWithTimeout(async signal => ({ data: (await apiRequest('/api/transactions/export?' + params, { signal })).data }))
+  },
   async saveOrder(input) { return (await apiRequest('/api/commands/save-order', { method: 'POST', body: input })).order },
   async getSavedOrders() { return queryWithTimeout(async signal => ({ data: (await apiRequest('/api/commands/saved-orders', { signal })).orders })) },
   async getSavedOrderCount() { return queryWithTimeout(async signal => ({ data: (await apiRequest('/api/commands/saved-orders/count', { signal })).count })) },
@@ -660,6 +664,13 @@ export const db = {
       if (isMissingColumnError(err) || isMissingTableError(err)) return []
       throw err
     }
+  },
+
+  async getCustomerTrafficExport({ from, to } = {}) {
+    const params = new URLSearchParams()
+    if (from) params.set('from', from)
+    if (to) params.set('to', to)
+    return queryWithTimeout(async signal => ({ data: (await apiRequest('/api/commands/customer-traffic/export?' + params, { signal })).data, error: null }))
   },
 
   // Top-selling products for the Stock Movement chart.

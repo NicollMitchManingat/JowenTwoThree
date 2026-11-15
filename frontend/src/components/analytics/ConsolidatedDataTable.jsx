@@ -1,5 +1,7 @@
 import { useState, useEffect, useMemo } from "react"
 import { Search, FileSpreadsheet } from "lucide-react"
+import ExportDateRangeModal from "../ExportDateRangeModal"
+import { reportDateRange } from "../../utils/reportDateRange"
 import { manilaDay, DAY_MS } from "../../utils/analyticsTime"
 import {
   downloadConsolidatedExcel,
@@ -70,6 +72,21 @@ const cellValue = (row, key) => {
   return row[key]
 }
 
+async function readReport(bounds, signal) {
+  const params = new URLSearchParams()
+  if (bounds.from) params.set('from', bounds.from)
+  if (bounds.to) params.set('to', bounds.to)
+  if (bounds.start) params.set('rangeStart', bounds.start)
+  if (bounds.end) params.set('rangeEnd', bounds.end)
+  const response = await fetch(API_BASE + '/api/consolidated-data?' + params, { credentials: 'include', signal })
+  const json = await response.json().catch(() => ({}))
+  if (!response.ok) throw Object.assign(new Error(json.error || 'Report data is unavailable. Please retry.'), { status: response.status })
+  if (!json.data || !['live', 'cart'].includes(json.data.meta?.dataSource) || json.data.meta?.complete === false || !Array.isArray(json.data.rows)) {
+    throw new Error('Report data is unavailable or incomplete. Please retry.')
+  }
+  return json.data
+}
+
 export default function ConsolidatedDataTable({ sharedRange } = {}) {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -84,8 +101,7 @@ export default function ConsolidatedDataTable({ sharedRange } = {}) {
   const [sortField, setSortField] = useState("date")
   const [sortDirection, setSortDirection] = useState("desc")
   const [page, setPage] = useState(0)
-  const [exporting, setExporting] = useState(false)
-  const [exportError, setExportError] = useState(null)
+  const [exportOpen, setExportOpen] = useState(false)
   const [retryCount, setRetryCount] = useState(0)
 
   // Embedded reports follow Analytics; standalone reports retain their presets.
@@ -113,25 +129,10 @@ export default function ConsolidatedDataTable({ sharedRange } = {}) {
     setLoading(true)
     setLoadError(null)
 
-    const params = new URLSearchParams()
-    if (queryBounds.from) params.set("from", queryBounds.from)
-    if (queryBounds.to) params.set("to", queryBounds.to)
-    if (queryBounds.start) params.set('rangeStart', queryBounds.start)
-    if (queryBounds.end) params.set('rangeEnd', queryBounds.end)
-    const qs = params.toString() ? `?${params.toString()}` : ""
-
-    fetch(`${API_BASE}/api/consolidated-data${qs}`, { credentials: 'include', signal: controller.signal })
-      .then(async (res) => {
-        const json = await res.json().catch(() => ({}))
-        if (!res.ok) throw Object.assign(new Error(json.error || 'Report data is unavailable. Please retry.'), { status: res.status })
-        return json
-      })
-      .then((json) => {
+    readReport(queryBounds, controller.signal)
+      .then((report) => {
         if (cancelled) return
-        if (!json.data || !['live', 'cart'].includes(json.data.meta?.dataSource) || json.data.meta?.complete === false) {
-          throw new Error('Report data is unavailable or incomplete. Please retry.')
-        }
-        setData(json.data)
+        setData(report)
         setLoadError(null)
         setLoading(false)
       })
@@ -177,9 +178,9 @@ export default function ConsolidatedDataTable({ sharedRange } = {}) {
     return [...names].sort((a, b) => a.localeCompare(b))
   }, [data])
 
-  const filtered = useMemo(() => {
+  const filterRows = rows => {
     const q = search.trim().toLowerCase()
-    return (data?.rows || [])
+    return (rows || [])
       .filter((r) => {
         if (category !== "all" && r.category !== category) return false
         if (statusFilter !== "all" && r.status !== statusFilter) return false
@@ -199,7 +200,8 @@ export default function ConsolidatedDataTable({ sharedRange } = {}) {
         const cmp = String(aVal ?? "").localeCompare(String(bVal ?? ""))
         return sortDirection === "asc" ? cmp : -cmp
       })
-  }, [data, search, category, statusFilter, sortField, sortDirection])
+  }
+  const filtered = useMemo(() => filterRows(data?.rows), [data, search, category, statusFilter, sortField, sortDirection])
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
   const safePage = Math.min(page, totalPages - 1)
@@ -212,30 +214,18 @@ export default function ConsolidatedDataTable({ sharedRange } = {}) {
     ? `Custom (${dateFrom || "…"} to ${dateTo || "…"})`
     : (DATE_PRESETS.find((o) => o.key === datePreset) || {}).label || datePreset
 
-  const handleExportExcel = async () => {
-    if (exporting || !data || loadError) return
-    setExporting(true)
-    setExportError(null)
-    try {
-      await downloadConsolidatedExcel({
-        rows: filtered,
-        summary: data?.summary || {},
-        categories: data?.categories || [],
-        meta: {
-          dateLabel,
-          search: search.trim(),
-          category: category === "all" ? "" : category,
-          status: (STATUS_OPTIONS.find((o) => o.key === statusFilter) || {}).label || statusFilter,
-          generatedAt: new Date(),
-          dataSource: data?.meta?.dataSource || "live",
-        },
-      })
-    } catch (err) {
-      console.error("Failed to export consolidated Excel:", err)
-      setExportError("Excel export failed. Please try again.")
-    } finally {
-      setExporting(false)
-    }
+  const handleExportExcel = async (range, signal) => {
+    const report = await readReport(range, signal)
+    if (signal.aborted) return
+    await downloadConsolidatedExcel({
+      rows: filterRows(report.rows), summary: report.summary || {}, categories: report.categories || [],
+      meta: {
+        dateLabel: 'Custom (' + range.from + ' to ' + range.to + ')', range,
+        search: search.trim(), category: category === 'all' ? '' : category,
+        status: (STATUS_OPTIONS.find(o => o.key === statusFilter) || {}).label || statusFilter,
+        generatedAt: new Date(), dataSource: report.meta.dataSource,
+      },
+    })
   }
 
   if (loading) {
@@ -270,15 +260,17 @@ export default function ConsolidatedDataTable({ sharedRange } = {}) {
         <button
           data-testid="consolidated-export-btn"
           className="btn btn-primary"
-          onClick={handleExportExcel}
-          disabled={exporting}
-          title="Download the filtered rows as a formatted Excel report"
+          onClick={() => setExportOpen(true)}
+          title="Choose dates and export a formatted Excel report"
         >
-          <FileSpreadsheet size={16} /> {exporting ? "Exporting…" : "Export"}
+          <FileSpreadsheet size={16} /> Export
         </button>
       </div>
       <div className="card-body analytics-report-body">
-      {exportError && <p className="text-sm text-danger" role="alert">{exportError}</p>}
+      {exportOpen && <ExportDateRangeModal title="Export consolidated report"
+        initialRange={reportDateRange({ from: queryBounds.from, to: queryBounds.to, dates: (data?.rows || []).map(row => row.date) })}
+        description="Current search, category and status filters apply to detail rows. Summaries cover the chosen dates; inventory balances are current."
+        onClose={() => setExportOpen(false)} onExport={handleExportExcel} />}
 
       <p className="text-sm text-muted">Customer totals are from transactions. Inventory quantities show current balances.</p>
       <div className="summary-row" data-testid="consolidated-summary">

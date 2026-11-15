@@ -1,5 +1,6 @@
 const crypto = require("crypto");
 const { supabase } = require("../config/supabaseClient");
+const { calendarStart, DAY_MS, readAll } = require('./analyticsReadService');
 
 const {
   calculateSubtotal,
@@ -196,7 +197,38 @@ function clearHistory() {
   transactionHistory = [];
 }
 
+// Export reads are independent of the history page and its default REST row cap.
+async function getTransactionExport({ from, to, client = supabase } = {}) {
+  const first = calendarStart(from), last = calendarStart(to);
+  if (!first || !last || first > last) throw Object.assign(new Error('Choose valid From and To dates in chronological order.'), { statusCode: 400 });
+  const until = new Date(last.getTime() + DAY_MS).toISOString();
+  const read = (table, unpaid = false) => readAll((start, stop) => {
+    let query = client.from(table).select('*').gte('created_at', first.toISOString()).lt('created_at', until);
+    if (unpaid) query = query.eq('payment_status', 'UNPAID').is('removed_at', null);
+    return query.order('created_at', { ascending: false }).order('id').range(start, stop);
+  }, { label: 'Transaction export' });
+  const [paid, saved] = await Promise.all([read('transactions'), read('saved_orders', true)]);
+  const { savedOrderRecord } = require('./checkoutService');
+  const orders = [...new Map([...saved.map(savedOrderRecord), ...paid].map(row => [row.id, row])).values()]
+    .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+  const refundsByTxn = {}, ids = paid.map(row => row.id);
+  // Keep URL filters bounded and fetch at most four groups concurrently.
+  for (let offset = 0; offset < ids.length; offset += 400) {
+    const batches = [];
+    for (let i = offset; i < Math.min(offset + 400, ids.length); i += 100) {
+      const group = ids.slice(i, i + 100);
+      batches.push(readAll((start, stop) => client.from('refunds').select('*').in('transaction_id', group)
+        .order('created_at').order('id').range(start, stop), { label: 'Transaction refunds' }));
+    }
+    for (const rows of await Promise.all(batches)) for (const refund of rows) {
+      (refundsByTxn[refund.transaction_id] ||= []).push(refund);
+    }
+  }
+  return { orders, refundsByTxn, range: { from, to }, dataQuality: { complete: true, timeZone: 'Asia/Manila' } };
+}
+
 module.exports = {
+  getTransactionExport,
   saveTransaction,
   getTransactionHistory,
   getTransactionById,

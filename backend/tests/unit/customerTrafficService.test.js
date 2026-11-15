@@ -1,4 +1,4 @@
-const { getCustomerTrafficData, getTrafficForecast } = require('../../src/services/customerTrafficService')
+const { getCustomerTrafficData, getTrafficForecast, getTrafficExport } = require('../../src/services/customerTrafficService')
 const { buildTrafficForecast, customerCount } = require('../../src/services/trafficForecastMath')
 function clientFor(rows, error = null) {
   const query = { select() { return this }, gte() { return this }, lt() { return this }, order() { return this },
@@ -14,6 +14,24 @@ function history() {
   }).flat()
 }
 describe('live customer traffic and forecasts', () => {
+  it('exports every recorded headcount, including beyond a server page, without reading sales', async () => {
+    const rows = Array.from({length:1201},(_,i)=>({id:String(i+1),created_at:'2026-10-15T06:00:00Z',number_of_customer:'3',male_count:'1',female_count:'1',unspecified_count:'1'}));
+    rows.push({...rows[0],id:'outside',created_at:'2026-10-15T16:00:00Z'});
+    const client=clientFor(rows),result=await getTrafficExport({from:'2026-10-15',to:'2026-10-15',client});
+    expect(result.rows).toHaveLength(1201);expect(result.summary).toEqual({records:1201,customers:3603,male:1201,female:1201,unspecified:1201});
+    expect(result.range).toEqual({from:'2026-10-15',to:'2026-10-15'});expect(result.dataQuality.complete).toBe(true);
+    expect(client.from.mock.calls.every(([table])=>table==='customer_traffic')).toBe(true);
+  })
+  it('rejects invalid export dates and inconsistent headcounts and does not replace read failures with sample rows', async () => {
+    const client=clientFor([]);
+    await expect(getTrafficExport({from:'2026-02-30',client})).rejects.toMatchObject({statusCode:400});
+    await expect(getTrafficExport({from:'2026-10-16',to:'2026-10-15',client})).rejects.toMatchObject({statusCode:400});
+    expect(client.from).not.toHaveBeenCalled();
+    await expect(getTrafficExport({client:clientFor([{id:'1',created_at:'2026-10-15T06:00:00Z',number_of_customer:1,male_count:1,female_count:1,unspecified_count:0}])})).rejects.toMatchObject({statusCode:503});
+    await expect(getTrafficExport({client:clientFor([], {message:'offline'})})).rejects.toMatchObject({statusCode:503});
+    const repeated={id:'1',created_at:'2026-10-15T06:00:00Z',number_of_customer:1,male_count:1,female_count:0,unspecified_count:0};
+    await expect(getTrafficExport({client:clientFor([repeated,repeated])})).rejects.toMatchObject({statusCode:503});
+  })
   it('sums recorded headcounts into Manila hours, not one customer per row', async () => {
     const client = clientFor([{ created_at: '2026-11-09T16:15:00Z', number_of_customer: '5' }, { created_at: '2026-11-10T00:15:00Z', number_of_customer: '3' }])
     const result = await getCustomerTrafficData({ now, client })

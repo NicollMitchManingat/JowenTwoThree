@@ -10,6 +10,8 @@ import {
   HEADER_ROW,
   DATA_START_ROW,
 } from '../utils/exportTransactionsExcel';
+import { buildCustomerTrafficWorkbook } from '../utils/exportCustomerTrafficExcel';
+import { reportDateRange, presetReportRange, reportFilename } from '../utils/reportDateRange';
 
 const sampleOrders = [
   {
@@ -145,7 +147,8 @@ describe('exportTransactionsExcel', () => {
   });
 
   it('generates dated xlsx filenames', () => {
-    expect(transactionsFilename(new Date('2026-10-15T00:00:00.000Z'))).toBe('transactions-2026-10-15.xlsx');
+    expect(transactionsFilename(new Date('2026-10-15T00:00:00.000Z'))).toBe('transactions-2026-10-15_to_2026-10-15.xlsx');
+    expect(transactionsFilename({ from: '2026-10-01', to: '2026-10-15' })).toBe('transactions-2026-10-01_to_2026-10-15.xlsx');
   });
   it('exports unpaid amounts without counting them as paid revenue', () => {
     const unpaid = { ...sampleOrders[0], id: 'saved', payment_status: 'UNPAID', status: 'SAVED', payment_method: null, order_type: 'DELIVERY' };
@@ -155,5 +158,41 @@ describe('exportTransactionsExcel', () => {
     expect(worksheet.getRow(DATA_START_ROW).getCell(8).value).toBe('');
     expect(worksheet.getRow(DATA_START_ROW).getCell(14).value).toBe('Delivery');
     expect(worksheet.getRow(totalsRowNumber).getCell(4).value.formula).toContain('SUMIF');
+  });
+});
+
+describe('recorded customer traffic Excel and report periods', () => {
+  const rows = [
+    { id: '104', created_at: '2026-10-14T16:01:00Z', number_of_customer: 3, male_count: 1, female_count: 1, unspecified_count: 1 },
+    { id: '105', created_at: '2026-10-15T15:59:59Z', number_of_customer: 2, male_count: 0, female_count: 2, unspecified_count: 0 },
+  ];
+  it('preserves all recordings with typed Manila times/counts, date metadata and reconciled cached totals', async () => {
+    const { workbook, worksheet, summary, totalsRow } = buildCustomerTrafficWorkbook(ExcelJS, { rows, meta: { range: { from: '2026-10-15', to: '2026-10-15' } } });
+    expect(summary).toEqual({ records: 2, customers: 5, male: 1, female: 3, unspecified: 1 });
+    expect(worksheet.getCell('A2').value).toContain('2026-10-15 to 2026-10-15 (Manila)');
+    expect(worksheet.getCell('A6').value).toBe('104');
+    expect(worksheet.getCell('B6').value.toISOString()).toBe('2026-10-15T00:01:00.000Z');
+    expect(worksheet.getCell('C6').value).toBe(3);
+    expect(worksheet.getCell('C6').numFmt).toBe('#,##0');
+    expect(worksheet.views[0].ySplit).toBe(5);
+    expect(worksheet.getCell(`C${totalsRow}`).value).toEqual({ formula: 'SUM(C6:C7)', result: 5 });
+    const saved = await workbook.xlsx.writeBuffer(), reopened = new ExcelJS.Workbook();
+    await reopened.xlsx.load(saved);
+    expect(reopened.getWorksheet('Customer Traffic').getCell('B6').value).toBeInstanceOf(Date);
+    expect(reopened.getWorksheet('Customer Traffic').getCell(`C${totalsRow}`).value.result).toBe(5);
+  });
+  it('keeps a selected empty period explicit and never invents recording dates', () => {
+    const { worksheet, totalsRow } = buildCustomerTrafficWorkbook(ExcelJS, { rows: [], meta: { range: { from: '2026-10-01', to: '2026-10-15' } } });
+    expect(worksheet.getCell('A2').value).toContain('2026-10-01 to 2026-10-15');
+    expect(worksheet.getCell(`C${totalsRow}`).value).toBe(0);
+    expect(reportDateRange().label).toContain('no records');
+    expect(reportFilename('customer-traffic', { dates: rows.map(r => r.created_at) })).toBe('customer-traffic-2026-10-15_to_2026-10-15.xlsx');
+  });
+  it('rejects malformed demographics and invalid/reversed ranges instead of producing a misleading report', () => {
+    expect(() => buildCustomerTrafficWorkbook(ExcelJS, { rows: [{ ...rows[0], female_count: 4 }] })).toThrow('do not match');
+    expect(() => buildCustomerTrafficWorkbook(ExcelJS, { rows: [{ ...rows[0], number_of_customer: null }] })).toThrow('invalid counts');
+    expect(() => reportDateRange({ from: '2026-02-30' })).toThrow('valid');
+    expect(() => reportDateRange({ from: '2026-10-16', to: '2026-10-15' })).toThrow('after');
+    expect(presetReportRange('today', '', '', new Date('2026-10-14T16:30:00Z'))).toEqual({ from: '2026-10-15', to: '2026-10-15' });
   });
 });

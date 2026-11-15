@@ -154,4 +154,4 @@ async function removeSavedOrder(context, id, revision) {
   if (result.error) throw rpcError(result.error)
   return result.data
 }
-module.exports = { quoteOrder, approveDiscount, checkout, saveOrder, listSavedOrders, countSavedOrders, getSavedOrder, removeSavedOrder, rpcError }
+module.exports = { quoteOrder, approveDiscount, checkout, saveOrder, savedOrderRecord, listSavedOrders, countSavedOrders, getSavedOrder, removeSavedOrder, rpcError }

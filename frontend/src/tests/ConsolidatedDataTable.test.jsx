@@ -114,7 +114,14 @@ describe("ConsolidatedDataTable", () => {
     await waitFor(() => expect(screen.getByTestId('consolidated-search')).toHaveValue('Chicken'));
     expect(screen.getByTestId('consolidated-shared-range')).toHaveTextContent('2026-10-02 to 2026-10-16');
     await user.click(screen.getByTestId('consolidated-export-btn'));
-    await waitFor(() => expect(downloadConsolidatedExcel).toHaveBeenCalledWith(expect.objectContaining({ meta: expect.objectContaining({ dateLabel: 'Selected period (2026-10-02 to 2026-10-16)', search: 'Chicken' }) })));
+    const dialog = screen.getByRole('dialog', { name: 'Export consolidated report' });
+    expect(downloadConsolidatedExcel).not.toHaveBeenCalled();
+    fireEvent.change(within(dialog).getByLabelText('From date'), { target: { value: '2026-07-01' } });
+    fireEvent.change(within(dialog).getByLabelText('To date'), { target: { value: '2026-07-02' } });
+    await user.click(within(dialog).getByRole('button', { name: 'Download file' }));
+    expect(global.fetch).toHaveBeenLastCalledWith(expect.stringContaining('from=2026-07-01&to=2026-07-02'), expect.anything());
+    expect(screen.getByTestId('consolidated-shared-range')).toHaveTextContent('2026-10-02 to 2026-10-16');
+    await waitFor(() => expect(downloadConsolidatedExcel).toHaveBeenCalledWith(expect.objectContaining({ meta: expect.objectContaining({ dateLabel: 'Custom (2026-07-01 to 2026-07-02)', search: 'Chicken' }) })));
   });
 
   it("should display all summary metrics", async () => {
@@ -211,15 +218,20 @@ describe("ConsolidatedDataTable", () => {
       expect(screen.getByTestId("consolidated-export-btn")).toBeInTheDocument();
     });
 
+    const exportData = { ...mockData, rows: [{ ...mockData.rows[0], orderId: 'EXPORT-ONLY' }], summary: { ...mockData.summary, totalRevenue: 999 } };
+    global.fetch.mockResolvedValueOnce({ ok: true, json: async () => ({ data: exportData }) });
     const user = userEvent.setup();
     await user.click(screen.getByTestId("consolidated-export-btn"));
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Download file" }));
 
     await waitFor(() => {
       expect(downloadConsolidatedExcel).toHaveBeenCalledTimes(1);
     });
     const payload = downloadConsolidatedExcel.mock.calls[0][0];
-    expect(payload.rows).toHaveLength(3);
-    expect(payload.summary.totalRevenue).toBe(4908);
+    expect(payload.rows).toHaveLength(1);
+    expect(payload.rows[0].orderId).toBe("EXPORT-ONLY");
+    expect(payload.summary.totalRevenue).toBe(999);
+    expect(screen.queryByText("EXPORT-ONLY")).not.toBeInTheDocument();
   });
 
   it("should narrow rows when searching", async () => {
@@ -357,7 +369,7 @@ function predictivePayload() {
  rows:[{section:'Sales',basis:'Prediction',metric:'Next seven days',value:null,status:'Insufficient history',trainingFrom:'2026-10-13',trainingThrough:'2026-11-09',method:'Same-weekday moving average'},
   {section:'Inventory',basis:'Scenario',metric:'Daily ingredient usage',item:'Milk',unit:'L/day',unitVersion:'1',value:'0.1234567890123456789',status:'estimated'},
   {section:'Sales',basis:'Recorded',metric:'Daily revenue after refunds',date:'2026-11-09',value:100,unit:'PHP',status:'Recorded'}],
- export:{filename:'predictive-report-2026-11-10.csv',csv:'complete report CSV including Sales and Inventory',contentType:'text/csv;charset=utf-8'}}
+ export:{filename:'predictive-report-2026-11-01_to_2026-11-09.csv',csv:'complete report CSV including Sales and Inventory',contentType:'text/csv;charset=utf-8'}}
 }
 describe('Predictive Business Report',()=>{
  beforeEach(()=>{vi.restoreAllMocks();vi.clearAllMocks();apiRequest.mockResolvedValue({data:predictivePayload()})})
@@ -378,7 +390,7 @@ describe('Predictive Business Report',()=>{
   fireEvent.change(screen.getByLabelText('Data basis'),{target:{value:'Recorded'}})
   expect(table).toHaveTextContent('Daily revenue after refunds');expect(table).not.toHaveTextContent('Next seven days')
  })
- it('downloads the server-prepared complete CSV from the loaded report despite preview filters',async()=>{
+ it('fetches and downloads a complete CSV for independently chosen export dates despite preview filters',async()=>{
   let capturedBlob,filename
   URL.createObjectURL=vi.fn(blob=>{capturedBlob=blob;return 'blob:predictive'})
   URL.revokeObjectURL=vi.fn()
@@ -387,10 +399,40 @@ describe('Predictive Business Report',()=>{
   await screen.findByRole('table')
   fireEvent.change(screen.getByLabelText('Aspect'),{target:{value:'Inventory'}})
   fireEvent.click(screen.getByRole('button',{name:'Export full predictive CSV'}))
-  expect(filename).toBe('predictive-report-2026-11-10.csv');expect(capturedBlob.type).toBe('text/csv;charset=utf-8')
+  const dialog = screen.getByRole('dialog', { name: 'Export predictive report' })
+  expect(apiRequest).toHaveBeenCalledTimes(1)
+  fireEvent.change(within(dialog).getByLabelText('From date'), {target:{value:'2026-11-02'}})
+  fireEvent.change(within(dialog).getByLabelText('To date'), {target:{value:'2026-11-09'}})
+  const exported = predictivePayload()
+  exported.period.start = '2026-11-01T16:00:00.000Z'
+  exported.export = { ...exported.export, filename: 'predictive-report-2026-11-02_to_2026-11-09.csv', csv: 'report for the chosen export period' }
+  apiRequest.mockResolvedValueOnce({ data: exported })
+  fireEvent.click(within(dialog).getByRole('button', {name:'Download file'}))
+  await waitFor(() => expect(apiRequest).toHaveBeenCalledTimes(2))
+  const requested = new URL(apiRequest.mock.calls[1][0], 'http://localhost')
+  expect(requested.searchParams.get('start')).toBe('2026-11-01T16:00:00.000Z')
+  expect(requested.searchParams.get('end')).toBe('2026-11-09T15:59:59.999Z')
+  await waitFor(() => expect(filename).toBeDefined())
+  expect(filename).toBe('predictive-report-2026-11-02_to_2026-11-09.csv');expect(capturedBlob.type).toBe('text/csv;charset=utf-8')
   const text=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.onerror=reject;reader.readAsText(capturedBlob)})
-  expect(text).toBe(predictivePayload().export.csv);expect(apiRequest).toHaveBeenCalledTimes(1)
+  expect(text).toBe(exported.export.csv);expect(apiRequest).toHaveBeenCalledTimes(2)
   expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:predictive')
+ })
+ it('aborts a timed-out export and keeps the selected dates available for retry', async () => {
+  render(<PredictiveReportPanel />)
+  await screen.findByRole('table')
+  vi.useFakeTimers()
+  try {
+   apiRequest.mockImplementation((_url, {signal}) => new Promise((_resolve, reject) => signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')))))
+   fireEvent.click(screen.getByRole('button', {name:'Export full predictive CSV'}))
+   const dialog = screen.getByRole('dialog')
+   fireEvent.click(within(dialog).getByRole('button', {name:'Download file'}))
+   expect(within(dialog).getByRole('button', {name:'Cancel'})).toBeDisabled()
+   await act(async () => { await vi.advanceTimersByTimeAsync(8000) })
+   expect(within(dialog).getByRole('alert')).toHaveTextContent('Export request timed out')
+   expect(within(dialog).getByRole('button', {name:'Download file'})).toBeEnabled()
+   expect(within(dialog).getByLabelText('To date')).toHaveValue('2026-11-09')
+  } finally { vi.useRealTimers() }
  })
  it('does not permit stale report export when the selected period changes',async()=>{
   const view=render(<PredictiveReportPanel start="2026-11-01T00:00:00Z" />)

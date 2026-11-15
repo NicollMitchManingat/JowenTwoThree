@@ -177,3 +177,40 @@ describe("TransactionService", () => {
     });
   });
 });
+
+
+describe('date-selected transaction export', () => {
+  it('paginates paid, unpaid and refund records without the history page limits', async () => {
+    const time = '2026-10-15T06:00:00Z';
+    const paid = Array.from({ length: 1201 }, (_, i) => ({ id: 'paid-' + i, created_at: time, total: 10 }));
+    const saved = { id: 'saved', created_at: time, order_key: 'saved-key', male_count: 1, female_count: 2, unspecified_count: 0, payment_status: 'UNPAID', removed_at: null };
+    const tables = { transactions: [...paid, { id: 'outside', created_at: '2026-10-15T16:00:00Z' }],
+      saved_orders: [saved, { ...saved, id: 'removed', removed_at: time }, { ...saved, id: 'already-paid', payment_status: 'PAID' }],
+      refunds: Array.from({ length: 401 }, (_, i) => ({ id: 'refund-' + i, transaction_id: 'paid-0', created_at: time, refund_amount: 1 })) };
+    const client = { from(table) {
+      let rows = tables[table];
+      const query = { select() { return this; }, order() { return this; },
+        gte(key, value) { rows = rows.filter(row => row[key] >= value); return this; },
+        lt(key, value) { rows = rows.filter(row => row[key] < value); return this; },
+        eq(key, value) { rows = rows.filter(row => row[key] === value); return this; },
+        is(key, value) { return this.eq(key, value); },
+        in(key, values) { rows = rows.filter(row => values.includes(row[key])); return this; },
+        range(start, stop) { return Promise.resolve({ data: rows.slice(start, Math.min(stop + 1, start + 200)), error: null }); },
+      }; return query;
+    } };
+    const report = await TransactionService.getTransactionExport({ from: '2026-10-15', to: '2026-10-15', client });
+    expect(report.orders).toHaveLength(1202);
+    expect(report.orders.find(row => row.id === 'saved')).toMatchObject({ status: 'SAVED', payment_method: null, customer_count: 3 });
+    expect(report.refundsByTxn['paid-0']).toHaveLength(401);
+    expect(report.range).toEqual({ from: '2026-10-15', to: '2026-10-15' });
+    expect(report.dataQuality.complete).toBe(true);
+  });
+  it('rejects invalid ranges and unavailable sources instead of downloading incomplete records', async () => {
+    const client = { from() { throw new Error('Must not read invalid ranges'); } };
+    for (const range of [{ from: '2026-02-30', to: '2026-03-01' }, { from: '2026-10-16', to: '2026-10-15' }, {}]) {
+      await expect(TransactionService.getTransactionExport({ ...range, client })).rejects.toMatchObject({ statusCode: 400 });
+    }
+    const broken = { from() { const query = { select() { return this; }, gte() { return this; }, lt() { return this; }, eq() { return this; }, is() { return this; }, order() { return this; }, range() { return { data: null, error: new Error('Unavailable') }; } }; return query; } };
+    await expect(TransactionService.getTransactionExport({ from: '2026-10-15', to: '2026-10-16', client: broken })).rejects.toMatchObject({ statusCode: 503 });
+  });
+});

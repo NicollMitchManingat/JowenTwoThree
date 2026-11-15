@@ -5,6 +5,9 @@
 // - `downloadConsolidatedExcel(payload)` dynamically imports exceljs so the
 //   library stays out of the initial bundle.
 
+import { manilaDay } from './analyticsTime';
+import { reportDateRange, reportFilename } from './reportDateRange';
+
 export const DETAIL_COLUMNS = [
   { header: 'Date', key: 'date', width: 12 },
   { header: 'Transaction ID', key: 'orderId', width: 16 },
@@ -63,8 +66,8 @@ export const txnStatusLabel = (status) =>
 export const netForConsolidatedRow = (row) =>
   row.status === 'REFUNDED' ? 0 : Number(row.totalAmount || 0) - Number(row.refunded || 0);
 
-export function consolidatedFilename(date = new Date()) {
-  return `consolidated-report-${date.toISOString().slice(0, 10)}.xlsx`;
+export function consolidatedFilename(range = {}) {
+  return reportFilename('consolidated-report', range instanceof Date ? { from: manilaDay(range), to: manilaDay(range) } : range);
 }
 
 function peso(n) {
@@ -159,14 +162,16 @@ export function buildConsolidatedWorkbook(
   title.alignment = { horizontal: 'center', vertical: 'middle' };
   ws.getRow(1).height = 26;
 
+  const range = reportDateRange({ ...meta.range, dates: rows.map(row => row.date) });
   const metaParts = [
-    `Date range: ${dateLabel}`,
+    `Date range: ${range.label}`,
+    `Date filter: ${dateLabel}`,
     category ? `Category: ${category}` : null,
     `Status: ${status}`,
     search ? `Search: "${search}"` : null,
     `Source: ${DATA_SOURCE_LABELS[dataSource] || dataSource}`,
     `Covers ${detailRows.length} row${detailRows.length === 1 ? '' : 's'}`,
-    `Generated ${generatedAt instanceof Date ? generatedAt.toLocaleString() : String(generatedAt)}`,
+    `Generated ${generatedAt instanceof Date ? generatedAt.toLocaleString('en-PH', { timeZone: 'Asia/Manila' }) : String(generatedAt)}`,
   ].filter(Boolean);
   ws.mergeCells(`A2:${lastCol}2`);
   const metaCell = ws.getCell('A2');
@@ -283,7 +288,11 @@ export function buildConsolidatedWorkbook(
   ct.font = { size: 14, bold: true, color: { argb: BRAND_FILL } };
   ct.alignment = { horizontal: 'center', vertical: 'middle' };
   cs.getRow(1).height = 24;
-  cs.getRow(2).height = 6;
+  cs.mergeCells(`A2:${ccLast}2`);
+  cs.getCell('A2').value = `Date range: ${range.label}`;
+  cs.getCell('A2').font = { size: 9, italic: true, color: { argb: 'FF64748B' } };
+  cs.getCell('A2').alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+  cs.getRow(2).height = 30;
 
   const catHeader = 3;
   const catStart = 4;
@@ -339,7 +348,7 @@ export async function downloadConsolidatedExcel({ rows, summary, categories, met
   const blob = new Blob([buffer], {
     type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   });
-  const filename = consolidatedFilename(meta?.generatedAt instanceof Date ? meta.generatedAt : new Date());
+  const filename = consolidatedFilename({ ...meta?.range, dates: (rows || []).map(row => row.date) });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;

@@ -442,6 +442,9 @@ it('publishes the displayed revenue, weekday averages and current-stock facts wi
 })
 
 it('withholds old sales facts while a new period is loading and when its read fails', async () => {
+  // Today and This Week share a start on Sundays; use a fixed Tuesday here.
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(new Date('2026-11-10T08:00:00Z'))
   vi.clearAllMocks(); setup()
   const spy = vi.spyOn(chartFacts, 'createChartFacts')
   const facts = () => spy.mock.results.map(result => result.value).filter(fact => fact?.chartId === 'revenue-trend')
@@ -457,5 +460,5 @@ it('withholds old sales facts while a new period is loading and when its read fa
     rejectNew(new Error('Source unavailable'))
     expect(await screen.findByRole('alert')).toHaveTextContent('Source unavailable')
     expect(facts().filter(fact => fact.scope.start !== original.scope.start).every(fact => fact.status !== 'ready')).toBe(true)
-  } finally { spy.mockRestore() }
+  } finally { spy.mockRestore(); vi.useRealTimers() }
 })

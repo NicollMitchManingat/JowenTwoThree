@@ -7,6 +7,8 @@
 //   a browser download. Throws on failure so callers can toast the error.
 
 import { orderTypeLabel, paymentStatusFor } from '../services/transactionAPI';
+import { manilaClock, manilaDay } from './analyticsTime';
+import { reportDateRange, reportFilename } from './reportDateRange';
 
 export const TRANSACTION_COLUMNS = [
   { header: 'Transaction #', key: 'txn', width: 18 },
@@ -21,7 +23,7 @@ export const TRANSACTION_COLUMNS = [
   { header: 'Male', key: 'male', width: 8 },
   { header: 'Female', key: 'female', width: 8 },
   { header: 'Unspecified', key: 'unspecified', width: 12 },
-  { header: 'Date', key: 'date', width: 20 },
+  { header: 'Date (Manila)', key: 'date', width: 23 },
   { header: 'Order type', key: 'order_type', width: 17 },
   { header: 'Refund status', key: 'refund_status', width: 21 },
 ];
@@ -73,8 +75,8 @@ export function summarizeRows(rows) {
   );
 }
 
-export function transactionsFilename(date = new Date()) {
-  return `transactions-${date.toISOString().slice(0, 10)}.xlsx`;
+export function transactionsFilename(range = {}) {
+  return reportFilename('transactions', range instanceof Date ? { from: manilaDay(range), to: manilaDay(range) } : range);
 }
 
 function styleRangeBorders(ws, rowNumber, colCount) {
@@ -108,7 +110,7 @@ export function buildTransactionsWorkbook(ExcelJS, { orders = [], refundsByTxn =
     if ((order.status || 'COMPLETED') === 'REFUNDED' && !(refunded > 0) && total > 0) {
       refunded = total;
     }
-    const created = order.created_at ? new Date(order.created_at) : null;
+    const created = order.created_at ? manilaClock(order.created_at) : null;
     return {
       txn: order.transaction_number || '',
       subtotal: Number(order.subtotal || 0),
@@ -149,19 +151,21 @@ export function buildTransactionsWorkbook(ExcelJS, { orders = [], refundsByTxn =
   ws.getRow(1).height = 26;
 
   // --- Metadata (row 2) ---
+  const range = reportDateRange({ ...meta.range, dates: orders.map(order => order.created_at) });
   const metaParts = [
-    `Date range: ${dateLabel}`,
+    `Date range: ${range.label}`,
+    `Date filter: ${dateLabel}`,
     `Status: ${statusLabel}`,
     search ? `Search: "${search}"` : null,
     `Covers ${summary.count} transaction${summary.count === 1 ? '' : 's'}`,
-    `Generated ${generatedAt instanceof Date ? generatedAt.toLocaleString() : String(generatedAt)}${generatedBy ? ` by ${generatedBy}` : ''}`,
+    `Generated ${generatedAt instanceof Date ? generatedAt.toLocaleString('en-PH', { timeZone: 'Asia/Manila' }) : String(generatedAt)}${generatedBy ? ` by ${generatedBy}` : ''}`,
   ].filter(Boolean);
   ws.mergeCells(`A2:${lastCol}2`);
   const metaCell = ws.getCell('A2');
   metaCell.value = metaParts.join('  •  ');
   metaCell.font = { size: 9, italic: true, color: { argb: 'FF64748B' } };
   metaCell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
-  ws.getRow(2).height = 18;
+  ws.getRow(2).height = 34;
 
   // --- Summary band (row 3) ---
   ws.mergeCells(`A3:${lastCol}3`);
@@ -322,7 +326,7 @@ export async function downloadTransactionsExcel({ orders, refundsByTxn, meta }) 
   const blob = new Blob([buffer], {
     type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   });
-  const filename = transactionsFilename(meta?.generatedAt instanceof Date ? meta.generatedAt : new Date());
+  const filename = transactionsFilename({ ...meta?.range, dates: (orders || []).map(order => order.created_at) });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;

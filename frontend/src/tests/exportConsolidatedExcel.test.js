@@ -65,6 +65,8 @@ describe('exportConsolidatedExcel', () => {
     expect(details.getCell('A1').value).toContain('Consolidated');
     expect(details.getCell('A2').value).toContain('Last 7 days');
     expect(details.getCell('A2').value).toContain('Live data');
+    expect(details.getCell('A2').value).toContain('2026-10-10 to 2026-10-11');
+    expect(byCategory.getCell('A2').value).toContain('2026-10-10 to 2026-10-11');
     expect(details.getCell('A3').value).toContain('Net Revenue');
     expect(details.getRow(HEADER_ROW).getCell(1).value).toBe('Date');
     expect(details.getRow(HEADER_ROW).getCell(2).value).toBe('Transaction ID');
@@ -107,7 +109,7 @@ describe('exportConsolidatedExcel', () => {
 
   it('generates dated xlsx filenames', () => {
     expect(consolidatedFilename(new Date('2026-10-15T00:00:00.000Z'))).toBe(
-      'consolidated-report-2026-10-15.xlsx'
+      'consolidated-report-2026-10-15_to_2026-10-15.xlsx'
     );
   });
 });

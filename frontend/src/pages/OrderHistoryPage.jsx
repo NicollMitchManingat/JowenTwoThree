@@ -3,9 +3,13 @@ import { Search, FileSpreadsheet, Receipt, Clock, CheckCircle, XCircle, Undo2, C
 import { db } from '../services/db';
 import { customerTotals } from '../services/salesAnalytics';
 import { downloadTransactionsExcel } from '../utils/exportTransactionsExcel';
+import { downloadCustomerTrafficExcel } from '../utils/exportCustomerTrafficExcel';
+import { manilaDay } from '../utils/analyticsTime';
+import { presetReportRange, reportDateRange } from '../utils/reportDateRange';
 import RefundModal from '../components/pos/RefundModal';
 import RemoveUnpaidOrderModal from '../components/pos/RemoveUnpaidOrderModal';
 import LoadingSkeleton from '../components/analytics/LoadingSkeleton';
+import ExportDateRangeModal from '../components/ExportDateRangeModal';
 import { hasAccess } from '../services/permissions';
 import { orderTypeLabel, paymentStatusFor } from '../services/transactionAPI';
 
@@ -29,34 +33,9 @@ const DATE_PRESETS = [
 
 const normStatus = (order) => order.status || 'COMPLETED';
 
-// Start-of-day boundaries in local time so "Today" matches wall-clock days.
-const startOfDay = (d) => {
-  const c = new Date(d);
-  c.setHours(0, 0, 0, 0);
-  return c.getTime();
-};
-
-const matchesDate = (order, preset, from, to) => {
-  const t = new Date(order.created_at || 0).getTime();
-  if (Number.isNaN(t)) return false;
-  const now = new Date();
-  if (preset === 'today') {
-    const s = startOfDay(now);
-    if (t < s || t >= s + 86400000) return false;
-  } else if (preset === '7d') {
-    if (t < startOfDay(now) - 6 * 86400000) return false;
-  } else if (preset === '30d') {
-    if (t < startOfDay(now) - 29 * 86400000) return false;
-  }
-  if (from) {
-    const f = startOfDay(new Date(`${from}T00:00:00`));
-    if (t < f) return false;
-  }
-  if (to) {
-    const e = startOfDay(new Date(`${to}T00:00:00`)) + 86400000;
-    if (t >= e) return false;
-  }
-  return true;
+const matchesDate = (order, { from, to }) => {
+  const day = manilaDay(order.created_at);
+  return !!day && (!from || day >= from) && (!to || day <= to);
 };
 
 export default function OrderHistoryPage({ user, onResume }) {
@@ -78,7 +57,7 @@ export default function OrderHistoryPage({ user, onResume }) {
   const [refundOrder, setRefundOrder] = useState(null);
   const [removeOrder, setRemoveOrder] = useState(null);
   const [toast, setToast] = useState(null);
-  const [exportingExcel, setExportingExcel] = useState(false);
+  const [exportKind, setExportKind] = useState(null);
   const [showJump, setShowJump] = useState(false);
   const pageRef = useRef(null);
 
@@ -158,9 +137,9 @@ export default function OrderHistoryPage({ user, onResume }) {
     setPage(0);
   };
 
-  const sortValue = (order, field) => {
+  const sortValue = (order, field, refunds = refundsByTxn) => {
     switch (field) {
-      case 'refunded': return refundTotalFor(refundsByTxn, order.id);
+      case 'refunded': return refundTotalFor(refunds, order.id);
       case 'status': return paymentStatusFor(order);
       case 'payment_method': return paymentStatusFor(order) === 'UNPAID' ? '' : order.payment_method || 'Cash';
       case 'order_type': return orderTypeLabel(order.order_type);
@@ -187,23 +166,28 @@ export default function OrderHistoryPage({ user, onResume }) {
     if (statusCounts[k] !== undefined) statusCounts[k] += 1;
   });
 
-  const filtered = searchFiltered
+  let dateBounds = { from: null, to: null }, dateError = '';
+  try { dateBounds = presetReportRange(datePreset, dateFrom, dateTo); } catch (err) { dateError = err.message; }
+  const compareOrders = (a, b, refunds = refundsByTxn) => {
+    const aVal = sortValue(a, sortField, refunds);
+    const bVal = sortValue(b, sortField, refunds);
+    if (typeof aVal === 'number') return sortDir === 'asc' ? aVal - bVal : bVal - aVal;
+    if (sortField === 'created_at') {
+      const da = new Date(aVal || 0).getTime()
+      const db = new Date(bVal || 0).getTime()
+      return sortDir === 'asc' ? da - db : db - da
+    }
+    return sortDir === 'asc'
+      ? String(aVal || '').localeCompare(String(bVal || ''))
+      : String(bVal || '').localeCompare(String(aVal || ''));
+  };
+
+  const exportCandidates = searchFiltered
     .filter(o => statusFilter === 'all' || paymentStatusFor(o) === statusFilter)
     .filter(o => refundFilter === 'all' || normStatus(o) === refundFilter)
-    .filter(o => matchesDate(o, datePreset, dateFrom, dateTo))
-    .sort((a, b) => {
-      const aVal = sortValue(a, sortField);
-      const bVal = sortValue(b, sortField);
-      if (typeof aVal === 'number') return sortDir === 'asc' ? aVal - bVal : bVal - aVal;
-      if (sortField === 'created_at') {
-        const da = new Date(aVal || 0).getTime()
-        const db = new Date(bVal || 0).getTime()
-        return sortDir === 'asc' ? da - db : db - da
-      }
-      return sortDir === 'asc'
-        ? String(aVal || '').localeCompare(String(bVal || ''))
-        : String(bVal || '').localeCompare(String(aVal || ''));
-    });
+    .sort((a, b) => compareOrders(a, b));
+
+  const filtered = exportCandidates.filter(o => !dateError && matchesDate(o, dateBounds));
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const safePage = Math.min(page, totalPages - 1);
@@ -287,33 +271,36 @@ export default function OrderHistoryPage({ user, onResume }) {
     }
   }
 
-  const handleExportExcel = async () => {
-    if (exportingExcel) return
-    setExportingExcel(true)
-    try {
-      const statusLabel = (STATUS_OPTIONS.find((o) => o.key === statusFilter) || {}).label || statusFilter
-      const dateLabel = dateFrom || dateTo
-        ? `Custom (${dateFrom || '…'} to ${dateTo || '…'})`
-        : (DATE_PRESETS.find((o) => o.key === datePreset) || {}).label || datePreset
-      const filename = await downloadTransactionsExcel({
-        orders: filtered,
-        refundsByTxn,
-        meta: {
-          storeName: 'JowenTwoThree',
-          statusLabel,
-          dateLabel,
-          search,
-          generatedAt: new Date(),
-          generatedBy: user?.fullName || user?.username || user?.name || user?.role || '',
-        },
-      })
-      setToast({ type: 'success', message: `Excel report downloaded (${filename}).` })
-    } catch (err) {
-      console.error('Failed to export Excel:', err)
-      setToast({ type: 'error', message: 'Excel export failed. Please try again.' })
-    } finally {
-      setExportingExcel(false)
-    }
+  const handleExportExcel = async (range, signal) => {
+    const report = await db.getTransactionExport(range)
+    if (signal.aborted) return
+    if (report?.dataQuality?.complete !== true || !Array.isArray(report.orders) || !report.refundsByTxn) throw new Error('Transaction data is unavailable or incomplete.')
+    const statusLabel = (STATUS_OPTIONS.find(o => o.key === statusFilter) || {}).label || statusFilter
+    const filename = await downloadTransactionsExcel({
+      orders: report.orders.filter(order => matchesDate(order, range))
+        .filter(order => (order.transaction_number || '').toLowerCase().includes(search.toLowerCase()))
+        .filter(order => statusFilter === 'all' || paymentStatusFor(order) === statusFilter)
+        .filter(order => refundFilter === 'all' || normStatus(order) === refundFilter)
+        .sort((a, b) => compareOrders(a, b, report.refundsByTxn)),
+      refundsByTxn: report.refundsByTxn,
+      meta: {
+        storeName: 'JowenTwoThree', statusLabel, dateLabel: 'Custom (' + range.from + ' to ' + range.to + ')',
+        range, search, generatedAt: new Date(),
+        generatedBy: user?.fullName || user?.username || user?.name || user?.role || '',
+      },
+    })
+    if (!signal.aborted) setToast({ type: 'success', message: 'Excel report downloaded (' + filename + ').' })
+  }
+
+  const handleExportTraffic = async (range, signal) => {
+    const data = await db.getCustomerTrafficExport(range)
+    if (signal.aborted) return
+    if (data?.dataQuality?.complete !== true || !Array.isArray(data.rows)) throw new Error('Customer traffic data is unavailable or incomplete.')
+    const filename = await downloadCustomerTrafficExcel({ rows: data.rows, meta: {
+      range, generatedAt: new Date(),
+      generatedBy: user?.fullName || user?.username || user?.name || user?.role || '',
+    } })
+    if (!signal.aborted) setToast({ type: 'success', message: 'Customer traffic report downloaded (' + filename + ').' })
   }
 
   if (loading) {
@@ -410,9 +397,20 @@ export default function OrderHistoryPage({ user, onResume }) {
               <Undo2 size={16} /> Refund
             </button>
           )}
-          <button className="btn btn-primary" onClick={handleExportExcel} disabled={exportingExcel} data-testid="txn-export-btn" title="Download filtered transactions as a formatted Excel report"><FileSpreadsheet size={16} /> {exportingExcel ? 'Exporting…' : 'Export'}</button>
+          <button className="btn btn-primary" onClick={() => setExportKind('transactions')} data-testid="txn-export-btn" title="Choose dates and export transactions"><FileSpreadsheet size={16} /> Export transactions</button>
+          <button className="btn btn-secondary" onClick={() => setExportKind('traffic')} data-testid="traffic-export-btn" title="Choose dates and export recorded customer traffic"><FileSpreadsheet size={16} /> Export traffic</button>
         </div>
       </div>
+
+      {dateError && <p role="alert" className="text-danger">{dateError}</p>}
+      <p className="text-sm text-muted">Choose a date range after clicking Export. Traffic exports include all recorded headcounts for those dates; transaction search and payment filters apply to the transaction export.</p>
+      {exportKind && <ExportDateRangeModal
+        title={exportKind === 'traffic' ? 'Export customer traffic' : 'Export transactions'}
+        initialRange={dateError ? undefined : exportKind === 'traffic' ? dateBounds : reportDateRange({ ...dateBounds, dates: orders.map(order => order.created_at) })}
+        description={exportKind === 'traffic' ? 'Includes all recorded headcounts for the chosen dates.' : 'Current search, payment and refund filters also apply.'}
+        onClose={() => setExportKind(null)}
+        onExport={exportKind === 'traffic' ? handleExportTraffic : handleExportExcel}
+      />}
 
       {toast && (
         <div className={`toast toast-${toast.type} toast-global`}>

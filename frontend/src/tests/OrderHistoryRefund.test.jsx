@@ -6,8 +6,10 @@ import OrderHistoryPage from '../pages/OrderHistoryPage'
 vi.mock('../services/db', () => ({
   db: {
     getTransactions: vi.fn(),
+    getTransactionExport: vi.fn(),
     removeSavedOrder: vi.fn().mockResolvedValue({}),
     getRefundsForTransactions: vi.fn().mockResolvedValue([]),
+    getCustomerTrafficExport: vi.fn(),
   },
 }))
 
@@ -16,6 +18,10 @@ vi.mock('../components/pos/RefundModal', () => ({
 }))
 
 import { db } from '../services/db'
+import { downloadCustomerTrafficExcel } from '../utils/exportCustomerTrafficExcel'
+import { downloadTransactionsExcel } from '../utils/exportTransactionsExcel'
+vi.mock('../utils/exportCustomerTrafficExcel', () => ({ downloadCustomerTrafficExcel: vi.fn().mockResolvedValue('customer-traffic-2026-10-15_to_2026-10-16.xlsx') }))
+vi.mock('../utils/exportTransactionsExcel', () => ({ downloadTransactionsExcel: vi.fn().mockResolvedValue('transactions-2026-10-15_to_2026-10-16.xlsx') }))
 
 const kpiCard = (label) =>
   screen.getByText(label, { selector: '.text-sm.text-muted' }).parentElement
@@ -42,10 +48,83 @@ describe('OrderHistoryPage refunds', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     db.getTransactions.mockResolvedValue(ORDERS)
+    db.getTransactionExport.mockReset().mockResolvedValue({ orders: ORDERS, refundsByTxn: {}, dataQuality: { complete: true } })
+    db.getCustomerTrafficExport.mockReset().mockResolvedValue({ rows: [{ id: 'recording', created_at: '2026-10-15T06:00:00Z', number_of_customer: 7, male_count: 2, female_count: 3, unspecified_count: 2 }], range: { from: '2026-10-15', to: '2026-10-16' }, dataQuality: { complete: true } })
     db.removeSavedOrder.mockReset().mockResolvedValue({})
     db.getRefundsForTransactions.mockResolvedValue([
       { transaction_id: 't3', refund_amount: 180, items: [], reason: 'Wrong item served' },
     ])
+  })
+
+  it('chooses export dates independently of page dates, search and payment filters for traffic', async () => {
+    const user = userEvent.setup()
+    render(<OrderHistoryPage user={{ role: 'cashier', permissions: ['transactions'], username: 'cashier' }} />)
+    await screen.findByTestId('order-row-t1')
+    fireEvent.change(screen.getByLabelText('Filter by date'), { target: { value: 'today' } })
+    fireEvent.change(screen.getByPlaceholderText('Search by transaction number...'), { target: { value: 'not-a-transaction' } })
+    fireEvent.change(screen.getByLabelText('Filter by payment status'), { target: { value: 'UNPAID' } })
+    await user.click(screen.getByTestId('traffic-export-btn'))
+    const dialog = screen.getByRole('dialog', { name: 'Export customer traffic' })
+    expect(db.getCustomerTrafficExport).not.toHaveBeenCalled()
+    fireEvent.change(within(dialog).getByLabelText('From date'), { target: { value: '2026-10-15' } })
+    fireEvent.change(within(dialog).getByLabelText('To date'), { target: { value: '2026-10-16' } })
+    await user.click(within(dialog).getByRole('button', { name: 'Download file' }))
+    await waitFor(() => expect(db.getCustomerTrafficExport).toHaveBeenCalledWith({ from: '2026-10-15', to: '2026-10-16' }))
+    expect(downloadCustomerTrafficExcel).toHaveBeenCalledWith(expect.objectContaining({ rows: expect.arrayContaining([expect.objectContaining({ number_of_customer: 7 })]), meta: expect.objectContaining({ range: { from: '2026-10-15', to: '2026-10-16' } }) }))
+    expect(downloadTransactionsExcel).not.toHaveBeenCalled()
+    expect(screen.getByLabelText('Filter by date')).toHaveValue('today')
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
+  it('exports transactions outside the page date filter and validates dates inside the dialog', async () => {
+    const user = userEvent.setup()
+    db.getTransactionExport.mockResolvedValue({ orders: ORDERS.map(order => ({ ...order, created_at: '2026-10-15T14:00:00Z' })), refundsByTxn: {}, dataQuality: { complete: true } })
+    render(<OrderHistoryPage user={{ role: 'admin' }} />)
+    await screen.findByTestId('order-row-t1')
+    fireEvent.change(screen.getByLabelText('Filter by date'), { target: { value: 'today' } })
+    await user.click(screen.getByTestId('txn-export-btn'))
+    const dialog = screen.getByRole('dialog', { name: 'Export transactions' })
+    fireEvent.change(within(dialog).getByLabelText('From date'), { target: { value: '2026-10-17' } })
+    fireEvent.change(within(dialog).getByLabelText('To date'), { target: { value: '2026-10-16' } })
+    expect(within(dialog).getByRole('alert')).toHaveTextContent('From date must not be after To date')
+    expect(within(dialog).getByRole('button', { name: 'Download file' })).toBeDisabled()
+    expect(downloadTransactionsExcel).not.toHaveBeenCalled()
+    fireEvent.change(within(dialog).getByLabelText('From date'), { target: { value: '2026-10-15' } })
+    await user.click(within(dialog).getByRole('button', { name: 'Download file' }))
+    await waitFor(() => expect(downloadTransactionsExcel).toHaveBeenCalledWith(expect.objectContaining({ orders: expect.arrayContaining([expect.objectContaining({ id: 't1' })]), meta: expect.objectContaining({ range: { from: '2026-10-15', to: '2026-10-16' } }) })))
+    expect(db.getTransactionExport).toHaveBeenCalledWith({ from: '2026-10-15', to: '2026-10-16' })
+    expect(screen.getByLabelText('Filter by date')).toHaveValue('today')
+  })
+
+  it('keeps failed traffic exports in the date dialog for retry without downloading partial data', async () => {
+    const user = userEvent.setup()
+    db.getCustomerTrafficExport.mockResolvedValueOnce({ rows: [], dataQuality: { complete: false } })
+    render(<OrderHistoryPage user={{ role: 'admin' }} />)
+    await screen.findByTestId('order-row-t1')
+    await user.click(screen.getByTestId('traffic-export-btn'))
+    const dialog = screen.getByRole('dialog')
+    await user.click(within(dialog).getByRole('button', { name: 'Download file' }))
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent('Customer traffic data is unavailable or incomplete.')
+    expect(downloadCustomerTrafficExcel).not.toHaveBeenCalled()
+    expect(within(dialog).getByRole('button', { name: 'Download file' })).toBeEnabled()
+    await user.click(within(dialog).getByRole('button', { name: 'Download file' }))
+    await waitFor(() => expect(downloadCustomerTrafficExcel).toHaveBeenCalledTimes(1))
+  })
+
+  it('cancels date selection without exporting and restores keyboard focus', async () => {
+    const user = userEvent.setup()
+    render(<OrderHistoryPage user={{ role: 'admin' }} />)
+    await screen.findByTestId('order-row-t1')
+    const button = screen.getByTestId('traffic-export-btn')
+    await user.click(button)
+    const dialog = screen.getByRole('dialog')
+    expect(within(dialog).getByRole('button', { name: 'Close export' })).toHaveFocus()
+    await user.tab({ shift: true })
+    expect(within(dialog).getByRole('button', { name: 'Download file' })).toHaveFocus()
+    await user.keyboard('{Escape}')
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(button).toHaveFocus()
+    expect(db.getCustomerTrafficExport).not.toHaveBeenCalled()
   })
 
   it('should reload silently when the browser reconnects', async () => {

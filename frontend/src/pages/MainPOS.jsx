@@ -11,6 +11,7 @@ import LoadingSkeleton from '../components/analytics/LoadingSkeleton';
 import { saveMenuCache, loadMenuCache } from '../services/menuCache';
 import { mockProducts } from '../data/mockProducts';
 import { processQueue } from '../services/offlineQueue';
+import DiscountApprovalModal from '../components/pos/DiscountApprovalModal';
 import { getProductIcon } from '../components/pos/productIcons';
 import { formatDiscountLabel } from '../components/settings/DiscountManager';
 import { ORDER_TYPES, orderTypeLabel } from '../services/transactionAPI';
@@ -99,6 +100,7 @@ export default function MainPOS({ user, resumeOrderId, onResumeHandled }) {
   const [approvalPassword, setApprovalPassword] = useState('');
   const [approvalError, setApprovalError] = useState('');
   const [approvalWorking, setApprovalWorking] = useState(false);
+  const approvalInFlight = useRef(false);
   const latestOrderKey = useRef(orderKey);
   latestOrderKey.current = orderKey;
   useEffect(() => {
@@ -115,14 +117,16 @@ export default function MainPOS({ user, resumeOrderId, onResumeHandled }) {
     setDiscountType('none'); setPendingDiscount(choice); setApprovalError(''); setApprovalPassword('');
   };
   const requestDiscountApproval = async () => {
+    if (approvalInFlight.current || !pendingDiscount || !approvalPassword) return;
+    approvalInFlight.current = true;
     setApprovalWorking(true); setApprovalError('');
     const requestKey = orderKey;
     try {
       const result = await db.approveDiscount({ ...orderInput(pendingDiscount), adminPassword: approvalPassword });
       if (latestOrderKey.current !== requestKey) return;
       setApprovalId(result.approvalId); setDiscountType(pendingDiscount); setPendingDiscount(null); setApprovalPassword('');
-    } catch (err) { setApprovalError(err.message); }
-    finally { setApprovalWorking(false); }
+    } catch (err) { if (latestOrderKey.current === requestKey) setApprovalError(err.message || 'Could not authorize this discount. Please try again.'); }
+    finally { approvalInFlight.current = false; setApprovalWorking(false); }
   };
   const [paymentMethod, setPaymentMethod] = useState('CASH');
   const [cashReceived, setCashReceived] = useState('');
@@ -701,6 +705,7 @@ export default function MainPOS({ user, resumeOrderId, onResumeHandled }) {
 
   const subtotal = cart.reduce((sum, item) => sum + (item.price * item.qty), 0);
   const resolvedDiscount = resolveDiscount(subtotal, discountType, vouchers);
+  const discountPreview = pendingDiscount ? resolveDiscount(subtotal, pendingDiscount, vouchers) : null;
   const discountAmount = resolvedDiscount.amount;
   const total = subtotal - discountAmount;
 
@@ -1103,13 +1108,17 @@ export default function MainPOS({ user, resumeOrderId, onResumeHandled }) {
           </OrderPanelSplit>
         </div>
       </div>
-      {pendingDiscount && <div className="modal-overlay"><form className="modal-content card" role="dialog" aria-label="Authorize discount" onSubmit={e => { e.preventDefault(); if (!approvalWorking) void requestDiscountApproval(); }}>
-        <h3>Admin approval required</h3><p>Enter an administrator password to authorize this order’s discount.</p>
-        <label>Admin password<input name="main-pos-approval-password" type="password" autoComplete="off" value={approvalPassword} onChange={e => setApprovalPassword(e.target.value)} disabled={approvalWorking} /></label>
-        {approvalError && <p role="alert">{approvalError}</p>}
-        <div className="modal-actions"><button type="button" className="btn btn-secondary" disabled={approvalWorking} onClick={() => { setPendingDiscount(null); setApprovalPassword(''); }}>Cancel</button>
-        <button type="submit" className="btn btn-primary" disabled={approvalWorking || !approvalPassword}>{approvalWorking ? 'Authorizing…' : 'Authorize discount'}</button></div>
-      </form></div>}
+      {pendingDiscount && <DiscountApprovalModal
+        discountLabel={discountPreview.label} subtotal={subtotal} discountAmount={discountPreview.amount}
+        requestedBy={user?.fullName || user?.username || user?.name}
+        password={approvalPassword} error={approvalError} busy={approvalWorking}
+        onPasswordChange={value => { setApprovalPassword(value); setApprovalError(''); }}
+        onAuthorize={requestDiscountApproval}
+        onClose={() => {
+          if (approvalInFlight.current) return;
+          setPendingDiscount(null); setApprovalPassword(''); setApprovalError('');
+        }}
+      />}
       {showReceipt && receipt && (
         <div className="modal-overlay" onClick={() => setShowReceipt(false)}>
           <div className="modal-content card receipt-modal" onClick={(e) => e.stopPropagation()}>

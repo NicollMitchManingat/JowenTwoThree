@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor, fireEvent } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent, within, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import MainPOS, { resolveDiscount } from '../pages/MainPOS'
 import OrderPanelSplit from '../components/pos/OrderPanelSplit'
@@ -60,6 +60,7 @@ describe('MainPOS', () => {
     isRetryableError.mockReturnValue(false)
     db.getActiveDiscounts.mockResolvedValue([])
     db.getSavedOrderCount.mockReset().mockResolvedValue(0)
+    db.approveDiscount.mockReset().mockResolvedValue({ approvalId: 'approval-1' })
     db.checkoutOrder.mockImplementation(async input => {
       const subtotal=input.cart.reduce((n,i)=>n+i.qty*i.price,0), resolved=resolveDiscount(subtotal,input.discountType,VOUCHERS), total=subtotal-resolved.amount
       return {quote:{cart:input.cart,subtotal,discount:resolved.amount,total,discountLabel:resolved.label},transaction:{id:'txn-1',transaction_number:'TXN-1',payment_method:input.paymentMethod,cash_received:total,change_amount:0,customer_count:Object.values(input.counts).reduce((a,b)=>a+b,0),male_count:input.counts.male,female_count:input.counts.female,unspecified_count:input.counts.unspecified},shorted:[]}
@@ -342,6 +343,68 @@ describe('MainPOS', () => {
     await user.type(screen.getByLabelText('Admin password'),'fixture-password');await user.click(screen.getByRole('button',{name:'Authorize discount'}))
     await waitFor(()=>expect(screen.getByTestId('discount-select')).toHaveValue('voucher:v-pwd'));expect(db.approveDiscount).toHaveBeenCalledWith(expect.objectContaining({adminPassword:'fixture-password',discountType:'voucher:v-pwd'}))
     await user.click(screen.getAllByText('Espresso')[0]);expect(screen.getByTestId('discount-select')).toHaveValue('none')
+  })
+
+  it('previews approval amounts, toggles password visibility and clears cancelled passwords', async () => {
+    const user=userEvent.setup();db.getActiveDiscounts.mockResolvedValue(VOUCHERS)
+    render(<MainPOS user={mockUser}/>);await user.click(await screen.findByText('Espresso'))
+    const select=screen.getByTestId('discount-select')
+    await user.selectOptions(select,'voucher:v-pwd')
+    const dialog=screen.getByRole('dialog',{name:'Authorize discount'}), preview=within(dialog).getByRole('region',{name:'Discount preview'})
+    expect(preview).toHaveTextContent('PWD (20%)')
+    expect(preview).toHaveTextContent('150.00');expect(preview).toHaveTextContent('30.00');expect(preview).toHaveTextContent('120.00')
+    const password=within(dialog).getByLabelText('Admin password')
+    expect(password).toHaveFocus();expect(password).toHaveAttribute('type','password')
+    await user.type(password,'private-password')
+    await user.click(within(dialog).getByRole('button',{name:'Show admin password'}))
+    expect(password).toHaveAttribute('type','text')
+    await user.keyboard('{Escape}')
+    expect(screen.queryByRole('dialog',{name:'Authorize discount'})).not.toBeInTheDocument()
+    expect(select).toHaveFocus();expect(select).toHaveValue('none');expect(db.approveDiscount).not.toHaveBeenCalled()
+    await user.selectOptions(select,'voucher:v-pwd')
+    expect(screen.getByLabelText('Admin password')).toHaveValue('')
+    expect(screen.getByLabelText('Admin password')).toHaveAttribute('type','password')
+    await user.click(screen.getByRole('button',{name:'Cancel'}))
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
+  it('shows server approval errors, focuses the password and permits a successful retry', async () => {
+    const user=userEvent.setup();db.getActiveDiscounts.mockResolvedValue(VOUCHERS)
+    db.approveDiscount.mockRejectedValueOnce(new Error('Admin password is incorrect'))
+    render(<MainPOS user={mockUser}/>);await user.click(await screen.findByText('Espresso'))
+    await user.selectOptions(screen.getByTestId('discount-select'),'voucher:v-pwd')
+    const password=screen.getByLabelText('Admin password')
+    await user.type(password,'wrong-password');await user.click(screen.getByRole('button',{name:'Authorize discount'}))
+    expect(await screen.findByRole('alert')).toHaveTextContent('Admin password is incorrect')
+    expect(password).toHaveAttribute('aria-invalid','true');expect(password).toHaveFocus()
+    expect(screen.getByTestId('discount-select')).toHaveValue('none')
+    await user.clear(password);await user.type(password,'correct-password')
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button',{name:'Authorize discount'}))
+    await waitFor(()=>expect(screen.queryByRole('dialog',{name:'Authorize discount'})).not.toBeInTheDocument())
+    expect(screen.getByTestId('discount-select')).toHaveValue('voucher:v-pwd')
+    expect(db.checkoutOrder).not.toHaveBeenCalled()
+  })
+
+  it('traps focus and prevents duplicate approval or closing while authorization is pending', async () => {
+    let complete
+    const user=userEvent.setup();db.getActiveDiscounts.mockResolvedValue(VOUCHERS)
+    db.approveDiscount.mockImplementationOnce(()=>new Promise(resolve=>{complete=resolve}))
+    render(<MainPOS user={mockUser}/>);await user.click(await screen.findByText('Espresso'))
+    await user.selectOptions(screen.getByTestId('discount-select'),'voucher:v-pwd')
+    const dialog=screen.getByRole('dialog',{name:'Authorize discount'})
+    await user.type(within(dialog).getByLabelText('Admin password'),'private-password')
+    await user.dblClick(within(dialog).getByRole('button',{name:'Authorize discount'}))
+    expect(db.approveDiscount).toHaveBeenCalledTimes(1)
+    expect(within(dialog).getByRole('button',{name:'Cancel'})).toBeDisabled()
+    expect(within(dialog).getByRole('button',{name:'Close discount approval'})).toBeDisabled()
+    expect(within(dialog).getByRole('button',{name:'Show admin password'})).toBeDisabled()
+    expect(within(dialog).getByLabelText('Admin password')).toBeDisabled()
+    await user.keyboard('{Escape}{Tab}')
+    expect(dialog).toBeInTheDocument();expect(dialog).toHaveFocus()
+    await act(async()=>{complete({approvalId:'approval-2'})})
+    await waitFor(()=>expect(screen.queryByRole('dialog',{name:'Authorize discount'})).not.toBeInTheDocument())
+    expect(screen.getByTestId('discount-select')).toHaveFocus()
   })
 
   it('should default quick-add traffic to unspecified when no gender tapped', async () => {

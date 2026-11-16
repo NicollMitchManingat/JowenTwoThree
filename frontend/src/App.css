@@ -4699,6 +4699,62 @@
 .export-range-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
 .export-range-fields label { display: grid; gap: 8px; min-width: 0; font-size: .875rem; font-weight: 500; }
 .export-range-fields input { width: 100%; min-width: 0; box-sizing: border-box; min-height: 44px; }
+
+.modal-content.discount-approval-dialog {
+  width: min(460px, calc(100vw - 32px));
+  max-width: 460px;
+  max-height: calc(100dvh - 32px);
+  padding: 0;
+  gap: 0;
+  overflow-y: auto;
+}
+.discount-approval-header { display: flex; align-items: center; gap: 12px; padding: 24px 24px 18px; border-bottom: 1px solid var(--border-color); }
+.discount-approval-symbol { display: grid; place-items: center; flex-shrink: 0; width: 46px; height: 46px; border-radius: 14px; background: color-mix(in srgb, var(--color-primary) 10%, transparent); color: var(--color-primary); }
+.discount-approval-header > div { min-width: 0; flex: 1; }
+.discount-approval-eyebrow { margin: 0 0 5px; font-size: .72rem; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--text-muted); }
+.discount-approval-header h3 { margin: 0; font-size: 1.15rem; line-height: 1.35; color: var(--text-main); }
+.discount-approval-close { flex-shrink: 0; width: 40px; height: 40px; }
+.discount-approval-body { display: grid; gap: 20px; padding: 22px 24px; min-width: 0; }
+.discount-approval-body p { margin: 0; line-height: 1.55; }
+.discount-approval-summary { padding: 16px; border: 1px solid var(--border-color); border-radius: 12px; background: var(--bg-main); min-width: 0; }
+.discount-approval-selection { display: grid; gap: 5px; margin-bottom: 16px; }
+.discount-approval-selection > span { color: var(--text-muted); font-size: .75rem; }
+.discount-approval-selection > strong { color: var(--color-primary); font-size: .95rem; overflow-wrap: anywhere; }
+.discount-approval-summary dl { display: grid; gap: 10px; margin: 0; font-size: .85rem; }
+.discount-approval-summary dl > div { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; }
+.discount-approval-summary dt { color: var(--text-muted); }
+.discount-approval-summary dd { margin: 0; font-weight: 600; text-align: right; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; min-width: 0; }
+.discount-approval-summary .discount-approval-saving dd { color: var(--color-primary); }
+.discount-approval-summary .discount-approval-total { padding-top: 12px; border-top: 1px solid var(--border-color); }
+.discount-approval-total dt { color: var(--text-main); font-weight: 600; }
+.discount-approval-total dd { font-size: 1.12rem; }
+.discount-approval-summary .discount-approval-preview-note { margin-top: 12px; font-size: .72rem; color: var(--text-muted); }
+.discount-approval-password { display: grid; gap: 8px; min-width: 0; }
+.discount-approval-password > label { font-size: .875rem; font-weight: 600; }
+.discount-approval-password-field { position: relative; min-width: 0; }
+.discount-approval-password-field input { display: block; width: 100%; min-width: 0; min-height: 48px; padding-left: 42px; padding-right: 50px; box-sizing: border-box; }
+.discount-approval-lock { position: absolute; left: 14px; top: 50%; transform: translateY(-50%); color: var(--text-muted); pointer-events: none; }
+.discount-approval-password-toggle { position: absolute; right: 3px; top: 50%; transform: translateY(-50%); display: grid; place-items: center; width: 44px; height: 44px; border: 0; border-radius: 7px; background: transparent; color: var(--text-muted); cursor: pointer; }
+.discount-approval-password-toggle:hover:not(:disabled) { background: var(--bg-main); color: var(--color-primary); }
+.discount-approval-password-toggle:focus-visible { outline: 2px solid var(--color-primary); outline-offset: -3px; }
+.discount-approval-password-toggle:disabled { cursor: wait; opacity: .5; }
+.discount-approval-password-field input[aria-invalid="true"] { border-color: var(--color-danger, #b91c1c); }
+.discount-approval-password > p { overflow-wrap: anywhere; font-size: .78rem; }
+.discount-approval-error { display: flex; align-items: flex-start; gap: 9px; padding: 12px; border: 1px solid color-mix(in srgb, var(--color-danger, #b91c1c) 25%, transparent); border-radius: 9px; background: color-mix(in srgb, var(--color-danger, #b91c1c) 6%, var(--bg-surface)); color: var(--color-danger, #b91c1c); font-size: .82rem; }
+.discount-approval-error svg { flex-shrink: 0; margin-top: 2px; }
+.discount-approval-error p { overflow-wrap: anywhere; }
+.discount-approval-dialog .discount-approval-actions { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr); gap: 10px; padding: 18px 24px; }
+.discount-approval-actions .btn { justify-content: center; min-height: 44px; }
+.discount-approval-spinner { animation: discount-approval-spin 1s linear infinite; }
+@keyframes discount-approval-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .discount-approval-spinner { animation: none; } }
+@media (max-width: 420px) {
+  .discount-approval-header { padding: 20px 16px 16px; gap: 10px; }
+  .discount-approval-header h3 { font-size: 1.02rem; }
+  .discount-approval-symbol { width: 40px; height: 40px; }
+  .discount-approval-body { padding: 18px 16px; }
+  .discount-approval-dialog .discount-approval-actions { padding: 16px; grid-template-columns: minmax(0, 1fr); }
+}
 @media (max-width: 420px) {
   .export-range-fields { grid-template-columns: minmax(0, 1fr); }
   .export-range-body { padding: 16px; }

@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event'
 
 import App from '../App'
 import {authAPI} from '../services/authAPI'
-vi.mock('../services/authAPI',()=>({authAPI:{me:vi.fn(),login:vi.fn()}}))
+vi.mock('../services/authAPI',()=>({authAPI:{session:vi.fn(),login:vi.fn()}}))
 
 vi.mock('../services/db', () => ({
   db: {
@@ -29,7 +29,7 @@ vi.mock('../services/db', () => ({
 describe('Inventory Dashboard', () => {
   beforeEach(() => {
     localStorage.clear()
-    authAPI.me.mockRejectedValue(new Error('Sign in'))
+    authAPI.session.mockResolvedValue(null)
     authAPI.login.mockImplementation(async ({username})=>({id:username,username,role:username,permissions:username==='cashier'?['pos','transactions','settings']:[]}))
   })
 

@@ -62,14 +62,14 @@ export default function InventoryAdjustmentForm({ isOpen, onClose, item, onSubmi
     <Modal isOpen={isOpen} onClose={handleReset} title="Adjust Inventory" footer={footer}>
       <form className="adjustment-form" data-testid="adjustment-form">
         <div className="form-group">
-          <label className="form-label">Item Name</label>
+          <span className="form-label field-label">Item Name</span>
           <div className="form-value" data-testid="item-name-display">
             {item.name}
           </div>
         </div>
 
         <div className="form-group">
-          <label className="form-label">Current Stock</label>
+          <span className="form-label field-label">Current Stock</span>
           <div className="form-value" data-testid="current-stock-display">
             {formatStock(item.inStock)} units
           </div>

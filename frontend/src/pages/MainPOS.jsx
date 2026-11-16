@@ -1,3 +1,4 @@
+import { useId } from 'react'
 import { useState, useEffect, useRef, useCallback, useEffect as useLayoutEffect } from "react";
 import { ShoppingCart, Plus, Minus, Users, Tag, X, Search, RefreshCcw, Printer, AlertCircle, CheckCircle, Edit, Pencil } from 'lucide-react';
 import { db } from '../services/db';
@@ -48,6 +49,8 @@ export function resolveDiscount(subtotal, discountType, vouchers = []) {
 const PARTY_CONFIRM_THRESHOLD = 20;
 
 export default function MainPOS({ user, resumeOrderId, onResumeHandled }) {
+  const formId = useId()
+
   const [maleCount, setMaleCount] = useState(0);
   const [femaleCount, setFemaleCount] = useState(0);
   const [unspecifiedCount, setUnspecifiedCount] = useState(0);
@@ -799,19 +802,19 @@ export default function MainPOS({ user, resumeOrderId, onResumeHandled }) {
               <div className="count-controls" data-testid="male-stepper">
                 <span className="traffic-label" title="Male customers">M</span>
                 <button className="btn-icon-small" onClick={male.decrement} aria-label="Decrease male count"><Minus size={14} /></button>
-                <input type="number" className="count-input" data-testid="male-count-input" aria-label="Male customers" value={maleCount} onChange={male.input} onBlur={male.blur} min="0" />
+                <input name="main-pos-male-count-input" type="number" className="count-input" data-testid="male-count-input" aria-label="Male customers" value={maleCount} onChange={male.input} onBlur={male.blur} min="0" />
                 <button className="btn-icon-small" onClick={male.increment} aria-label="Increase male count"><Plus size={14} /></button>
               </div>
               <div className="count-controls" data-testid="female-stepper">
                 <span className="traffic-label" title="Female customers">F</span>
                 <button className="btn-icon-small" onClick={female.decrement} aria-label="Decrease female count"><Minus size={14} /></button>
-                <input type="number" className="count-input" data-testid="female-count-input" aria-label="Female customers" value={femaleCount} onChange={female.input} onBlur={female.blur} min="0" />
+                <input name="main-pos-female-count-input" type="number" className="count-input" data-testid="female-count-input" aria-label="Female customers" value={femaleCount} onChange={female.input} onBlur={female.blur} min="0" />
                 <button className="btn-icon-small" onClick={female.increment} aria-label="Increase female count"><Plus size={14} /></button>
               </div>
               <div className="count-controls" data-testid="unspecified-stepper">
                 <span className="traffic-label" title="Unspecified — use when unsure or rushed">?</span>
                 <button className="btn-icon-small" onClick={unspecified.decrement} aria-label="Decrease unspecified count"><Minus size={14} /></button>
-                <input type="number" className="count-input" data-testid="unspecified-count-input" aria-label="Unspecified customers" value={unspecifiedCount} onChange={unspecified.input} onBlur={unspecified.blur} min="0" />
+                <input name="main-pos-unspecified-count-input" type="number" className="count-input" data-testid="unspecified-count-input" aria-label="Unspecified customers" value={unspecifiedCount} onChange={unspecified.input} onBlur={unspecified.blur} min="0" />
                 <button className="btn-icon-small" onClick={unspecified.increment} aria-label="Increase unspecified count"><Plus size={14} /></button>
               </div>
               <span className="traffic-total" data-testid="traffic-total" title="Male + Female + Unspecified">Total: {customerCount}</span>
@@ -840,7 +843,7 @@ export default function MainPOS({ user, resumeOrderId, onResumeHandled }) {
           </div>
           <div className="search-bar m-0" style={{ maxWidth: '250px', minWidth: '200px' }}>
             <Search size={16} className="text-muted" />
-            <input type="text" placeholder="Search menu..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
+            <input aria-label="Search menu" name="main-pos-search-query" type="text" placeholder="Search menu..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
           </div>
         </div>
       </div>
@@ -999,8 +1002,8 @@ export default function MainPOS({ user, resumeOrderId, onResumeHandled }) {
               </select>
             </div>
             <div className="discount-selector">
-              <label><Tag size={14} /> Discount</label>
-              <select value={discountType} onChange={(e) => chooseDiscount(e.target.value)} data-testid="discount-select">
+              <label htmlFor={formId + "-discount-select"}><Tag size={14} /> Discount</label>
+              <select id={formId + "-discount-select"} name="main-pos-discount-select" value={discountType} onChange={(e) => chooseDiscount(e.target.value)} data-testid="discount-select">
                 <option value="none">None</option>
                 {useDbDiscounts ? (
                   <>
@@ -1031,7 +1034,7 @@ export default function MainPOS({ user, resumeOrderId, onResumeHandled }) {
               <span>₱{total.toFixed(2)}</span>
             </div>
             <div className="payment-selector">
-              <label>Payment</label>
+              <span className="field-label">Payment</span>
               <div className="payment-btns" role="radiogroup" aria-label="Payment method">
                 <button
                   type="button"
@@ -1102,7 +1105,7 @@ export default function MainPOS({ user, resumeOrderId, onResumeHandled }) {
       </div>
       {pendingDiscount && <div className="modal-overlay"><form className="modal-content card" role="dialog" aria-label="Authorize discount" onSubmit={e => { e.preventDefault(); if (!approvalWorking) void requestDiscountApproval(); }}>
         <h3>Admin approval required</h3><p>Enter an administrator password to authorize this order’s discount.</p>
-        <label>Admin password<input type="password" autoComplete="off" value={approvalPassword} onChange={e => setApprovalPassword(e.target.value)} disabled={approvalWorking} /></label>
+        <label>Admin password<input name="main-pos-approval-password" type="password" autoComplete="off" value={approvalPassword} onChange={e => setApprovalPassword(e.target.value)} disabled={approvalWorking} /></label>
         {approvalError && <p role="alert">{approvalError}</p>}
         <div className="modal-actions"><button type="button" className="btn btn-secondary" disabled={approvalWorking} onClick={() => { setPendingDiscount(null); setApprovalPassword(''); }}>Cancel</button>
         <button type="submit" className="btn btn-primary" disabled={approvalWorking || !approvalPassword}>{approvalWorking ? 'Authorizing…' : 'Authorize discount'}</button></div>
@@ -1185,8 +1188,8 @@ export default function MainPOS({ user, resumeOrderId, onResumeHandled }) {
                 </div>
               )}
               <div className="form-group">
-                <label>Product Name <span className="text-danger">*</span></label>
-                <input
+                <label htmlFor={formId + "-name"}>Product Name <span className="text-danger">*</span></label>
+                <input id={formId + "-name"}
                   type="text"
                   name="name"
                   className="form-input"
@@ -1198,8 +1201,8 @@ export default function MainPOS({ user, resumeOrderId, onResumeHandled }) {
               </div>
               <div className="form-row-grid">
                 <div className="form-group m-0">
-                  <label>Price (₱) <span className="text-danger">*</span></label>
-                  <input
+                  <label htmlFor={formId + "-price"}>Price (₱) <span className="text-danger">*</span></label>
+                  <input id={formId + "-price"}
                     type="number"
                     name="price"
                     className="form-input"
@@ -1212,8 +1215,8 @@ export default function MainPOS({ user, resumeOrderId, onResumeHandled }) {
                   />
                 </div>
                 <div className="form-group m-0">
-                  <label>Category <span className="text-danger">*</span></label>
-                  <select
+                  <label htmlFor={formId + "-category"}>Category <span className="text-danger">*</span></label>
+                  <select id={formId + "-category"}
                     name="category"
                     className="form-input"
                     value={addProductForm.category}

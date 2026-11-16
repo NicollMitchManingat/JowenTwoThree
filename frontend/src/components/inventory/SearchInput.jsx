@@ -3,7 +3,7 @@ import React from 'react';
 
 export default function SearchInput({ value, onChange, placeholder = 'Search items...' }) {
   return (
-    <input
+    <input name="search-input-search-input"
       type="text"
       value={value}
       onChange={(e) => onChange(e.target.value)}

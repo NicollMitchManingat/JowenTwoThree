@@ -3,7 +3,7 @@ import React from 'react';
 
 export default function FilterDropdown({ categories, selectedCategory, onChange }) {
   return (
-    <select
+    <select name="filter-dropdown-filter-dropdown"
       value={selectedCategory}
       onChange={(e) => onChange(e.target.value)}
       className="filter-dropdown"

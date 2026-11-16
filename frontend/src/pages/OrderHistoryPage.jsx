@@ -60,23 +60,23 @@ export default function OrderHistoryPage({ user, onResume }) {
   const [exportKind, setExportKind] = useState(null);
   const [showJump, setShowJump] = useState(false);
   const pageRef = useRef(null);
+  const loadSequence = useRef(0);
+  const [retryCount, setRetryCount] = useState(0);
 
   const loadAll = async () => {
-    const data = await db.getTransactions()
-    setOrders(data || [])
+    const sequence = ++loadSequence.current;
     try {
-      const ids = (data || []).map((o) => o.id).filter(Boolean)
-      const refunds = typeof db.getRefundsForTransactions === 'function'
-        ? await db.getRefundsForTransactions(ids)
-        : []
+      const data = await db.getTransactions()
+      const ids = (data || []).filter(order => paymentStatusFor(order) === 'PAID').map(order => order.id).filter(Boolean)
+      const refunds = await db.getRefundsForTransactions(ids)
       const grouped = {}
-      ;(refunds || []).forEach((r) => {
-        if (!grouped[r.transaction_id]) grouped[r.transaction_id] = []
-        grouped[r.transaction_id].push(r)
-      })
-      setRefundsByTxn(grouped)
-    } catch {
-      setRefundsByTxn({})
+      ;(refunds || []).forEach(refund => { (grouped[refund.transaction_id] ||= []).push(refund) })
+      if (sequence === loadSequence.current) {
+        setOrders(data || []); setRefundsByTxn(grouped); setLoadError(null)
+      }
+    } catch (err) {
+      if (sequence === loadSequence.current) setLoadError(err.message || 'Transaction and refund history is unavailable. Please retry.')
+      throw err
     }
   }
 
@@ -94,8 +94,8 @@ export default function OrderHistoryPage({ user, onResume }) {
       }
     }
     run()
-    return () => { cancelled = true }
-  }, [])
+    return () => { cancelled = true; loadSequence.current += 1 }
+  }, [retryCount])
 
   // No snapshot for history — but reconnect retries instantly (silently,
   // without flashing the skeleton) instead of waiting for manual Retry.
@@ -203,7 +203,7 @@ export default function OrderHistoryPage({ user, onResume }) {
   const canResume = hasAccess(user, 'pos') && typeof onResume === 'function';
   const canRemove = ['admin', 'cashier'].includes(user?.role) && (hasAccess(user, 'pos') || hasAccess(user, 'transactions'));
   const canSelect = canRefund || canResume;
-  const canActOnSelected = canRefund && selectedOrder && !selectedFullyRefunded && !selectedUnpaid;
+  const canActOnSelected = !loadError && canRefund && selectedOrder && !selectedFullyRefunded && !selectedUnpaid;
 
   const refundTitle = () => {
     if (!selectedOrder) return 'Select a transaction to refund';
@@ -308,7 +308,7 @@ export default function OrderHistoryPage({ user, onResume }) {
   }
 
   if (loadError && orders.length === 0) {
-    return <div className="page-content"><div className="card"><p className="text-danger">Failed to load transactions: {loadError}</p><button className="btn btn-primary mt-2" onClick={() => window.location.reload()}>Retry</button></div></div>
+    return <div className="page-content"><div className="card" role="alert"><p className="text-danger">Failed to load transactions: {loadError}</p><button className="btn btn-primary mt-2" onClick={() => { setLoading(true); setRetryCount(count => count + 1); }}>Retry</button></div></div>
   }
 
   return (
@@ -341,10 +341,10 @@ export default function OrderHistoryPage({ user, onResume }) {
       <div className="action-bar action-bar--filters action-bar--sticky">
         <div className="search-bar">
           <Search size={18} className="text-muted" />
-          <input type="text" placeholder="Search by transaction number..." value={search} onChange={(e) => setSearch(e.target.value)} />
+          <input aria-label="Search by transaction number" name="order-history-page-search" type="text" placeholder="Search by transaction number..." value={search} onChange={(e) => setSearch(e.target.value)} />
         </div>
         <label className="txn-filter-field">Payment status
-          <select
+          <select name="order-history-page-txn-status-select"
             className="form-input"
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
@@ -359,12 +359,12 @@ export default function OrderHistoryPage({ user, onResume }) {
           </select>
         </label>
         <label className="txn-filter-field">Refund
-          <select className="form-input" value={refundFilter} onChange={e => setRefundFilter(e.target.value)} aria-label="Filter by refund" data-testid="txn-refund-select">
+          <select name="order-history-page-txn-refund-select" className="form-input" value={refundFilter} onChange={e => setRefundFilter(e.target.value)} aria-label="Filter by refund" data-testid="txn-refund-select">
             <option value="all">All refunds</option><option value="PARTIALLY_REFUNDED">Partially refunded</option><option value="REFUNDED">Refunded</option>
           </select>
         </label>
         <label className="txn-filter-field">Date
-          <select
+          <select name="order-history-page-txn-date-select"
             className="form-input"
             value={dateFrom || dateTo || customOpen ? 'custom' : datePreset}
             onChange={(e) => {
@@ -385,8 +385,8 @@ export default function OrderHistoryPage({ user, onResume }) {
         </label>
         {(dateFrom || dateTo || customOpen) && (
           <span className="txn-date-custom">
-            <label>From <input type="date" autoFocus className="form-input" value={dateFrom} max={dateTo || undefined} onChange={(e) => setCustomBound('from', e.target.value)} data-testid="filter-date-from" aria-label="From date" /></label>
-            <label>To <input type="date" className="form-input" value={dateTo} min={dateFrom || undefined} onChange={(e) => setCustomBound('to', e.target.value)} data-testid="filter-date-to" aria-label="To date" /></label>
+            <label>From <input name="order-history-page-filter-date-from" type="date" autoFocus className="form-input" value={dateFrom} max={dateTo || undefined} onChange={(e) => setCustomBound('from', e.target.value)} data-testid="filter-date-from" aria-label="From date" /></label>
+            <label>To <input name="order-history-page-filter-date-to" type="date" className="form-input" value={dateTo} min={dateFrom || undefined} onChange={(e) => setCustomBound('to', e.target.value)} data-testid="filter-date-to" aria-label="To date" /></label>
           </span>
         )}
         <div className="action-buttons" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
@@ -402,6 +402,7 @@ export default function OrderHistoryPage({ user, onResume }) {
         </div>
       </div>
 
+      {loadError && <div role="alert" className="card"><p>Could not refresh transaction and refund history: {loadError}. Displayed values are from the last successful load.</p><button type="button" className="btn btn-secondary" onClick={() => setRetryCount(count => count + 1)}>Retry history</button></div>}
       {dateError && <p role="alert" className="text-danger">{dateError}</p>}
       <p className="text-sm text-muted">Choose a date range after clicking Export. Traffic exports include all recorded headcounts for those dates; transaction search and payment filters apply to the transaction export.</p>
       {exportKind && <ExportDateRangeModal

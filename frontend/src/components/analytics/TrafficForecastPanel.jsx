@@ -86,7 +86,7 @@ export default function TrafficForecastPanel({ asOf }) {
         {result.status === 'insufficient_history' && <div role="status"><span className="badge badge-warning">Forecast unavailable</span><p className="font-semibold">Insufficient history for a seven-day daily forecast.</p></div>}
         <div className="chart-container analytics-forecast-chart"><SalesTrendChart data={chartData} valueType="count" showLegend showSummary={false} allowZeroValues /></div>
         <div className="analytics-traffic-forecast-heading"><h4>Expected hourly traffic</h4>
-          <label>Forecast day <select className="form-input" value={selected} onChange={event => setSelected(event.target.value)} aria-label="Forecast day">
+          <label>Forecast day <select name="traffic-forecast-panel-forecast-day" className="form-input" value={selected} onChange={event => setSelected(event.target.value)} aria-label="Forecast day">
             {result.hourlyForecast.map(row => <option key={row.date} value={row.date}>{dateLabel(row.date)}</option>)}
           </select></label></div>
         <p className="text-sm text-muted">{result.hourlyNotice}</p>

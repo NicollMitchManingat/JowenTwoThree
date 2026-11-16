@@ -127,6 +127,27 @@ describe('OrderHistoryPage refunds', () => {
     expect(db.getCustomerTrafficExport).not.toHaveBeenCalled()
   })
 
+  it('requires complete refund history before showing amounts and offers an in-page retry', async () => {
+    db.getRefundsForTransactions.mockRejectedValueOnce(new Error('Refund source unavailable'))
+    render(<OrderHistoryPage user={{role:'admin'}} />)
+    expect(await screen.findByRole('alert')).toHaveTextContent('Refund source unavailable')
+    expect(screen.queryByTestId('order-row-t3')).not.toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button',{name:'Retry'}))
+    expect(await screen.findByTestId('order-row-t3')).toHaveTextContent('180.00')
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  it('preserves known refund amounts and disables refunds if a background refresh fails', async () => {
+    render(<OrderHistoryPage user={{role:'admin'}} />)
+    await screen.findByTestId('order-row-t3')
+    await userEvent.click(screen.getByTestId('select-order-t3'))
+    db.getRefundsForTransactions.mockRejectedValueOnce(new Error('Refund refresh unavailable'))
+    fireEvent(window,new Event('online'))
+    expect(await screen.findByRole('alert')).toHaveTextContent('last successful load')
+    expect(screen.getByTestId('order-row-t3')).toHaveTextContent('180.00')
+    expect(screen.getByTestId('toolbar-refund-btn')).toBeDisabled()
+  })
+
   it('should reload silently when the browser reconnects', async () => {
     render(<OrderHistoryPage user={{ username: 'admin', role: 'admin' }} />)
 

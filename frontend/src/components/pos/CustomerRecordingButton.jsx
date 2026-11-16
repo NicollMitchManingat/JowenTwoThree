@@ -77,7 +77,7 @@ export default function CustomerRecordingButton({ count = 1, setCount = () => {}
                 -
               </button>
 
-              <input
+              <input aria-label="Number of customers" name="customer-recording-button-customer-input"
                 type="number"
                 min="1"
                 value={inputValue}

@@ -154,6 +154,7 @@ export default function LoginPage({ onLogin }) {
                   <User size={18} className="input-icon" />
                   <input
                     id="login-username"
+                    name="username"
                     type="text"
                     className="form-input"
                     value={username}
@@ -172,6 +173,7 @@ export default function LoginPage({ onLogin }) {
                   <Lock size={18} className="input-icon" />
                   <input
                     id="login-password"
+                    name="password"
                     type={showPassword ? 'text' : 'password'}
                     className="form-input"
                     value={password}

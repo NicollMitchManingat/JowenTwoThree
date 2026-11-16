@@ -141,7 +141,7 @@ export default function UnitConversionModal({ item, onClose, onSuccess }) {
           {quote.recipes.length ? <table className="data-table unit-preview-table"><thead><tr><th>Product</th><th>Before ({quote.unitBefore})</th><th>After ({quote.unitAfter})</th></tr></thead><tbody>{quote.recipes.map(line => <tr key={line.productId}><th scope="row">{line.productName}</th><td>{formatStock(line.quantityBefore)}</td><td>{formatStock(line.quantityAfter)}</td></tr>)}</tbody></table> : <p className="text-sm text-muted">No linked recipes.</p>}
           {receipt.confirmationAvailable !== true && <p role="status" className="text-warning">Unit conversion is not enabled yet. You can review this preview; confirmation will be available after the coordinated release.</p>}
           {expired && !retry && <p role="status" className="text-warning">This preview expired. Request a new preview.</p>}
-          <label className="unit-change-ack"><input type="checkbox" checked={confirmed} disabled={busy || retry || expired || receipt.confirmationAvailable !== true} onChange={event => setConfirmed(event.target.checked)} />I reviewed the units, prices, threshold and every linked recipe.</label>
+          <label className="unit-change-ack"><input name="unit-change-confirmation" type="checkbox" checked={confirmed} disabled={busy || retry || expired || receipt.confirmationAvailable !== true} onChange={event => setConfirmed(event.target.checked)} />I reviewed the units, prices, threshold and every linked recipe.</label>
         </section>}
       </div>
       <div className="modal-footer">

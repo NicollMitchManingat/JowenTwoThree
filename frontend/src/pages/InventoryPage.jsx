@@ -1,3 +1,4 @@
+import { useId } from 'react'
 import { useState, useEffect, useRef } from 'react';
 import { Search, Plus, Edit, Trash2, X, AlertCircle, ArrowRightLeft } from 'lucide-react';
 import { db, isRetryableError, isQueuedRecord } from '../services/db';
@@ -27,6 +28,8 @@ const STATUS_OPTIONS = [
 const statusKeyOf = inventoryStatus;
 
 export default function InventoryPage({ userRole }) {
+  const formId = useId()
+
   // Stockman staff manage stock day-to-day.
   // Archiving retains the item and its adjustment history.
   const canManage = userRole === 'admin' || userRole === 'stockist';
@@ -497,21 +500,21 @@ export default function InventoryPage({ userRole }) {
               {wastageError && <p role="alert" className="text-danger">{wastageError}</p>}
               <p className="text-sm text-muted mb-3">Item: <strong>{wastageItem.name}</strong> (Current quantity: {formatStock(wastageItem.stock_quantity)} {wastageItem.unit || 'units'})</p>
               <div className="form-group">
-                <label>Wasted Quantity</label>
-                <input type="number" className="form-input" placeholder="0" disabled={loggingWastage}
+                <label htmlFor={formId + "-wasted-quantity"}>Wasted Quantity</label>
+                <input id={formId + "-wasted-quantity"} name="inventory-page-wastage-qty" type="number" className="form-input" placeholder="0" disabled={loggingWastage}
                   value={wastageQty} min="0" step="any" max={wastageItem.stock_quantity}
                   onChange={(e) => setWastageQty(e.target.value)} />
               </div>
               <div className="form-group">
-                <label>Reason</label>
-                <select className="form-input" disabled={loggingWastage} value={wastageReason}
+                <label htmlFor={formId + "-reason"}>Reason</label>
+                <select id={formId + "-reason"} name="inventory-page-wastage-reason" className="form-input" disabled={loggingWastage} value={wastageReason}
                   onChange={(e) => setWastageReason(e.target.value)}>
                   {wastageReasons.map(r => <option key={r} value={r}>{r.charAt(0).toUpperCase() + r.slice(1)}</option>)}
                 </select>
               </div>
               <div className="form-group">
-                <label>Notes (optional)</label>
-                <textarea className="form-input" disabled={loggingWastage} rows="2" placeholder="e.g., batch was left out overnight..."
+                <label htmlFor={formId + "-notes-optional"}>Notes (optional)</label>
+                <textarea id={formId + "-notes-optional"} name="inventory-page-wastage-notes" className="form-input" disabled={loggingWastage} rows="2" placeholder="e.g., batch was left out overnight..."
                   value={wastageNotes} onChange={(e) => setWastageNotes(e.target.value)} />
               </div>
             </div>
@@ -581,7 +584,7 @@ export default function InventoryPage({ userRole }) {
       <div className="action-bar">
         <div className="search-bar">
           <Search size={18} className="text-muted" />
-          <input type="text" placeholder="Search inventory..." value={searchTerm}
+          <input aria-label="Search inventory" name="inventory-page-search-term" type="text" placeholder="Search inventory..." value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)} />
         </div>
         <div className="action-buttons" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>

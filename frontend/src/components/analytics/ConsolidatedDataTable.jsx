@@ -282,7 +282,7 @@ export default function ConsolidatedDataTable({ sharedRange } = {}) {
       <div className="action-bar action-bar--filters">
         <div className="search-bar">
           <Search size={18} className="text-muted" />
-          <input
+          <input name="consolidated-data-table-consolidated-search"
             type="text"
             placeholder="Search item or transaction…"
             value={search}
@@ -292,7 +292,7 @@ export default function ConsolidatedDataTable({ sharedRange } = {}) {
           />
         </div>
         <label className="txn-filter-field">Category
-          <select
+          <select name="consolidated-data-table-consolidated-category-select"
             className="form-input"
             value={category}
             onChange={(e) => setCategory(e.target.value)}
@@ -306,7 +306,7 @@ export default function ConsolidatedDataTable({ sharedRange } = {}) {
           </select>
         </label>
         <label className="txn-filter-field">Status
-          <select
+          <select name="consolidated-data-table-consolidated-status-select"
             className="form-input"
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
@@ -319,7 +319,7 @@ export default function ConsolidatedDataTable({ sharedRange } = {}) {
           </select>
         </label>
         {sharedRange === undefined && <label className="txn-filter-field">Date
-          <select
+          <select name="consolidated-data-table-consolidated-date-select"
             className="form-input"
             value={dateFrom || dateTo || customOpen ? "custom" : datePreset}
             onChange={(e) => {
@@ -343,8 +343,8 @@ export default function ConsolidatedDataTable({ sharedRange } = {}) {
         </label>}
         {sharedRange === undefined && (dateFrom || dateTo || customOpen) && (
           <span className="txn-date-custom">
-            <label>From <input type="date" className="form-input" value={dateFrom} max={dateTo || undefined} onChange={(e) => { setDateFrom(e.target.value); setDatePreset("all") }} data-testid="consolidated-date-from" aria-label="From date" /></label>
-            <label>To <input type="date" className="form-input" value={dateTo} min={dateFrom || undefined} onChange={(e) => { setDateTo(e.target.value); setDatePreset("all") }} data-testid="consolidated-date-to" aria-label="To date" /></label>
+            <label>From <input name="consolidated-data-table-consolidated-date-from" type="date" className="form-input" value={dateFrom} max={dateTo || undefined} onChange={(e) => { setDateFrom(e.target.value); setDatePreset("all") }} data-testid="consolidated-date-from" aria-label="From date" /></label>
+            <label>To <input name="consolidated-data-table-consolidated-date-to" type="date" className="form-input" value={dateTo} min={dateFrom || undefined} onChange={(e) => { setDateTo(e.target.value); setDatePreset("all") }} data-testid="consolidated-date-to" aria-label="To date" /></label>
           </span>
         )}
       </div>

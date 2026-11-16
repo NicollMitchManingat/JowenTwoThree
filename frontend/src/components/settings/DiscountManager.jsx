@@ -1,3 +1,4 @@
+import { useId } from 'react'
 import { useState, useEffect } from 'react'
 import { Tag, Plus, Pencil, X } from 'lucide-react'
 import { db } from '../../services/db'
@@ -10,6 +11,8 @@ export function formatDiscountLabel(d) {
 // Admin CRUD for discount vouchers. System rows (PWD/Senior) are locked:
 // no edit, no deactivate. Inactive vouchers stay hidden in the POS dropdown.
 export default function DiscountManager({ currentUser }) {
+  const formId = useId()
+
   const [discounts, setDiscounts] = useState([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState(null)
@@ -145,14 +148,14 @@ export default function DiscountManager({ currentUser }) {
               <div className="modal-body">
                 {formError && <p className="text-danger" data-testid="discount-form-error">{formError}</p>}
                 <div className="form-group">
-                  <label>Name <span className="text-danger">*</span></label>
-                  <input type="text" className="form-input" placeholder="e.g., Weekend 15%"
+                  <label htmlFor={formId + "-discount-name-input"}>Name <span className="text-danger">*</span></label>
+                  <input id={formId + "-discount-name-input"} name="discount-manager-discount-name-input" type="text" className="form-input" placeholder="e.g., Weekend 15%"
                     value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
                     data-testid="discount-name-input" required />
                 </div>
                 <div className="form-group">
-                  <label>Type <span className="text-danger">*</span></label>
-                  <div className="flex gap-2">
+                  <span className="field-label">Type <span className="text-danger">*</span></span>
+                  <div className="flex gap-2" role="group" aria-label="Discount type">
                     <label className="flex items-center gap-2">
                       <input type="radio" name="discount-type" value="percent" checked={form.type === 'percent'}
                         onChange={() => setForm((f) => ({ ...f, type: 'percent' }))} data-testid="discount-type-percent" />
@@ -166,8 +169,8 @@ export default function DiscountManager({ currentUser }) {
                   </div>
                 </div>
                 <div className="form-group">
-                  <label>Value {form.type === 'percent' ? '(1–99%)' : '(₱)'} <span className="text-danger">*</span></label>
-                  <input type="number" className="form-input" placeholder={form.type === 'percent' ? 'e.g., 15' : 'e.g., 50'}
+                  <label htmlFor={formId + "-discount-value-input"}>Value {form.type === 'percent' ? '(1–99%)' : '(₱)'} <span className="text-danger">*</span></label>
+                  <input id={formId + "-discount-value-input"} name="discount-manager-discount-value-input" type="number" className="form-input" placeholder={form.type === 'percent' ? 'e.g., 15' : 'e.g., 50'}
                     step="0.01" min="0" value={form.value}
                     onChange={(e) => setForm((f) => ({ ...f, value: e.target.value }))}
                     data-testid="discount-value-input" required />

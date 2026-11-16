@@ -1,3 +1,4 @@
+import { useId } from 'react'
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { CookingPot, Plus, Pencil, Trash2, X, AlertTriangle, Search, Minus, CopyPlus, Check, ChevronDown } from 'lucide-react'
 import { db } from '../../services/db'
@@ -8,6 +9,8 @@ import { formatStock, addStock, subtractStock } from '../../utils/formatStock'
 // Checkout reads product_recipes live, so edits apply to the next sale.
 // Table/seed live in frontend/product_recipes.sql (run once in Supabase).
 export default function RecipeManager() {
+  const formId = useId()
+
   const [products, setProducts] = useState([])
   const [inventory, setInventory] = useState([])
   const [recipes, setRecipes] = useState([])
@@ -368,11 +371,11 @@ export default function RecipeManager() {
 
           <div style={{ marginBottom: '1rem', display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
             <div className="flex items-center gap-2" style={{ flexWrap: 'nowrap' }}>
-              <label className="font-semibold flex items-center gap-2" id="recipe-product-label" style={{ flexShrink: 0 }}>
+              <label htmlFor={formId + "-recipe-product-trigger"} className="font-semibold flex items-center gap-2" id="recipe-product-label" style={{ flexShrink: 0 }}>
                 <CookingPot size={16} className="text-primary" /> Product
               </label>
               <div style={{ position: 'relative', width: '100%', maxWidth: '340px', flex: '1 1 auto', minWidth: 0 }} ref={popoverRef}>
-                <button
+                <button id={formId + "-recipe-product-trigger"}
                   ref={triggerRef}
                   type="button"
                   className="form-input flex items-center gap-2 recipe-trigger-btn"
@@ -421,7 +424,7 @@ export default function RecipeManager() {
                   <ChevronDown size={16} style={{ opacity: 0.6, transform: productOpen ? 'rotate(180deg)' : undefined }} />
                 </button>
                 {/* Hidden native select preserves the old testid/contract for any external harness. */}
-                <select
+                <select name="recipe-manager-recipe-product-select"
                   aria-hidden="true"
                   tabIndex={-1}
                   value={selectedProduct}
@@ -447,7 +450,7 @@ export default function RecipeManager() {
                   >
                     <div style={{ padding: '0.5rem', borderBottom: '1px solid var(--border-color)', position: 'relative' }}>
                       <Search size={14} style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', opacity: 0.5 }} />
-                      <input
+                      <input name="recipe-manager-recipe-product-search"
                         ref={productSearchRef}
                         className="form-input"
                         style={{ paddingLeft: '2rem', width: '100%' }}
@@ -619,8 +622,8 @@ export default function RecipeManager() {
                   {formError && <p className="text-danger" data-testid="recipe-form-error">{formError}</p>}
                   {!editing && (
                     <div className="form-group">
-                      <label>Ingredient <span className="text-danger">*</span></label>
-                      <input
+                      <label htmlFor={formId + "-recipe-ingredient-select"}>Ingredient <span className="text-danger">*</span></label>
+                      <input name="recipe-manager-recipe-ingredient-search"
                         className="form-input"
                         placeholder="Search ingredients..."
                         value={ingredientSearch}
@@ -628,7 +631,7 @@ export default function RecipeManager() {
                         aria-label="Search ingredients"
                         data-testid="recipe-ingredient-search"
                       />
-                      <select className="form-input" value={form.inventory_id}
+                      <select id={formId + "-recipe-ingredient-select"} name="recipe-manager-recipe-ingredient-select" className="form-input" value={form.inventory_id}
                         onChange={(e) => setForm((f) => ({ ...f, inventory_id: e.target.value }))}
                         data-testid="recipe-ingredient-select" required>
                         <option value="">Select an ingredient...</option>
@@ -654,14 +657,14 @@ export default function RecipeManager() {
                     </div>
                   )}
                   <div className="form-group">
-                    <label>
+                    <label htmlFor={formId + "-recipe-qty-input"}>
                       Qty per sale{previewIngredient?.unit ? ` (${previewIngredient.unit})` : ''} <span className="text-danger">*</span>
                     </label>
                     <div className="flex items-center gap-2">
                       <button type="button" className="btn-icon-small" onClick={() => bumpQty(-0.01)} disabled={saving} aria-label="Decrease quantity" data-testid="recipe-qty-dec">
                         <Minus size={14} />
                       </button>
-                      <input type="number" className="form-input" placeholder="e.g., 0.20" step="any" min="0"
+                      <input id={formId + "-recipe-qty-input"} name="recipe-manager-recipe-qty-input" type="number" className="form-input" placeholder="e.g., 0.20" step="any" min="0"
                         value={form.qty} onChange={(e) => setForm((f) => ({ ...f, qty: e.target.value }))}
                         data-testid="recipe-qty-input" required style={{ flex: 1 }} />
                       <button type="button" className="btn-icon-small" onClick={() => bumpQty(0.01)} disabled={saving} aria-label="Increase quantity" data-testid="recipe-qty-inc">
@@ -709,8 +712,8 @@ export default function RecipeManager() {
                     <p className="text-danger" data-testid="recipe-form-error">{formError || bulkError}</p>
                   )}
                   <div className="form-group">
-                    <label>Search & tick multiple ingredients</label>
-                    <input
+                    <label htmlFor={formId + "-recipe-bulk-search"}>Search & tick multiple ingredients</label>
+                    <input id={formId + "-recipe-bulk-search"} name="recipe-manager-recipe-bulk-search"
                       className="form-input"
                       placeholder="Search ingredients..."
                       value={bulkSearch}
@@ -719,7 +722,7 @@ export default function RecipeManager() {
                       data-testid="recipe-bulk-search"
                     />
                     <label className="text-sm text-muted flex items-center gap-2" style={{ cursor: 'pointer' }}>
-                      <input
+                      <input name="recipe-manager-recipe-bulk-hide-oos"
                         type="checkbox"
                         checked={hideOutOfStock}
                         onChange={(e) => setHideOutOfStock(e.target.checked)}
@@ -744,7 +747,7 @@ export default function RecipeManager() {
                           style={{ padding: '0.5rem 0.75rem', borderBottom: '1px solid var(--border-color)', opacity: already ? 0.6 : 1 }}
                           data-testid={`recipe-bulk-row-${i.id}`}
                         >
-                          <input
+                          <input name={`recipe-bulk-check-${i.id}`}
                             type="checkbox"
                             checked={checked}
                             disabled={already || saving}
@@ -762,7 +765,7 @@ export default function RecipeManager() {
                               {servings != null && qty !== '' && ` → ~${servings} sale(s)`}
                             </div>
                           </div>
-                          <input
+                          <input name={`recipe-bulk-qty-${i.id}`}
                             type="number" className="form-input" placeholder="Qty" step="any" min="0"
                             style={{ width: '110px' }}
                             value={qty}

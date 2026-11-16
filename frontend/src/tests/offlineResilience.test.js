@@ -187,3 +187,23 @@ describe('parallel hourly fetches', () => {
     expect(hourly[10]).toMatchObject({ hour: 10, walkIns: 5 })
   })
 })
+
+describe('bounded complete transaction refunds', () => {
+ it('batches more than 1000 IDs and paginates beyond 200 refunds without duplicates', async () => {
+  const ids=Array.from({length:1205},(_,i)=>'transaction-'+i), groups=[];
+  const rows=ids.map((id,i)=>({id:'refund-'+i,transaction_id:id,refund_amount:1}));
+  rows.push(...Array.from({length:401},(_,i)=>({id:'extra-'+i,transaction_id:ids[0],refund_amount:1})));
+  supabase.from.mockImplementation(() => {
+   let group=[],first=0,last=0;
+   const query={select(){return this},in(_column,value){group=value;groups.push(value);return this},order(){return this},range(a,b){first=a;last=b;return this},abortSignal(){return this},then(resolve,reject){return Promise.resolve({data:rows.filter(row=>group.includes(row.transaction_id)).slice(first,last+1),error:null}).then(resolve,reject)}};
+   return query;
+  });
+  const result=await db.getRefundsForTransactions([...ids,ids[0]]);
+  expect(result).toHaveLength(1606);expect(new Set(result.map(row=>row.id)).size).toBe(1606);
+  expect(groups.every(group=>group.length<=100)).toBe(true);
+ });
+ it('fails visibly if any refund batch is unavailable', async () => {
+  supabase.from.mockImplementation(()=>chainable(()=>({data:null,error:new Error('Refund source unavailable')})));
+  await expect(db.getRefundsForTransactions(['id'])).rejects.toThrow('Refund source unavailable');
+ });
+});

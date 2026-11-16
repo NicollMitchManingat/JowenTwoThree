@@ -597,18 +597,31 @@ export const db = {
 
   async getRefundsForTransactions(transactionIds) {
     if (!Array.isArray(transactionIds) || transactionIds.length === 0) return []
-    try {
-      return await queryWithTimeout((signal) => supabase
-        .from('refunds')
-        .select('*')
-        .in('transaction_id', transactionIds)
-        .order('created_at', { ascending: true })
-        .range(0, 199)
-        .abortSignal(signal))
-    } catch (err) {
-      if (isMissingColumnError(err)) return []
-      throw err
-    }
+    const ids = [...new Set(transactionIds.filter(Boolean))]
+    return queryWithTimeout(async signal => {
+      const refunds = []
+      const readGroup = async group => {
+        const rows = []
+        for (let start = 0; ;) {
+          const result = await supabase.from('refunds').select('*').in('transaction_id', group)
+            .order('created_at', { ascending: true }).order('id', { ascending: true })
+            .range(start, start + 199).abortSignal(signal)
+          if (result.error) throw result.error
+          if (!Array.isArray(result.data)) throw new Error('Refund data is unavailable. Please retry.')
+          if (!result.data.length) return rows
+          rows.push(...result.data)
+          if (rows.length > 20000) throw new Error('Refund history exceeds the safe reporting limit.')
+          start += result.data.length
+        }
+      }
+      for (let offset = 0; offset < ids.length; offset += 400) {
+        const groups = []
+        for (let i = offset; i < Math.min(ids.length, offset + 400); i += 100) groups.push(readGroup(ids.slice(i, i + 100)))
+        for (const rows of await Promise.all(groups)) refunds.push(...rows)
+        if (refunds.length > 20000) throw new Error('Refund history exceeds the safe reporting limit.')
+      }
+      return { data: refunds, error: null }
+    })
   },
 
   validateRefund({ items, refund_amount, reason, approved_by }) {

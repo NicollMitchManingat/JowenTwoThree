@@ -1,3 +1,4 @@
+import { useId } from 'react'
 import { useState, useMemo, useRef } from 'react'
 import { X, Lock } from 'lucide-react'
 import { db } from '../../services/db'
@@ -51,6 +52,8 @@ export function computeRefundAmount(order, selections) {
 // Admin confirms directly; cashiers must enter the manager (admin) password.
 // The cashier session never changes; approval is recorded as approved_by.
 export default function RefundModal({ order, user, existingRefunds = [], onClose, onRefunded }) {
+  const formId = useId()
+
   const lines = useMemo(
     () => (Array.isArray(order?.cart) ? order.cart : []),
     [order]
@@ -173,8 +176,8 @@ export default function RefundModal({ order, user, existingRefunds = [], onClose
           })}
 
           <div className="form-group mt-3">
-            <label>Reason for refund <span className="text-danger">*</span></label>
-            <select className="form-input" value={reason} onChange={(e) => setReason(e.target.value)}
+            <label htmlFor={formId + "-refund-reason"}>Reason for refund <span className="text-danger">*</span></label>
+            <select id={formId + "-refund-reason"} name="refund-modal-refund-reason" className="form-input" value={reason} onChange={(e) => setReason(e.target.value)}
               data-testid="refund-reason" disabled={saving}>
               <option value="">Select a reason...</option>
               {REFUND_REASONS.map((r) => <option key={r} value={r}>{r}</option>)}
@@ -182,16 +185,16 @@ export default function RefundModal({ order, user, existingRefunds = [], onClose
           </div>
 
           <div className="form-group">
-            <label>Notes (optional)</label>
-            <textarea className="form-input" placeholder="e.g., drink spilled before serving..."
+            <label htmlFor={formId + "-refund-notes"}>Notes (optional)</label>
+            <textarea id={formId + "-refund-notes"} name="refund-modal-refund-notes" className="form-input" placeholder="e.g., drink spilled before serving..."
               value={notes} onChange={(e) => setNotes(e.target.value)}
               data-testid="refund-notes" disabled={saving} />
           </div>
 
           {!isAdmin && (
             <div className="form-group">
-              <label className="flex items-center gap-2"><Lock size={14} /> Manager password <span className="text-danger">*</span></label>
-              <input type="password" className="form-input" placeholder="Ask a manager to enter their password"
+              <label htmlFor={formId + "-refund-manager-password"} className="flex items-center gap-2"><Lock size={14} /> Manager password <span className="text-danger">*</span></label>
+              <input id={formId + "-refund-manager-password"} name="refund-modal-refund-manager-password" type="password" className="form-input" placeholder="Ask a manager to enter their password"
                 value={managerPassword} onChange={(e) => setManagerPassword(e.target.value)}
                 data-testid="refund-manager-password" disabled={saving} />
               <p className="text-sm text-muted">Your session stays signed in as {user?.username}.</p>

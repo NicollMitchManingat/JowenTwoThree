@@ -6,7 +6,7 @@ export default function DateRangeFilter({
 }) {
   return (
     <div className="date-filter">
-      <input
+      <input name="date-range-filter-start-date"
         type="date"
         className="form-input analytics-date-input"
         value={startDate}
@@ -16,7 +16,7 @@ export default function DateRangeFilter({
 
       <span>to</span>
 
-      <input
+      <input name="date-range-filter-end-date"
         type="date"
         className="form-input analytics-date-input"
         value={endDate}

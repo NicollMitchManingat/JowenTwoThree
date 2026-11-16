@@ -96,9 +96,9 @@ export default function PredictiveReportPanel({ start, end }) {
         <p className="text-sm text-muted">Current balances, recorded results, predictions and scenarios are labelled separately. Historical checks scored {data.summary.salesScoredDays} sales days and {data.summary.trafficScoredDays} traffic days; these revised-record comparisons do not prove future accuracy.</p>
         <details className="predictive-report-notes"><summary>Methods, recording coverage and limitations</summary><ul>{data.notes.map((note, index) => <li key={index}>{note}</li>)}</ul></details>
         <div className="predictive-report-filters">
-          <label>Aspect<select className="form-input" value={section} onChange={event => { setSection(event.target.value); setPage(0) }}>
+          <label>Aspect<select name="predictive-report-panel-section" className="form-input" value={section} onChange={event => { setSection(event.target.value); setPage(0) }}>
             {['Sales', 'Inventory', 'Customer Traffic', 'All'].map(value => <option key={value}>{value}</option>)}</select></label>
-          <label>Data basis<select className="form-input" value={basis} onChange={event => { setBasis(event.target.value); setPage(0) }}>
+          <label>Data basis<select name="predictive-report-panel-basis" className="form-input" value={basis} onChange={event => { setBasis(event.target.value); setPage(0) }}>
             {bases.map(value => <option key={value}>{value}</option>)}</select></label>
         </div>
         <p className="text-sm text-muted">Preview filters change the table only. Choose the export dates before downloading the CSV, which includes all sections, exact source decimals, methods and limitations.</p>

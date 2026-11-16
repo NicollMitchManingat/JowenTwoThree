@@ -8,6 +8,12 @@ router.post('/login', auth.throttle, run(async (req, res) => {
   auth.setCookie(req, res, token)
   res.json(result)
 }))
+// A signed-out browser may check its status without an HTTP error. Protected
+// endpoints still require authentication, and infrastructure errors stay errors.
+router.get('/session', (req, res, next) => auth.authenticate(req, res, error => {
+  if (error && error.statusCode !== 401) return next(error)
+  res.json({ success: true, user: error ? null : req.user })
+}))
 router.use(auth.authenticate)
 router.get('/me', (req, res) => res.json({ success: true, user: req.user }))
 router.post('/logout', run(async (req, res) => {

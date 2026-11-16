@@ -1,3 +1,4 @@
+import { useId } from 'react'
 import { useContext, useEffect, useState, useMemo, useRef, useLayoutEffect, useCallback } from "react";
 import { AnalyticsContext } from "./AnalyticsContext";
 import { TrendingUp, AlertTriangle, Package, BarChart3, ShoppingBag, Calendar, ChevronDown, Plus, X, AlertCircle, CheckCircle, Percent, Undo2, Clock } from 'lucide-react';
@@ -54,6 +55,8 @@ const SHOW_FORECASTING = true;
 export { aggregateWeeklySales } from '../services/salesAnalytics';
 
 export default function DashboardContent({ activeTab, user, onNavigate }) {
+  const formId = useId()
+
   const initialGroup = ANALYTICS_GROUPS.find(group => group.id === activeTab || group.label === activeTab)?.id || 'overview';
   const [activeGroup, setActiveGroup] = useState(initialGroup);
   const [visitedGroups, setVisitedGroups] = useState(() => new Set([initialGroup]));
@@ -800,7 +803,7 @@ export default function DashboardContent({ activeTab, user, onNavigate }) {
         <div className="analytics-header-row">
         <div className="analytics-header-filters">
           <label className="analytics-filter-field">Period
-          <select
+          <select name="dashboard-content-date-range"
             value={dateFilter}
             onChange={(e) => { setSessionScopeId(null); setDateFilter(e.target.value); setCustomStartDate(""); setCustomEndDate(""); }}
             className="form-input analytics-range-select"
@@ -814,7 +817,7 @@ export default function DashboardContent({ activeTab, user, onNavigate }) {
           </select>
           </label>
           <label className="analytics-filter-field analytics-session-field">Session
-          <select
+          <select name="dashboard-content-analytics-session-select"
             value={sessionScopeId ?? ''}
             onChange={(e) => applySessionScope(e.target.value || null)}
             className="form-input analytics-range-select"
@@ -893,8 +896,8 @@ export default function DashboardContent({ activeTab, user, onNavigate }) {
                 </div>
               )}
               <div className="form-group">
-                <label>Product Name <span className="text-danger">*</span></label>
-                <input
+                <label htmlFor={formId + "-name"}>Product Name <span className="text-danger">*</span></label>
+                <input id={formId + "-name"}
                   type="text"
                   name="name"
                   className="form-input"
@@ -906,8 +909,8 @@ export default function DashboardContent({ activeTab, user, onNavigate }) {
               </div>
               <div className="form-row-grid">
                 <div className="form-group m-0">
-                  <label>Price (₱) <span className="text-danger">*</span></label>
-                  <input
+                  <label htmlFor={formId + "-price"}>Price (₱) <span className="text-danger">*</span></label>
+                  <input id={formId + "-price"}
                     type="number"
                     name="price"
                     className="form-input"
@@ -920,8 +923,8 @@ export default function DashboardContent({ activeTab, user, onNavigate }) {
                   />
                 </div>
                 <div className="form-group m-0">
-                  <label>Category <span className="text-danger">*</span></label>
-                  <select
+                  <label htmlFor={formId + "-category"}>Category <span className="text-danger">*</span></label>
+                  <select id={formId + "-category"}
                     name="category"
                     className="form-input"
                     value={addProductForm.category}

@@ -1,5 +1,6 @@
 import { apiRequest, setCurrentActor } from './apiClient'
 export const authAPI = {
+  async session({ signal } = {}) { return (await apiRequest('/api/auth/session', { signal })).user },
   async login(credentials) { const { user } = await apiRequest('/api/auth/login', { method: 'POST', body: credentials }); setCurrentActor(user); return user },
   async me() { const { user } = await apiRequest('/api/auth/me'); setCurrentActor(user); return user },
   async logout() { const result = await apiRequest('/api/auth/logout', { method: 'POST' }); setCurrentActor(null); return result },

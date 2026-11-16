@@ -1,6 +1,7 @@
 const crypto = require('crypto')
 const a = require('./accessService')
 const auth = require('./authService')
+const { readAll } = require('./analyticsReadService')
 function integer(value, label, max = 10000) {
   const n = Number(value)
   if (!Number.isInteger(n) || n < 0 || n > max) throw a.httpError(`Invalid ${label}`)
@@ -125,8 +126,9 @@ function savedOrderRecord(row) {
 }
 async function listSavedOrders(user) {
   a.requireModules(user, 'pos', 'transactions')
-  const rows = a.check(await a.database().from('saved_orders').select('*')
-    .eq('payment_status', 'UNPAID').is('removed_at', null).order('created_at', { ascending: false }).range(0, 999))
+  const rows = await readAll((start, stop) => a.database().from('saved_orders').select('*')
+    .eq('payment_status', 'UNPAID').is('removed_at', null)
+    .order('created_at', { ascending: false }).order('id').range(start, stop), { label: 'Saved orders' })
   return (rows || []).map(savedOrderRecord)
 }
 async function countSavedOrders(user) {

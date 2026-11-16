@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   ShoppingCart, Package, ClipboardList, Settings,
   Coffee, Plus, Minus, Users, Tag, X, Search, Edit, Trash2,
@@ -13,6 +13,7 @@ import SettingsPage from './pages/SettingsPage';
 import OrderHistoryPage from './pages/OrderHistoryPage';
 import { AnalyticsProvider } from './pages/AnalyticsContext';
 import DashboardContent from './pages/DashboardContent';
+import { setCurrentActor } from './services/apiClient';
 import { authAPI } from './services/authAPI';
 import { hasAccess, pageModule, firstPage } from './services/permissions';
 
@@ -24,34 +25,64 @@ function App() {
   const [isMobileOpen, setIsMobileOpen] = useState(false);
   const [queueNeedsReview, setQueueNeedsReview] = useState(false);
   const [resumeOrderId, setResumeOrderId] = useState(null);
+  const signedIn = useRef(false), sessionRevision = useRef(0);
+  const [sessionError, setSessionError] = useState(null), [sessionRetry, setSessionRetry] = useState(0);
   const handleLogin = (user) => {
+    sessionRevision.current += 1; signedIn.current = true; setSessionError(null);
     localStorage.removeItem('jowen_user');
     setCurrentUser(user);
     setCurrentPage(firstPage(user));
   };
   useEffect(() => {
-    let active = true;
-    const refresh = () => authAPI.me().then(user => {
-      if (active) { setCurrentUser(user); setCurrentPage(page => hasAccess(user, pageModule[page]) ? page : firstPage(user)); }
-    }).catch(err => { if (active && err.status === 401) setCurrentUser(null); }).finally(() => { if (active) setCheckingSession(false); });
-    const expired = () => { setCurrentUser(null); localStorage.removeItem('jowen_user'); };
-    refresh();
-    const timer = setInterval(refresh, 60000);
-    window.addEventListener('focus', refresh);
+    let active = true, pending = false, controller;
+    const refresh = async (initial = false) => {
+      if (pending) return;
+      pending = true;
+      const revision = sessionRevision.current;
+      controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 8000);
+      try {
+        const user = await authAPI.session({ signal: controller.signal });
+        if (!active || revision !== sessionRevision.current) return;
+        signedIn.current = !!user; setCurrentActor(user); setCurrentUser(user); setSessionError(null);
+        setCurrentPage(page => user ? (hasAccess(user, pageModule[page]) ? page : firstPage(user)) : null);
+      } catch (err) {
+        if (active && revision === sessionRevision.current && initial) setSessionError(controller.signal.aborted ? 'Session check timed out. Please retry.' : err.message || 'Session service is unavailable.');
+      } finally {
+        clearTimeout(timer); pending = false;
+        if (active && revision === sessionRevision.current) setCheckingSession(false);
+      }
+    };
+    const expired = () => {
+      sessionRevision.current += 1; signedIn.current = false; setCurrentActor(null);
+      setCurrentUser(null); setSessionError(null); localStorage.removeItem('jowen_user');
+    };
+    const refreshSignedIn = () => { if (signedIn.current) void refresh(); };
+    void refresh(true);
+    const timer = setInterval(refreshSignedIn, 60000);
+    window.addEventListener('focus', refreshSignedIn);
     window.addEventListener('jowen-session-expired', expired);
     const queueReview = () => setQueueNeedsReview(true);
     window.addEventListener('jowen-queue-review', queueReview);
-    return () => { active = false; clearInterval(timer); window.removeEventListener('focus', refresh); window.removeEventListener('jowen-session-expired', expired); window.removeEventListener('jowen-queue-review', queueReview); };
-  }, []);
+    return () => {
+      active = false; controller?.abort(); clearInterval(timer);
+      window.removeEventListener('focus', refreshSignedIn); window.removeEventListener('jowen-session-expired', expired);
+      window.removeEventListener('jowen-queue-review', queueReview);
+    };
+  }, [sessionRetry]);
   const handleLogout = async () => {
+    const revision = ++sessionRevision.current;
+    signedIn.current = false;
     try {
       await authAPI.logout();
       localStorage.removeItem('jowen_user');
       setCurrentUser(null);
-    } catch (err) { window.alert(err.message || 'Sign out failed. Reconnect and try again.'); }
+    } catch (err) { if (revision === sessionRevision.current) signedIn.current = true; window.alert(err.message || 'Sign out failed. Reconnect and try again.'); }
   };
 
   if (checkingSession) return <p className="page-content">Checking your session…</p>;
+
+  if (!currentUser && sessionError) return <div className="page-content"><div className="card" role="alert"><p>{sessionError}</p><button type="button" className="btn btn-primary" onClick={() => { setCheckingSession(true); setSessionError(null); setSessionRetry(value => value + 1); }}>Retry session check</button></div></div>;
 
   if (!currentUser) {
     return <LoginPage onLogin={handleLogin} />;

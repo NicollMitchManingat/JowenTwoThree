@@ -11,7 +11,8 @@ const memoryClient = {
       insert(values) { inserted = values; return query; },
       select() { return query; },
       eq(column, value) { filter = [column, value]; return query; },
-      async order() { return { data: [...records].reverse(), error: null }; },
+      order() { return query; },
+      async range(start, stop) { return { data: [...records].reverse().slice(start, Math.min(stop + 1, start + 200)), error: null }; },
       async single() {
         if (inserted) {
           const row = { id: `unit-${records.length}`, created_at: new Date().toISOString(), ...inserted[0] };
@@ -213,4 +214,23 @@ describe('date-selected transaction export', () => {
     const broken = { from() { const query = { select() { return this; }, gte() { return this; }, lt() { return this; }, eq() { return this; }, is() { return this; }, order() { return this; }, range() { return { data: null, error: new Error('Unavailable') }; } }; return query; } };
     await expect(TransactionService.getTransactionExport({ from: '2026-10-15', to: '2026-10-16', client: broken })).rejects.toMatchObject({ statusCode: 503 });
   });
+});
+
+it('loads transaction history beyond both the default page and a reduced server cap', async () => {
+ records.length = 0;
+ records.push(...Array.from({length:1205}, (_, index) => ({id:'history-'+index,created_at:'2026-11-01T06:00:00Z'})));
+ expect(await TransactionService.getTransactionHistory()).toHaveLength(1205);
+ records.length = 0;
+});
+
+it('paginates visible unpaid orders without including removed or paid drafts', async () => {
+ const checkout=require('../../src/services/checkoutService'), access=require('../../src/services/accessService');
+ const entries=Array.from({length:1005},(_,i)=>({id:'saved-'+i,order_key:'key-'+i,payment_status:'UNPAID',removed_at:null,male_count:1,female_count:0,unspecified_count:0}));
+ entries.push({...entries[0],id:'removed',removed_at:'2026-11-01'},{...entries[0],id:'paid',payment_status:'PAID'});
+ const client={from(){let rows=entries;return {select(){return this},eq(key,value){rows=rows.filter(row=>row[key]===value);return this},is(key,value){rows=rows.filter(row=>row[key]===value);return this},order(){return this},range(start,stop){return Promise.resolve({data:rows.slice(start,Math.min(stop+1,start+200)),error:null})}}}};
+ const spy=vi.spyOn(access,'database').mockReturnValue(client);
+ try {
+  const rows=await checkout.listSavedOrders({role:'admin',isActive:true});
+  expect(rows).toHaveLength(1005);expect(rows.every(row=>row.status==='SAVED'&&row.customer_count===1)).toBe(true);
+ }finally{spy.mockRestore()}
 });

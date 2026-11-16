@@ -605,7 +605,7 @@
   margin-bottom: 1.25rem;
 }
 
-.form-group label {
+.form-group label, .form-group .field-label {
   font-size: 0.9rem;
   font-weight: 600;
   color: var(--text-muted);
@@ -1503,7 +1503,7 @@
   gap: 0.4rem;
 }
 
-.payment-selector label {
+.payment-selector label, .payment-selector .field-label {
   font-size: 0.8rem;
 }
 

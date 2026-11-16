@@ -105,3 +105,25 @@ it('throttles repeated password guesses across sessions without throttling metad
  const metadata=await request(app).patch('/api/auth/users/c1').set('Cookie',`jowen_session=${otherToken}`).send({fullName:'Cashier Name'})
  expect(metadata.status).toBe(200)
 })
+
+it('returns a normal signed-out session status while me and account endpoints stay protected', async () => {
+ const status = await request(app).get('/api/auth/session');
+ expect(status.status).toBe(200); expect(status.body).toEqual({success:true,user:null});
+ expect((await request(app).get('/api/auth/me')).status).toBe(401);
+ expect((await request(app).get('/api/auth/users')).status).toBe(401);
+});
+it('checks live session expiry and revocation without exposing tokens in session status', async () => {
+ const loggedIn = await auth.login({username:'cashier',password:'fixture-password'});
+ const cookie = 'jowen_session='+loggedIn.token;
+ const status = await request(app).get('/api/auth/session').set('Cookie',cookie);
+ expect(status.status).toBe(200); expect(status.body.user.id).toBe('c1');
+ expect(JSON.stringify(status.body)).not.toContain(loggedIn.token); expect(status.body.user).not.toHaveProperty('password_hash');
+ db.tables.auth_sessions[0].revoked_at='2026-01-01';
+ expect((await request(app).get('/api/auth/session').set('Cookie',cookie)).body.user).toBeNull();
+ db.tables.auth_sessions[0].revoked_at=null;db.tables.auth_sessions[0].expires_at='2000-01-01';
+ expect((await request(app).get('/api/auth/session').set('Cookie',cookie)).body.user).toBeNull();
+});
+it('does not mistake a session service outage for a signed-out browser', async () => {
+ const spy=vi.spyOn(access,'authenticate').mockRejectedValue(access.httpError('Session service is unavailable',503));
+ try {expect((await request(app).get('/api/auth/session')).status).toBe(503)} finally {spy.mockRestore()}
+});

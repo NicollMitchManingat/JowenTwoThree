@@ -1,3 +1,4 @@
+import { useId } from 'react'
 import { useState } from 'react'
 import '../../styles/OrderSummary.css'
 import ReceiptModal from './ReceiptModal'
@@ -16,6 +17,8 @@ export default function OrderDetails({
   specialInstructions,
   onSpecialInstructionsChange
 }) {
+  const formId = useId()
+
   const [discountType, setDiscountType] = useState('none')
   const [discountValue, setDiscountValue] = useState('')
   const [showReceipt, setShowReceipt] = useState(false)
@@ -178,9 +181,9 @@ const totalAmount = Math.max(0, subtotal - discountAmount)
       </div>
 
       <div className="discount-section" data-testid="discount-section">
-        <label className="discount-label">Discount</label>
+        <label htmlFor={formId + "-discount-type-select"} className="discount-label">Discount</label>
         <div className="discount-controls">
-          <select
+          <select id={formId + "-discount-type-select"} name="order-details-discount-type-select"
             className="discount-type-select"
             value={discountType}
             onChange={(e) => { setDiscountType(e.target.value); setDiscountValue('') }}
@@ -193,7 +196,7 @@ const totalAmount = Math.max(0, subtotal - discountAmount)
           </select>
 
           {discountType !== 'none' && (
-            <input
+            <input aria-label="Discount value" name="order-details-discount-value-input"
               type="number"
               className={`discount-value-input${discountError ? ' input-error' : ''}`}
               value={discountValue}

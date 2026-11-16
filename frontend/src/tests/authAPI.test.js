@@ -44,3 +44,13 @@ describe('server authentication',()=>{
   } finally {window.removeEventListener('jowen-session-expired',expired)}
  })
 })
+
+it('uses a normal signed-out status response without raising session-expired', async () => {
+ const expired=vi.fn();window.addEventListener('jowen-session-expired',expired)
+ vi.stubGlobal('fetch',vi.fn().mockResolvedValue({ok:true,json:async()=>({success:true,user:null})}))
+ try {
+  expect(await authAPI.session()).toBeNull()
+  expect(fetch).toHaveBeenCalledWith('/api/auth/session',expect.objectContaining({credentials:'include'}))
+  expect(expired).not.toHaveBeenCalled()
+ } finally {window.removeEventListener('jowen-session-expired',expired)}
+})

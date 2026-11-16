@@ -83,18 +83,8 @@ async function saveTransaction(data) {
 
 // Get transactions from Supabase
 async function getTransactionHistory() {
-  const { data, error } = await supabase
-    .from("transactions")
-    .select("*")
-    .order("created_at", {
-      ascending: false,
-    });
-
-  if (error) {
-    throw error;
-  }
-
-  return data;
+  return readAll((start, stop) => supabase.from('transactions').select('*')
+    .order('created_at', { ascending: false }).order('id').range(start, stop), { label: 'Transaction history' });
 }
 
 // Get transaction by transaction number

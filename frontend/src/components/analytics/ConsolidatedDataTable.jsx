@@ -37,6 +37,7 @@ const COLUMNS = [
   { key: "category", label: "Category" },
   { key: "quantitySold", label: "Qty Sold" },
   { key: "totalAmount", label: "Amount" },
+  { key: "discount", label: "Discount" },
   { key: "refunded", label: "Refunded" },
   { key: "net", label: "Net" },
   { key: "status", label: "Status" },
@@ -68,6 +69,7 @@ const statusColor = (status) => {
 const cellValue = (row, key) => {
   if (key === "net") return netForConsolidatedRow(row)
   if (key === "refunded") return Number(row.refunded || 0)
+  if (key === "discount") return Number(row.discount || 0)
   if (key === "inStock") return row.inStock === "N/A" ? -1 : Number(row.inStock || 0)
   return row[key]
 }
@@ -237,7 +239,7 @@ export default function ConsolidatedDataTable({ sharedRange } = {}) {
 
   const summary = data?.summary || {}
   const sourceLabel = DATA_SOURCE_LABELS[data?.meta?.dataSource] || "Recorded data"
-  const peso = (n) => `₱${Number(n || 0).toLocaleString()}`
+  const peso = (n) => `₱${Number(n || 0).toLocaleString('en-PH', { maximumFractionDigits: 2 })}`
 
   const cards = [
     { label: "Net Revenue", value: peso(summary.totalRevenue) },
@@ -372,7 +374,7 @@ export default function ConsolidatedDataTable({ sharedRange } = {}) {
               ))}
             </tbody>
           </table>
-          <p className="text-sm text-muted">Category totals cover the selected date range.</p>
+          <p className="text-sm text-muted">Category totals cover the selected date range. Item discounts and refunds are calculated proportional shares of each transaction’s totals.</p>
         </div>
       )}
 
@@ -401,9 +403,10 @@ export default function ConsolidatedDataTable({ sharedRange } = {}) {
                 <td>{row.itemName}</td>
                 <td>{row.category}</td>
                 <td>{Number(row.quantitySold || 0).toLocaleString()}</td>
-                <td>₱{Number(row.totalAmount || 0).toLocaleString()}</td>
-                <td>{Number(row.refunded || 0) > 0 ? `-₱${Number(row.refunded).toLocaleString()}` : "-"}</td>
-                <td>₱{Number(row.net || 0).toLocaleString()}</td>
+                <td>{peso(row.totalAmount)}</td>
+                <td>{Number(row.discount || 0) > 0 ? `-${peso(row.discount)}` : "-"}</td>
+                <td>{Number(row.refunded || 0) > 0 ? `-${peso(row.refunded)}` : "-"}</td>
+                <td>{peso(row.net)}</td>
                 <td>
                   <span className="status-badge" style={{ color: statusColor(row.status) }} data-testid={`status-${idx}`}>
                     {txnStatusLabel(row.status)}

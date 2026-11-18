@@ -103,21 +103,74 @@ function applyCategoryFilter(rows, category) {
   )
 }
 
+const cents = value => Math.round(Number(value || 0) * 100)
+const reconciliationError = () => Object.assign(new Error('Report item amounts do not reconcile with the transaction total. Review the affected receipt.'), { statusCode: 503 })
+
+// Allocate reporting shares in whole cents, with stable largest-remainder ties.
+// BigInt products avoid losing cents on large receipts. Stored lines stay intact.
+function allocateCents(amount, weights) {
+  const total = weights.reduce((sum, value) => sum + value, 0)
+  if (!total) return weights.map(() => 0)
+  const shares = weights.map((weight, index) => {
+    const product = BigInt(amount) * BigInt(weight)
+    return { index, value: Number(product / BigInt(total)), remainder: product % BigInt(total) }
+  })
+  let remaining = amount - shares.reduce((sum, share) => sum + share.value, 0)
+  const ranked = [...shares].sort((a, b) => a.remainder === b.remainder ? a.index - b.index : a.remainder > b.remainder ? -1 : 1)
+  for (const share of ranked) {
+    if (!remaining) break
+    share.value++
+    remaining--
+  }
+  return shares.map(share => share.value)
+}
+
+function applyTransactionAmounts(rows, transactions, refundsByTxn) {
+  const grouped = new Map()
+  rows.forEach(row => {
+    if (!grouped.has(row.orderId)) grouped.set(row.orderId, [])
+    grouped.get(row.orderId).push(row)
+  })
+  for (const txn of transactions) {
+    const lines = grouped.get(txn.transaction_number || 'N/A') || []
+    if (!lines.length) continue
+    const amounts = lines.map(row => cents(row.totalAmount))
+    const gross = amounts.reduce((sum, amount) => sum + amount, 0)
+    const paid = txn.total == null ? gross - cents(txn.discount) : cents(txn.total)
+    const discount = gross - paid
+    const refund = cents(refundedForTxn(txn, refundsByTxn))
+    if (![...amounts, gross, paid, discount, refund].every(n => Number.isSafeInteger(n) && n >= 0)
+      || refund > paid || (txn.discount != null && cents(txn.discount) !== discount)
+      || (txn.status === 'REFUNDED' && refund !== paid)) throw reconciliationError()
+    const discounts = allocateCents(discount, amounts)
+    const refunds = allocateCents(refund, amounts.map((amount, index) => amount - discounts[index]))
+    lines.forEach((row, index) => {
+      row.discount = discounts[index] / 100
+      row.refunded = refunds[index] / 100
+    })
+  }
+}
+
 function summarize(rows, transactions) {
   let gross = 0
+  let discounts = 0
   let refunded = 0
+  let revenue = 0
   let units = 0
   let customers = 0
   const categories = new Map()
 
   const liveRows = rows.filter((r) => r.orderId !== "N/A")
   liveRows.forEach((r) => {
-    // Gross counts every sale; refunds (partial or full) accumulate in
-    // `refunded`, so totalRevenue = gross - refunded always balances.
+    // Amount remains the original gross line value. Reporting shares reconcile
+    // each transaction to its stored paid total before refunds.
     const isRefunded = r.status === "REFUNDED"
-    const net = isRefunded ? 0 : r.totalAmount - r.refunded
-    gross += r.totalAmount
-    refunded += r.refunded
+    const amount = cents(r.totalAmount), discount = cents(r.discount), refund = cents(r.refunded)
+    const net = isRefunded ? 0 : amount - discount - refund
+    gross += amount
+    discounts += discount
+    refunded += refund
+    revenue += net
     if (!isRefunded) {
       units += r.quantitySold
     }
@@ -142,19 +195,20 @@ function summarize(rows, transactions) {
 
   return {
     summary: {
-      totalRevenue: gross - refunded,
-      grossRevenue: gross,
-      totalRefunded: refunded,
+      totalRevenue: revenue / 100,
+      grossRevenue: gross / 100,
+      totalDiscounts: discounts / 100,
+      totalRefunded: refunded / 100,
       totalUnitsSold: units,
       totalCustomers: customers,
       totalTransactions: (transactions || []).length,
-      avgTicket: txnCount > 0 ? (gross - refunded) / txnCount : 0,
+      avgTicket: txnCount > 0 ? revenue / 100 / txnCount : 0,
       totalInventoryItems: 0, // filled by caller (needs inventory list)
     },
     categories: [...categories.values()]
       .map((c) => ({
         name: c.name,
-        revenue: c.revenue,
+        revenue: c.revenue / 100,
         units: c.units,
         transactions: c.transactions.size,
       }))
@@ -178,7 +232,7 @@ function boundedQuery(supabase, table, columns, fromDate, toExclusive, toInclusi
   return query
 }
 async function fetchLiveTransactions(supabase, fromDate, toExclusive, toInclusive) {
-  return readAll((a, b) => boundedQuery(supabase, 'transactions', 'id,transaction_number,created_at,customer_count,status,total,cart', fromDate, toExclusive, toInclusive).range(a, b), { label: 'Sales' })
+  return readAll((a, b) => boundedQuery(supabase, 'transactions', 'id,transaction_number,created_at,customer_count,status,subtotal,discount,total,cart', fromDate, toExclusive, toInclusive).range(a, b), { label: 'Sales' })
 }
 async function readForIds(supabase, table, columns, ids) {
   const rows = []
@@ -202,8 +256,7 @@ function rowsFromLiveItems(transactions, items, invIndex) {
       product.product_categories?.name || product.category || "Uncategorized"
     const qty = Number(item.quantity || 0)
     const amount = Number(item.subtotal ?? Number(item.unit_price || 0) * qty)
-    // Per-transaction refund totals are attributed to the first row of each
-    // order by the caller, so per-line `refunded` starts at 0 here.
+    // Transaction discount/refund shares are applied after assembling all lines.
     return toRow({
       date: dayOf(txn.created_at),
       orderId: txn.transaction_number || "N/A",
@@ -218,7 +271,7 @@ function rowsFromLiveItems(transactions, items, invIndex) {
   })
 }
 
-function rowsFromCart(transactions, refundsByTxn, invIndex) {
+function rowsFromCart(transactions, invIndex) {
   const rows = []
   ;(transactions || []).forEach((txn) => {
     const cart = Array.isArray(txn.cart) ? txn.cart : []
@@ -230,9 +283,9 @@ function rowsFromCart(transactions, refundsByTxn, invIndex) {
           itemName: "Sale",
           category: "Uncategorized",
           quantitySold: 1,
-          totalAmount: Number(txn.total || 0),
+          totalAmount: Number(txn.subtotal ?? Number(txn.total || 0) + Number(txn.discount || 0)),
           txnStatus: txn.status || "COMPLETED",
-          refunded: refundedForTxn(txn, refundsByTxn),
+          refunded: 0,
           inv: null,
         })
       )
@@ -256,15 +309,6 @@ function rowsFromCart(transactions, refundsByTxn, invIndex) {
         })
       )
     })
-    // One refund record per transaction: attach to its first line so the
-    // summary counts it exactly once.
-    const refund = refundedForTxn(txn, refundsByTxn)
-    if (refund > 0) {
-      const firstLine = [...rows]
-        .reverse()
-        .find((r) => r.orderId === (txn.transaction_number || "N/A"))
-      if (firstLine) firstLine.refunded = refund
-    }
   })
   return rows
 }
@@ -318,15 +362,8 @@ async function getConsolidatedData({ from, to, category, rangeStart, rangeEnd } 
   const represented = new Set(items.map(item => item.transaction_id))
   const missing = transactions.filter(txn => !represented.has(txn.id))
   rows = rowsFromLiveItems(transactions, items, invIndex)
-  const seen = new Set()
-  const byReference = new Map(transactions.map(txn => [txn.transaction_number || 'N/A', txn]))
-  rows.forEach(row => {
-    if (seen.has(row.orderId)) return
-    seen.add(row.orderId)
-    const txn = byReference.get(row.orderId)
-    if (txn) row.refunded = refundedForTxn(txn, refundsByTxn)
-  })
-  rows.push(...rowsFromCart(missing, refundsByTxn, invIndex))
+  rows.push(...rowsFromCart(missing, invIndex))
+  applyTransactionAmounts(rows, transactions, refundsByTxn)
   dataSource = missing.length ? 'cart' : 'live'
 
   // Append unsold inventory items (zero rows) so dead stock stays visible.
@@ -365,6 +402,9 @@ async function getConsolidatedData({ from, to, category, rangeStart, rangeEnd } 
         itemName: r.itemName,
         quantitySold: r.quantitySold,
         totalAmount: r.totalAmount,
+        discount: r.discount || 0,
+        refunded: r.refunded,
+        netAmount: r.status === 'REFUNDED' ? 0 : (cents(r.totalAmount) - cents(r.discount) - cents(r.refunded)) / 100,
         date: r.date,
       })),
     inventorySummary,
@@ -377,6 +417,7 @@ async function getConsolidatedData({ from, to, category, rangeStart, rangeEnd } 
       dataSource,
       complete: true, timeZone: 'Asia/Manila',
       trafficSource: 'customer_traffic', recordingCoverage: 'unknown',
+      amountAllocation: 'Item discounts and refunds are proportional reporting shares of transaction totals; original line amounts are unchanged.',
       ...(rangeStart !== undefined ? { rangeStart, rangeEnd } : {}),
     },
   }

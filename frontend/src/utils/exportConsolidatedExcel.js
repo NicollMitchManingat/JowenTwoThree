@@ -15,6 +15,7 @@ export const DETAIL_COLUMNS = [
   { header: 'Category', key: 'category', width: 14 },
   { header: 'Qty Sold', key: 'qty', width: 9 },
   { header: 'Amount', key: 'amount', width: 14 },
+  { header: 'Discount', key: 'discount', width: 14 },
   { header: 'Refunded', key: 'refunded', width: 14 },
   { header: 'Net', key: 'net', width: 14 },
   { header: 'Status', key: 'status', width: 18 },
@@ -64,7 +65,8 @@ export const txnStatusLabel = (status) =>
 
 /** Net per row, consistent with the backend: refunded orders net to 0. */
 export const netForConsolidatedRow = (row) =>
-  row.status === 'REFUNDED' ? 0 : Number(row.totalAmount || 0) - Number(row.refunded || 0);
+  row.status === 'REFUNDED' ? 0 : (Math.round(Number(row.totalAmount || 0) * 100)
+    - Math.round(Number(row.discount || 0) * 100) - Math.round(Number(row.refunded || 0) * 100)) / 100;
 
 export function consolidatedFilename(range = {}) {
   return reportFilename('consolidated-report', range instanceof Date ? { from: manilaDay(range), to: manilaDay(range) } : range);
@@ -184,6 +186,7 @@ export function buildConsolidatedWorkbook(
   const summaryCell = ws.getCell('A3');
   summaryCell.value =
     `Transactions: ${summary.totalTransactions ?? 0}     •     Gross: ${peso(summary.grossRevenue)}     •     ` +
+    `Discounts: ${peso(summary.totalDiscounts)}     •     ` +
     `Refunded: ${peso(summary.totalRefunded)}     •     Net Revenue: ${peso(summary.totalRevenue)}     •     ` +
     `Units: ${summary.totalUnitsSold ?? 0}     •     Customers: ${summary.totalCustomers ?? 0}     •     ` +
     `Avg Ticket: ${peso(summary.avgTicket)}`;
@@ -219,7 +222,7 @@ export function buildConsolidatedWorkbook(
 
       const values = [
         r.date, r.orderId, r.itemName, r.category, Number(r.quantitySold || 0),
-        Number(r.totalAmount || 0), Number(r.refunded || 0), r.net,
+        Number(r.totalAmount || 0), Number(r.discount || 0), Number(r.refunded || 0), r.net,
         txnStatusLabel(r.status), r.inStock, r.inventoryStatus,
       ];
       values.forEach((v, i) => {
@@ -228,17 +231,17 @@ export function buildConsolidatedWorkbook(
         cell.font = { size: 10 };
         cell.border = { top: THIN_BORDER, left: THIN_BORDER, bottom: THIN_BORDER, right: THIN_BORDER };
         if (banded) cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: BAND_FILL } };
-        if (i >= 4 && i <= 7) {
+        if (i >= 4 && i <= 8) {
           if (i >= 5) cell.numFmt = MONEY_FMT;
           cell.alignment = { horizontal: 'right', vertical: 'middle' };
         } else {
           cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: i === 2 };
         }
-        if (i === 8 && txn) {
+        if (i === 9 && txn) {
           cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: txn.fill } };
           cell.font = { size: 10, bold: true, color: { argb: txn.font } };
         }
-        if (i === 10 && inv) {
+        if (i === 11 && inv) {
           cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: inv.fill } };
           cell.font = { size: 10, bold: true, color: { argb: inv.font } };
         }
@@ -251,7 +254,7 @@ export function buildConsolidatedWorkbook(
   const totalsRowNumber = dataEndRow + 1;
   const totalsRow = ws.getRow(totalsRowNumber);
   totalsRow.getCell(1).value = `TOTAL (${detailRows.length} row${detailRows.length === 1 ? '' : 's'})`;
-  const moneyCols = { F: 6, G: 7, H: 8 };
+  const moneyCols = { F: 6, G: 7, H: 8, I: 9 };
   Object.entries(moneyCols).forEach(([letter, colIdx]) => {
     const cell = totalsRow.getCell(colIdx);
     if (detailRows.length > 0) {
@@ -266,14 +269,15 @@ export function buildConsolidatedWorkbook(
   qtyCell.value = detailRows.length > 0
     ? { formula: `SUM(E${DATA_START_ROW}:E${dataEndRow})` }
     : 0;
-  paintTotalsRow(ws, totalsRowNumber, colCount, [5, 6, 7, 8]);
+  paintTotalsRow(ws, totalsRowNumber, colCount, [5, 6, 7, 8, 9]);
 
   const noteRow = totalsRowNumber + 2;
   ws.mergeCells(`A${noteRow}:${lastCol}${noteRow}`);
   const note = ws.getCell(`A${noteRow}`);
-  note.value = 'Refunded transactions contribute 0 to Net  •  Amounts in PHP (₱)  •  Stock levels are current as of export';
+  note.value = 'Net = Amount − Discount − Refunded; fully refunded transactions net to 0. Item discounts/refunds are calculated proportional shares. Amounts in PHP (₱); stock balances are current.';
   note.font = { size: 8, italic: true, color: { argb: 'FF94A3B8' } };
-  note.alignment = { horizontal: 'center' };
+  note.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+  ws.getRow(noteRow).height = 26;
   setupPrint(ws, HEADER_ROW);
 
   // ---------- Sheet 2: By Category ----------

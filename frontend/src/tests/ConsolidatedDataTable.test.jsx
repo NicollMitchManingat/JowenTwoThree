@@ -8,10 +8,9 @@ import { vi, describe, it, expect, beforeEach } from "vitest";
 import ConsolidatedDataTable from "../components/analytics/ConsolidatedDataTable";
 import { downloadConsolidatedExcel } from "../utils/exportConsolidatedExcel";
 
-vi.mock("../utils/exportConsolidatedExcel", () => ({
+vi.mock("../utils/exportConsolidatedExcel", async (importOriginal) => ({
+  ...await importOriginal(),
   downloadConsolidatedExcel: vi.fn().mockResolvedValue("consolidated-report-2026-10-15.xlsx"),
-  netForConsolidatedRow: (row) =>
-    row.status === "REFUNDED" ? 0 : Number(row.totalAmount || 0) - Number(row.refunded || 0),
   txnStatusLabel: (status) => status,
   DATA_SOURCE_LABELS: { live: "Live data", cart: "Cart records", mock: "Demo data" },
 }));
@@ -155,12 +154,26 @@ describe("ConsolidatedDataTable", () => {
       expect(screen.getByTestId("sort-category")).toBeInTheDocument();
       expect(screen.getByTestId("sort-quantitySold")).toBeInTheDocument();
       expect(screen.getByTestId("sort-totalAmount")).toBeInTheDocument();
+      expect(screen.getByTestId("sort-discount")).toHaveTextContent('Discount');
       expect(screen.getByTestId("sort-refunded")).toBeInTheDocument();
       expect(screen.getByTestId("sort-net")).toBeInTheDocument();
       expect(screen.getByTestId("sort-status")).toBeInTheDocument();
       expect(screen.getByTestId("sort-inStock")).toBeInTheDocument();
       expect(screen.getByTestId("sort-inventoryStatus")).toBeInTheDocument();
     });
+  });
+
+  it('shows reporting discounts and cent-accurate net amounts without changing the original amount', async () => {
+    mockFetchSuccess({ ...mockData, summary: { ...mockData.summary, totalRevenue: 0.1, avgTicket: 0.1 },
+      rows: [{ ...mockData.rows[0], totalAmount: 0.3, discount: 0.1, refunded: 0.1 }] });
+    render(<ConsolidatedDataTable />);
+    const row = await screen.findByTestId('data-row');
+    const cells = within(row).getAllByRole('cell');
+    expect(cells[5]).toHaveTextContent('₱0.3');
+    expect(cells[6]).toHaveTextContent('-₱0.1');
+    expect(cells[7]).toHaveTextContent('-₱0.1');
+    expect(cells[8]).toHaveTextContent('₱0.1');
+    expect(screen.getByText(/Item discounts and refunds are calculated proportional shares/)).toBeInTheDocument();
   });
 
   it("should render all data rows", async () => {

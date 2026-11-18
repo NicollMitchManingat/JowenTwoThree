@@ -210,6 +210,75 @@ describe("Consolidated Data Service (real-data rewrite)", () => {
     })
   })
 
+  describe('discount reconciliation', () => {
+    it.each(['cart', 'items'])('reconciles cent allocations and categories for %s detail without changing original amounts', async source => {
+      const cart = ['Meals', 'Drinks', 'Desserts'].map(category => ({ name: category, category, qty: 1, price: 0.33 }))
+      const txn = { ...liveTransactions[0], subtotal: 0.99, discount: 0.01, total: 0.98, cart }
+      const items = source === 'items' ? cart.map(line => ({ transaction_id: txn.id, quantity: 1, unit_price: 0.33,
+        subtotal: 0.33, products: { product_name: line.name, product_categories: { name: line.category } } })) : []
+      const original = JSON.stringify({ txn, items })
+      const data = await getConsolidatedData({}, { supabase: makeSupabase({ transactions: [txn], items }), fetchInventory: inventoryStub })
+      const sales = data.rows.filter(row => row.orderId !== 'N/A')
+      expect(sales.map(row => row.totalAmount)).toEqual([0.33, 0.33, 0.33])
+      expect(sales.map(row => row.discount)).toEqual([0.01, 0, 0])
+      expect(data.summary).toMatchObject({ grossRevenue: 0.99, totalDiscounts: 0.01, totalRevenue: 0.98, avgTicket: 0.98 })
+      expect(data.categories.find(row => row.name === 'Meals').revenue).toBe(0.32)
+      expect(data.categories.reduce((sum, row) => sum + Math.round(row.revenue * 100), 0)).toBe(98)
+      expect(JSON.stringify({ txn, items })).toBe(original)
+    })
+
+    it('subtracts discounts and partial/full refunds once across mixed detail sources and category filters', async () => {
+      const transactions = [
+        { ...liveTransactions[0], subtotal: 100, discount: 20, total: 80, status: 'PARTIALLY_REFUNDED' },
+        { ...liveTransactions[1], subtotal: 200, discount: 50, total: 150,
+          cart: [{ name: 'Food', category: 'Meals', qty: 1, price: 120 }, { name: 'Coffee', category: 'Drinks', qty: 1, price: 80 }] },
+      ]
+      const items = ['Meals', 'Drinks'].map(category => ({ transaction_id: 't-1', quantity: 1, subtotal: 50, unit_price: 50,
+        products: { product_name: category, product_categories: { name: category } } }))
+      const deps = { supabase: makeSupabase({ transactions, items,
+        refunds: [{ transaction_id: 't-1', refund_amount: 30 }, { transaction_id: 't-2', refund_amount: 150 }] }), fetchInventory: inventoryStub }
+      const data = await getConsolidatedData({}, deps)
+      expect(data.summary).toMatchObject({ grossRevenue: 300, totalDiscounts: 70, totalRefunded: 180, totalRevenue: 50, avgTicket: 50 })
+      expect(data.categories.map(row => row.revenue)).toEqual([25, 25])
+      expect(data.salesByItem.map(row => row.netAmount)).toEqual([25, 25, 0, 0])
+      expect(data.rows.filter(row => row.orderId === 'TXN-001').map(row => row.refunded)).toEqual([15, 15])
+      const filtered = await getConsolidatedData({ category: 'Meals' }, deps)
+      expect(filtered.summary.totalRevenue).toBe(25)
+      expect(filtered.summary.totalDiscounts).toBe(40)
+      expect(filtered.categories).toEqual([{ name: 'Meals', revenue: 25, units: 1, transactions: 2 }])
+    })
+
+    it('handles a fully discounted receipt and a zero-price line', async () => {
+      const txn = { ...liveTransactions[0], subtotal: 100, discount: 100, total: 0,
+        cart: [{ name: 'Free', qty: 1, price: 0 }, { name: 'Meal', qty: 1, price: 100 }] }
+      const data = await getConsolidatedData({}, { supabase: makeSupabase({ transactions: [txn] }), fetchInventory: inventoryStub })
+      expect(data.summary).toMatchObject({ grossRevenue: 100, totalDiscounts: 100, totalRevenue: 0, avgTicket: 0 })
+      expect(data.salesByItem.map(row => row.discount)).toEqual([0, 100])
+      expect(data.salesByItem.map(row => row.netAmount)).toEqual([0, 0])
+    })
+
+    it('uses recorded subtotal for receipts without item detail', async () => {
+      const txn = { ...liveTransactions[0], subtotal: 120, discount: 20, total: 100 }
+      const data = await getConsolidatedData({}, { supabase: makeSupabase({ transactions: [txn] }), fetchInventory: inventoryStub })
+      expect(data.rows[0]).toMatchObject({ totalAmount: 120, discount: 20 })
+      expect(data.summary.totalRevenue).toBe(100)
+    })
+
+    it('keeps cent allocations exact when proportional multiplication exceeds safe integer precision', async () => {
+      const txn = { ...liveTransactions[0], subtotal: 99999999.99, discount: 33333333.33, total: 66666666.66,
+        cart: [{ name: 'A', qty: 1, price: 50000000 }, { name: 'B', qty: 1, price: 49999999.99 }] }
+      const data = await getConsolidatedData({}, { supabase: makeSupabase({ transactions: [txn] }), fetchInventory: inventoryStub })
+      expect(data.salesByItem.map(row => row.discount)).toEqual([16666666.67, 16666666.66])
+      expect(data.summary.totalRevenue).toBe(66666666.66)
+    })
+
+    it('reports inconsistent item/payment data instead of inventing a discount', async () => {
+      const txn = { ...liveTransactions[0], subtotal: 450, discount: 10, total: 430 }
+      await expect(getConsolidatedData({}, { supabase: makeSupabase({ transactions: [txn], items: [liveItems[0]] }),
+        fetchInventory: inventoryStub })).rejects.toMatchObject({ statusCode: 503 })
+    })
+  })
+
   describe("filters", () => {
     it("narrows by date range", async () => {
       const supabase = makeSupabase({ transactions: liveTransactions, items: liveItems })

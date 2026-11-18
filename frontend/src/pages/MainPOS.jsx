@@ -9,7 +9,8 @@ import OrderPanelSplit from '../components/pos/OrderPanelSplit';
 import LowStockBell from '../components/inventory/LowStockBell';
 import LoadingSkeleton from '../components/analytics/LoadingSkeleton';
 import { saveMenuCache, loadMenuCache } from '../services/menuCache';
-import { mockProducts } from '../data/mockProducts';
+import MenuOptionsModal from '../components/pos/MenuOptionsModal';
+import { groupMenuProducts } from '../components/pos/menuOptions';
 import { processQueue } from '../services/offlineQueue';
 import DiscountApprovalModal from '../components/pos/DiscountApprovalModal';
 import { getProductIcon } from '../components/pos/productIcons';
@@ -136,6 +137,7 @@ export default function MainPOS({ user, resumeOrderId, onResumeHandled }) {
   // Empty pre-migration → legacy hardcoded options below take over.
   const useDbDiscounts = vouchers.length > 0;
   const [selectedProduct, setSelectedProduct] = useState(null);
+  const [optionProduct, setOptionProduct] = useState(null);
   const [noteLineId, setNoteLineId] = useState(null);
   const [productNote, setProductNote] = useState('');
   const [activeCategory, setActiveCategory] = useState('All');
@@ -188,10 +190,8 @@ export default function MainPOS({ user, resumeOrderId, onResumeHandled }) {
   }, [toast, showAddProductModal]);
 
   // Menu freshness: ISO timestamp of the last-good snapshot while showing
-  // cached products, or null when live. `menuEstimates` means even the
-  // snapshot was missing, so bundled mock products are shown as estimates.
+  // cached products, or null when live. Never substitute a bundled old menu.
   const [staleSince, setStaleSince] = useState(null)
-  const [menuEstimates, setMenuEstimates] = useState(false)
   const loadToken = useRef(0)
 
   const mapLiveProducts = (prods) => (prods || []).map(p => ({
@@ -199,23 +199,29 @@ export default function MainPOS({ user, resumeOrderId, onResumeHandled }) {
     name: p.product_name,
     price: Number(p.selling_price),
     category: p.product_categories?.name || 'Other',
+    menuGroup: p.menu_group || null,
+    menuChoice: p.menu_choice || null,
+    recipeVerified: p.menu_group ? !!p.recipe_verified_at : true,
   }))
 
   const applyLiveMenu = (prods, cats, vouchers) => {
     const items = mapLiveProducts(prods)
-    const catsList = ['All', ...new Set((prods || []).map(p => p.product_categories?.name || 'Other'))]
+    groupMenuProducts(items) // Reject inconsistent metadata before caching/rendering.
+    const catsList = ['All', ...new Set([
+      ...(cats || []).map(c => c.name).filter(Boolean),
+      ...(prods || []).map(p => p.product_categories?.name || 'Other'),
+    ])]
     setProducts(items)
     setCategories(catsList)
+    setActiveCategory(current => catsList.includes(current) ? current : 'All')
     setProductCategories((cats || []).map(c => c.name))
     setVouchers(vouchers || [])
     saveMenuCache({ products: items, categories: catsList, discounts: vouchers || [] })
     setStaleSince(null)
-    setMenuEstimates(false)
     setLoadError(null)
   }
 
-  // Fallback when the database is unreachable: last-good snapshot first,
-  // bundled mock products as estimates when no snapshot exists yet.
+  // When unreachable, show only a compatible last-good real menu snapshot.
   // Returns true when anything could be shown.
   const applyFallbackMenu = () => {
     const snap = loadMenuCache()
@@ -225,25 +231,10 @@ export default function MainPOS({ user, resumeOrderId, onResumeHandled }) {
       setProductCategories([])
       setVouchers(snap.discounts || [])
       setStaleSince(snap.savedAt)
-      setMenuEstimates(false)
       setLoadError(null)
       return true
     }
-    const items = mockProducts.map(m => ({
-      id: m.id,
-      name: m.name,
-      price: Number(m.price ?? m.selling_price ?? 0),
-      category: m.category || 'Other',
-    }))
-    if (items.length === 0) return false
-    setProducts(items)
-    setCategories(['All', ...new Set(items.map(i => i.category))])
-    setProductCategories([])
-    setVouchers([])
-    setMenuEstimates(true)
-    setStaleSince(null)
-    setLoadError(null)
-    return true
+    return false
   }
 
   const loadMenu = async () => {
@@ -314,23 +305,24 @@ export default function MainPOS({ user, resumeOrderId, onResumeHandled }) {
   // menu heals itself when the database comes back (no skeleton flash).
   // Reconnects also trigger an immediate retry (see online listener below).
   useEffect(() => {
-    if (!staleSince && !menuEstimates) return
+    if (!staleSince) return
     const t = setInterval(() => { loadMenu() }, 30000)
     return () => clearInterval(t)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [staleSince, menuEstimates])
+  }, [staleSince])
 
   useEffect(() => {
-    if (!staleSince && !menuEstimates) return
+    if (!staleSince) return
     const onOnline = () => { loadMenu() }
     window.addEventListener('online', onOnline)
     return () => window.removeEventListener('online', onOnline)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [staleSince, menuEstimates])
+  }, [staleSince])
 
-  const filteredMenu = products.filter(item => {
+  const menuCards = manageMode === 'idle' ? groupMenuProducts(products) : products;
+  const filteredMenu = menuCards.filter(item => {
     const matchesCategory = activeCategory === 'All' || item.category === activeCategory;
-    const matchesSearch = item.name.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesSearch = [item.name, ...(item.variants || []).map(v => v.name)].some(name => name.toLowerCase().includes(searchQuery.toLowerCase()));
     return matchesCategory && matchesSearch;
   });
 
@@ -368,8 +360,8 @@ export default function MainPOS({ user, resumeOrderId, onResumeHandled }) {
     return { cash: parsed, change: Math.round((parsed - roundedTotal) * 100) / 100 };
   };
 
-  // Tapping a card adds straight to the cart (no modal). Lines without notes
-  // merge by product; annotated lines stay separate.
+  // Add an already-resolved product/configuration. Note-free lines merge by
+  // canonical product ID; different configurations stay separate.
   const quickAdd = (item) => {
     setCart(prev => {
       const existing = prev.find(i => i.productId === item.id && i.note === '');
@@ -489,6 +481,12 @@ export default function MainPOS({ user, resumeOrderId, onResumeHandled }) {
     }
     if (manageMode === 'delete') {
       setSelectedIds((prev) => prev.includes(item.id) ? prev.filter((id) => id !== item.id) : [...prev, item.id]);
+      return;
+    }
+    if (item.variants) {
+      if (item.menuGroup.options.length) { setOptionProduct(item); return; }
+      const variant = item.variants.find(v => v.recipeVerified !== false);
+      if (variant) quickAdd(variant);
       return;
     }
     quickAdd(item);
@@ -719,6 +717,8 @@ export default function MainPOS({ user, resumeOrderId, onResumeHandled }) {
 
   return (
     <div className="pos-container relative">
+      {optionProduct && <MenuOptionsModal key={optionProduct.id} product={optionProduct}
+        onClose={() => setOptionProduct(null)} onChoose={variant => { quickAdd(variant); setOptionProduct(null); }} />}
       {(savedOrder || loadingSavedOrder) && <div className="flex items-center gap-2" style={{ marginBottom: '0.75rem', flexWrap: 'wrap' }}>
         {savedOrder && <span className="text-sm">Editing unpaid transaction <strong>{savedOrder.transaction_number}</strong>
           {Number(savedOrder.discount) > 0 && user?.role !== 'admin' && ' — select the previous discount again to request fresh admin approval.'}</span>}
@@ -763,10 +763,10 @@ export default function MainPOS({ user, resumeOrderId, onResumeHandled }) {
         </div>
       )}
 
-      {(staleSince || menuEstimates) && (
+      {staleSince && (
         <div
           role="status"
-          data-testid={staleSince ? 'menu-stale-banner' : 'menu-estimates-banner'}
+          data-testid="menu-stale-banner"
           className="flex items-center gap-2"
           style={{
             backgroundColor: '#fef5e7',
@@ -778,9 +778,7 @@ export default function MainPOS({ user, resumeOrderId, onResumeHandled }) {
           }}
         >
           <span style={{ flex: 1 }}>
-            {staleSince
-              ? `Showing saved menu from ${new Date(staleSince).toLocaleString()} — prices may differ.`
-              : 'Estimates only — connect to load the real menu.'}
+            {`Showing saved menu from ${new Date(staleSince).toLocaleString()} — prices may differ.`}
           </span>
           <button
             type="button"
@@ -883,6 +881,9 @@ export default function MainPOS({ user, resumeOrderId, onResumeHandled }) {
                     onClick={() => handleCardClick(item)}
                     style={{ position: 'relative' }}
                     role="button"
+                    tabIndex={0}
+                    aria-label={item.variants ? `${item.name}${item.menuGroup.options.length ? ', choose options' : ''}` : undefined}
+                    onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); handleCardClick(item); } }}
                     aria-pressed={manageMode === 'delete' ? selected : undefined}
                   >
                     {manageMode === 'delete' && (
@@ -903,7 +904,9 @@ export default function MainPOS({ user, resumeOrderId, onResumeHandled }) {
                     )}
                     <ProductIcon size={32} className="product-icon" style={tint ? { color: tint } : undefined} />
                     <h4>{item.name}</h4>
-                    <p className="price">₱{item.price.toFixed(2)}</p>
+                    {item.description && <p className="text-sm text-muted menu-card-description">{item.description}</p>}
+                    <p className="price">{item.hasPriceRange ? 'From ' : ''}₱{item.price.toFixed(2)}</p>
+                    {item.variants && item.menuGroup.options.length > 0 && <span className="menu-card-options">Choose options</span>}
                   </div>
                   );
                 })}

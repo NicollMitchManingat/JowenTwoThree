@@ -4,6 +4,7 @@ const router = require('express').Router()
 const a = require('../services/accessService')
 const recipes = require('../services/recipeService')
 const unitReads = require('../services/inventorySupabaseStore')
+const menu = require('../services/menuConfigurationService')
 const reads = {
   products: ['pos', 'inventory', 'analytics'], product_categories: ['pos', 'inventory', 'analytics'],
   inventory: ['inventory', 'pos', 'analytics'], product_recipes: ['pos', 'analytics'],
@@ -63,6 +64,7 @@ async function execute(user, body, context) {
     if (action === 'delete' && table !== 'product_recipes') throw a.httpError('Archive records instead of deleting them', 403)
     const data = body.values
     if (action !== 'delete' && (!data || Array.isArray(data) || Object.keys(data).some(k => !writeColumns[table].includes(k)))) throw a.httpError('Invalid update fields')
+    if (table === 'products' && action === 'update') await menu.guardProductUpdate(a.database(), filters.find(f => f.column === 'id' && f.op === 'eq')?.value, data)
     if (table === 'discounts' && action === 'update') {
       const id = filters.find(f => f.column === 'id' && f.op === 'eq')?.value
       const row = a.check(await a.database().from('discounts').select('is_system,type,value').eq('id', id).single())

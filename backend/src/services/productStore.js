@@ -1,4 +1,5 @@
 const { supabase } = require('../config/supabaseClient')
+const { guardProductUpdate } = require('./menuConfigurationService')
 
 const PRODUCT_SELECT =
   'id, product_name, selling_price, status, image_url, created_at, updated_at, category_id, product_categories(name, description)'
@@ -156,6 +157,7 @@ async function insertProduct(payload) {
 async function modifyProduct(id, payload) {
   const client = await getSupabaseClient()
   const normalizedPayload = await buildProductPayload(payload)
+  await guardProductUpdate(client, id, normalizedPayload)
 
   const { data, error, status } = await client
     .from('products')

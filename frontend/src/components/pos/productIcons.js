@@ -18,6 +18,8 @@ const normalize = value => typeof value === 'string'
 const CATEGORIES = {
   drinks: 'Drinks', beverage: 'Beverages', beverages: 'Beverages',
   'hot coffee': 'Hot Coffee', 'iced coffee': 'Iced Coffee', 'iced blended': 'Iced Blended',
+  'hot coffee (8 oz)': 'Hot Coffee', 'iced coffee (16 oz, double shot)': 'Iced Coffee',
+  'ice blended (frappe)': 'Iced Blended', 'ice blended': 'Iced Blended', extras: 'Extras',
   'non coffee': 'Non Coffee', meals: 'Meals', 'rice meal': 'Rice Meal', 'rice meals': 'Rice Meal',
   pasta: 'Pasta', pastas: 'Pasta', 'kids meal': 'Kids Meal', 'kids meals': 'Kids Meal',
   sandwich: 'Sandwich', sandwiches: 'Sandwich', snacks: 'Snacks', pastries: 'Pastries', desserts: 'Desserts',
@@ -26,13 +28,15 @@ const CATEGORY_FALLBACK = {
   Drinks: CupSoda, Beverages: CupSoda, 'Hot Coffee': Coffee, 'Iced Coffee': CupSoda,
   'Iced Blended': FrappeIcon, 'Non Coffee': CupSoda, Meals: UtensilsCrossed,
   'Rice Meal': RiceBowlIcon, Pasta: PastaIcon, 'Kids Meal': UtensilsCrossed,
-  Sandwich, Snacks: UtensilsCrossed, Pastries: Wheat, Desserts: Dessert,
+  Sandwich, Snacks: UtensilsCrossed, Extras: UtensilsCrossed, Pastries: Wheat, Desserts: Dessert,
 }
 export const CATEGORY_TINTS = {
   Drinks: '#0284c7', Beverages: '#0284c7', 'Hot Coffee': '#92400e',
   'Iced Coffee': '#0284c7', 'Iced Blended': '#7c3aed', 'Non Coffee': '#0284c7',
+  'Ice Blended (Frappe)': '#7c3aed', 'Non-Coffee': '#0284c7',
+  'Hot Coffee (8 oz)': '#92400e', 'Iced Coffee (16 oz, double shot)': '#0284c7',
   Meals: '#b45309', 'Rice Meal': '#b45309', Pasta: '#b45309',
-  'Kids Meal': '#b45309', Sandwich: '#b45309', Snacks: '#b45309',
+  'Kids Meal': '#b45309', Sandwich: '#b45309', Snacks: '#b45309', Extras: '#b45309',
   Pastries: '#ea580c', Desserts: '#db2777',
 }
 
@@ -64,8 +68,9 @@ const FOOD_RULES = [
   [/\b(cookies?)\b/, Cookie],
   [/\b(fish|salmon|tuna)\b/, Fish],
   [/\b(fries|french fries)\b/, FriesIcon],
-  [/\b(chicken|cordon bleu)\b/, Drumstick],
-  [/\b(beef|steak)\b/, Beef],
+  [/\b(chicken|cordon bleu|wings?)\b/, Drumstick],
+  [/\b(beef|steak|ribs?)\b/, Beef],
+  [/\b(rice|longganisa|dinakdakan|binagoongan)\b/, RiceBowlIcon],
   [/\b(stew)\b/, Soup],
   [/\b(popcorn)\b/, Popcorn],
   [/\b(candy)\b/, Candy],

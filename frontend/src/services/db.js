@@ -171,8 +171,15 @@ export const db = {
       .select('*, product_categories(name)')
       .eq('status', 'ACTIVE')
       .order('product_name')
-      .range(0, 99)
+      .range(0, 999)
       .abortSignal(signal))
+  },
+
+  async getRecipeProducts() {
+    // Include inactive draft configurations so their recipes can be prepared
+    // without first making them sellable in POS.
+    return queryWithTimeout(signal => supabase.from('products').select('*, product_categories(name)')
+      .order('product_name').range(0, 999).abortSignal(signal))
   },
 
   async getCategories() {

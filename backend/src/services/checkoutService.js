@@ -28,10 +28,11 @@ async function quoteOrder(user, input) {
     return { productId, qty, displayedPrice: Number(line.price), note: String(line.note || '').trim().slice(0, 1000) }
   })
   const products = raw.length ? a.check(await a.database().from('products')
-    .select('id,product_name,selling_price,status').in('id', [...new Set(raw.map(i => i.productId))])) : []
+    .select('*').in('id', [...new Set(raw.map(i => i.productId))])) : []
   const cart = raw.map((line, index) => {
     const product = products.find(p => p.id === line.productId && p.status === 'ACTIVE')
     if (!product) throw a.httpError('A product is no longer available')
+    if (product.menu_group && !product.recipe_verified_at) throw a.httpError('This product recipe is awaiting verification. Choose another item.', 409)
     if (!Number.isFinite(line.displayedPrice) || cents(line.displayedPrice) !== cents(product.selling_price)) throw a.httpError('A product price changed. Refresh the menu before checkout.', 409)
     return { productId: line.productId, qty: line.qty, note: line.note,
       name: product.product_name, price: cents(product.selling_price) / 100, cartItemId: `${line.productId}:${index}` }
@@ -79,6 +80,8 @@ function rpcError(error) {
   const message = error.message || 'Operation failed'
   const status = /AUTH_REQUIRED/.test(message) ? 401 : /FORBIDDEN|APPROVAL/.test(message) ? 403 : /SAVED_ORDER_NOT_FOUND/.test(message) ? 404 : /STOCK|CONFLICT|CHANGED|REMOVED|ALREADY_PAID|UNIT_VERSION/.test(message) || ['55P03','40P01','40001'].includes(error.code) ? 409 : 400
   const messages = [
+    [/CONFLICT_RECIPE_UNVERIFIED/, 'This product recipe changed or is awaiting verification. Refresh the menu and choose another item.'],
+    [/CONFLICT_HISTORY_CLEARED/, 'This order belongs to cleared history. Start a new order.'],
     [/UNIT_VERSION/, 'This ingredient’s unit changed. Reload it before editing; queued changes must be reviewed.'],
     [/CONFLICT_RECIPE/, 'This recipe changed. Reload recipes before editing.'],
     [/SAVED_ORDER_REMOVED/, 'This unpaid transaction has been removed. Start a new order.'],

@@ -6,6 +6,7 @@ import OrderPanelSplit from '../components/pos/OrderPanelSplit'
 import { db, isRetryableError } from '../services/db'
 import { offlineQueue, processQueue } from '../services/offlineQueue'
 import { saveMenuCache, clearMenuCache } from '../services/menuCache'
+import { groupMenuProducts, validGroup } from '../components/pos/menuOptions'
 
 const VOUCHERS = [
   { id: 'v-pwd', name: 'PWD', type: 'percent', value: 20, is_active: true, is_system: true },
@@ -75,6 +76,82 @@ describe('MainPOS', () => {
     })
     expect(screen.getByText('Espresso')).toBeInTheDocument()
     expect(screen.getByRole('separator', { name: 'Resize current order and payment sections' })).toBeInTheDocument()
+  })
+
+  it('shows the configured Extras filter even while its products are inactive', async () => {
+    const user = userEvent.setup()
+    db.getCategories.mockResolvedValueOnce([{ id: 'drinks', name: 'Drinks' }, { id: 'extras', name: 'Extras' }])
+    render(<MainPOS user={mockUser} />)
+    await user.click(await screen.findByRole('button', { name: 'Extras', exact: true }))
+    expect(screen.getByText('No products found')).toBeInTheDocument()
+    expect(screen.queryByText('Espresso')).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'All', exact: true }))
+    expect(screen.getByText('Espresso')).toBeInTheDocument()
+    expect(db.checkoutOrder).not.toHaveBeenCalled()
+  })
+
+  it('groups wings into one card, requires both choices, and saves the canonical portion SKU', async () => {
+    const user = userEvent.setup()
+    const group = { key: 'wings', name: 'Wings', options: [
+      { key: 'portion', label: 'Portion', choices: ['4 pcs', '6 pcs'] },
+      { key: 'flavor', label: 'Flavor', choices: ['Buffalo', 'Sweet Soy'] },
+    ] }
+    db.getProducts.mockResolvedValueOnce([
+      { id: 'wing4', product_name: 'Wings (4 pcs, Buffalo)', selling_price: 180, product_categories: { name: 'Snacks' }, menu_group: group, menu_choice: { portion: '4 pcs', flavor: 'Buffalo' }, recipe_verified_at: '2026-11-17T00:00:00Z' },
+      { id: 'wing6', product_name: 'Wings (6 pcs, Buffalo)', selling_price: 250, product_categories: { name: 'Snacks' }, menu_group: group, menu_choice: { portion: '6 pcs', flavor: 'Buffalo' }, recipe_verified_at: '2026-11-17T00:00:00Z' },
+    ])
+    db.saveOrder.mockResolvedValueOnce({ id: 'saved-wing', transaction_number: 'TXN-WING' })
+    render(<MainPOS user={mockUser} />)
+    const card = await screen.findByRole('button', { name: 'Wings, choose options' })
+    expect(screen.getAllByText('Wings')).toHaveLength(1)
+    expect(card).toHaveTextContent('From ₱180.00')
+    await user.click(card)
+    const dialog = screen.getByRole('dialog', { name: 'Wings' })
+    expect(within(dialog).getByRole('button', { name: 'Add to order' })).toBeDisabled()
+    expect(within(dialog).getByRole('button', { name: 'Sweet Soy' })).toBeDisabled()
+    await user.click(within(dialog).getByRole('button', { name: '6 pcs' }))
+    expect(within(dialog).getByRole('button', { name: 'Add to order' })).toBeDisabled()
+    await user.click(within(dialog).getByRole('button', { name: 'Buffalo' }))
+    expect(dialog).toHaveTextContent('₱250.00')
+    await user.click(within(dialog).getByRole('button', { name: 'Add to order' }))
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Save unpaid' }))
+    await waitFor(() => expect(db.saveOrder).toHaveBeenCalledWith(expect.objectContaining({ cart: [expect.objectContaining({ productId: 'wing6', name: 'Wings (6 pcs, Buffalo)', price: 250, qty: 1 })] })))
+  })
+
+  it('defaults hot coffee to no add-on and keeps the selected milk SKU in the cart', async () => {
+    const user = userEvent.setup()
+    const group = { key: 'hot-latte', name: 'Cafe Latté', description: '8 oz', options: [{ key: 'milk', label: 'Milk add-on', choices: ['No add-on', 'Soy Milk'], default: 'No add-on' }] }
+    db.getProducts.mockResolvedValueOnce([
+      { id: 'plain', product_name: 'Cafe Latté', selling_price: 85, product_categories: { name: 'Hot Coffee' }, menu_group: group, menu_choice: { milk: 'No add-on' }, recipe_verified_at: '2026-11-17T00:00:00Z' },
+      { id: 'soy', product_name: 'Cafe Latté (Soy Milk)', selling_price: 115, product_categories: { name: 'Hot Coffee' }, menu_group: group, menu_choice: { milk: 'Soy Milk' }, recipe_verified_at: '2026-11-17T00:00:00Z' },
+    ])
+    render(<MainPOS user={mockUser} />)
+    const card = await screen.findByRole('button', { name: 'Cafe Latté, choose options' })
+    card.focus(); await user.keyboard('{Enter}')
+    let dialog = screen.getByRole('dialog', { name: 'Cafe Latté' })
+    expect(within(dialog).getByRole('button', { name: 'No add-on' })).toHaveAttribute('aria-pressed', 'true')
+    expect(dialog).toHaveTextContent('₱85.00')
+    await user.keyboard('{Escape}')
+    expect(card).toHaveFocus()
+    expect(card.closest('.pos-container')).not.toHaveAttribute('inert')
+    await user.click(card)
+    dialog = screen.getByRole('dialog', { name: 'Cafe Latté' })
+    await user.click(within(dialog).getByRole('button', { name: 'Soy Milk' }))
+    expect(dialog).toHaveTextContent('₱115.00')
+    await user.click(within(dialog).getByRole('button', { name: 'Add to order' }))
+    expect(screen.getByText('Cafe Latté (Soy Milk)')).toBeInTheDocument()
+    expect(screen.getByText('Cafe Latté (Soy Milk)').closest('.cart-item')).toHaveTextContent('115.00')
+  })
+
+  it('ignores old menu snapshots and rejects inconsistent option metadata', async () => {
+    localStorage.setItem('jowen-menu-cache', JSON.stringify({ version: 2, products: [{ id: 'old', name: 'Retired product' }] }))
+    db.getProducts.mockRejectedValueOnce(new Error('Offline'))
+    render(<MainPOS user={mockUser} />)
+    expect(await screen.findByText(/Failed to load menu:/)).toBeInTheDocument()
+    expect(screen.queryByText('Retired product')).not.toBeInTheDocument()
+    expect(validGroup({ key: 'bad', name: 'Broken', options: [null] })).toBeFalsy()
+    expect(() => groupMenuProducts([{ id: 'bad', menuGroup: { key: 'bad' } }])).toThrow(/options are incomplete/)
   })
 
   it('removes a saved unpaid order from POS and refreshes the badge', async () => {
@@ -295,14 +372,16 @@ describe('MainPOS', () => {
     expect(screen.queryByTestId('menu-stale-banner')).not.toBeInTheDocument()
   })
 
-  it('should fall back to bundled estimates when no snapshot exists', async () => {
+  it('shows retry instead of a retired bundled menu when no snapshot exists', async () => {
     db.getProducts.mockRejectedValueOnce(new Error('Request timed out after 8s. Supabase may be waking up — please retry.'))
     render(<MainPOS user={mockUser} />)
 
     await waitFor(() => {
-      expect(screen.getByText('Iced Americano')).toBeInTheDocument()
+      expect(screen.getByText(/Failed to load menu:/)).toBeInTheDocument()
     })
-    expect(screen.getByTestId('menu-estimates-banner')).toHaveTextContent(/estimates only/i)
+    expect(screen.queryByText('Iced Americano')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('menu-estimates-banner')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument()
   })
 
   it('should retry the live menu from the stale banner', async () => {

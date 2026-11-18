@@ -51,6 +51,17 @@ describe('RecipeManager', () => {
     expect(screen.getByTestId('recipe-line-0')).toHaveTextContent('8 L')
   })
 
+  it('loads inactive menu configurations for recipe preparation without making them sellable', async () => {
+    db.getRecipeProducts = vi.fn().mockResolvedValue([{ id: 'draft', product_name: 'Wings (6 pcs, Buffalo)', status: 'INACTIVE', menu_group: { key: 'wings' }, recipe_verified_at: null }])
+    try {
+      render(<RecipeManager />)
+      expect(await screen.findByText(/This configuration cannot be sold until/)).toBeInTheDocument()
+      expect(screen.getByTestId('recipe-empty')).toHaveTextContent('Add the confirmed ingredients before recipe review.')
+      expect(db.getRecipeProducts).toHaveBeenCalledTimes(1)
+      expect(db.getProducts).not.toHaveBeenCalled()
+    } finally { delete db.getRecipeProducts }
+  })
+
   it('should flag products without recipes', async () => {
     render(<RecipeManager />)
 

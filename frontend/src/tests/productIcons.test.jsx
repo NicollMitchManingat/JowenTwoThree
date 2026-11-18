@@ -9,6 +9,11 @@ import * as food from '../components/pos/menuFoodIcons'
 
 // Current menu families, including names shared across different categories.
 const MENU_CASES = [
+  ['Hot Coffee (8 oz)', Coffee, ['Cafe Americano', 'Caramel Macchiato']],
+  ['Iced Coffee (16 oz, double shot)', CupSoda, ['Americano', 'Caramel Macchiato']],
+  ['Ice Blended (Frappe)', food.FrappeIcon, ['Biscoff Cookie', 'Almond Java Chip']],
+  ['Non-Coffee', CupSoda, ['Strawberry Matcha', 'Choco Pistachio Latté']],
+  ['Extras', food.RiceBowlIcon, ['Plain Rice', 'Garlic Rice']],
   ['Drinks', Coffee, ['Espresso', 'Latte', 'Americano', 'Cappuccino', 'Hot Chocolate']],
   ['Drinks', CupSoda, ['Iced Matcha', 'Iced Coffee', 'Milk Tea']],
   ['Hot Coffee', Coffee, ['Cafe Americano', 'Cafe Latte', 'Cappuccino', 'Caramel Macchiato', 'Mochaccino']],

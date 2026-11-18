@@ -45,11 +45,11 @@ export default function RecipeManager() {
     setLoadError(null)
     try {
       const [prods, inv, lines] = await Promise.all([
-        db.getProducts(),
+        typeof db.getRecipeProducts === 'function' ? db.getRecipeProducts() : db.getProducts(),
         db.getInventory(),
         db.getAllRecipes(),
       ])
-      const prodList = (prods || []).map((p) => ({ id: p.id, name: p.product_name }))
+      const prodList = (prods || []).map((p) => ({ id: p.id, name: p.product_name, menuConfiguration: !!p.menu_group, recipeVerified: !!p.recipe_verified_at }))
       setProducts(prodList)
       setInventory(inv || [])
       setRecipes(lines || [])
@@ -88,6 +88,7 @@ export default function RecipeManager() {
   }, [products, recipes])
 
   const selectedProductName = (products || []).find((p) => String(p.id) === String(selectedProduct))?.name || ''
+  const selectedConfiguration = products.find(p => String(p.id) === String(selectedProduct))
   const selectedRecipeCount = recipeCountByProduct.get(String(selectedProduct)) || 0
   const selectedHasRecipe = selectedRecipeCount > 0
   const totalProducts = (products || []).length
@@ -548,9 +549,12 @@ export default function RecipeManager() {
             </div>
           </div>
 
+          {selectedConfiguration?.menuConfiguration && <p className="text-sm text-muted" role="status">
+            {selectedConfiguration.recipeVerified ? 'Recipe verified. Editing ingredients or their units requires a new review before this configuration can be sold.' : 'Recipe review required. This configuration cannot be sold until its complete recipe is confirmed.'}
+          </p>}
           {linesForSelected.length === 0 ? (
             <p className="text-muted" data-testid="recipe-empty">
-              No recipe lines for {selectedProductName || 'this product'} yet. Sales won't deduct stock until you add ingredients.
+              No recipe lines for {selectedProductName || 'this product'} yet. {selectedConfiguration?.menuConfiguration ? 'Add the confirmed ingredients before recipe review.' : "Sales won't deduct stock until you add ingredients."}
             </p>
           ) : (
             <div className="table-responsive">

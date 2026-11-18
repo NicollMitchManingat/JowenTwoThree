@@ -1186,11 +1186,11 @@ export default function MainPOS({ user, resumeOrderId, onResumeHandled }) {
         </div>
       )}
       {showAddProductModal && (
-        <div className="modal-overlay" onClick={handleCloseAddProductModal}>
-          <div className="modal-content card add-product-modal" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-overlay pos-product-modal-overlay" onClick={handleCloseAddProductModal}>
+          <div className="modal-content card add-product-modal" role="dialog" aria-modal="true" aria-labelledby={`${formId}-product-modal-title`} onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <h3>{editingProductId ? 'Edit Product' : 'Add New Product'}</h3>
-              <button className="btn-icon-small" onClick={handleCloseAddProductModal}><X size={18} /></button>
+              <h3 id={`${formId}-product-modal-title`}>{editingProductId ? 'Edit Product' : 'Add New Product'}</h3>
+              <button type="button" className="btn-icon-small" aria-label="Close product form" onClick={handleCloseAddProductModal}><X size={18} /></button>
             </div>
             <form onSubmit={handleAddProductSubmit} className="add-product-form">
               {toast && (

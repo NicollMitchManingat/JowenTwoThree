@@ -701,6 +701,29 @@ describe('MainPOS', () => {
 
     await user.click(screen.getByTestId('radial-fab-add'))
     expect(screen.getByText('Add New Product')).toBeInTheDocument()
+    const dialog = screen.getByRole('dialog', { name: 'Add New Product' })
+    expect(within(dialog).getByLabelText(/Product Name/)).toHaveValue('')
+    expect(within(dialog).getByLabelText(/Category/)).toBeInTheDocument()
+    await user.click(within(dialog).getByRole('button', { name: 'Close product form' }))
+    expect(screen.queryByRole('dialog', { name: 'Add New Product' })).not.toBeInTheDocument()
+  })
+
+  it('opens the same product form for editing with a long category and preserves its values on cancel', async () => {
+    const user = userEvent.setup()
+    const category = 'Iced Coffee (16 oz, double shot)'
+    db.getProducts.mockResolvedValueOnce([{ id: 'iced', product_name: 'Biscoff Cheesecake Latté', selling_price: 145, product_categories: { name: category } }])
+    db.getCategories.mockResolvedValueOnce([{ id: 'iced-category', name: category }])
+    render(<MainPOS user={{ username: 'admin', role: 'admin' }} />)
+    await user.click(await screen.findByTestId('radial-fab-main'))
+    await user.click(screen.getByTestId('radial-fab-edit'))
+    await user.click(screen.getByText('Biscoff Cheesecake Latté'))
+    const dialog = screen.getByRole('dialog', { name: 'Edit Product' })
+    expect(within(dialog).getByLabelText(/Product Name/)).toHaveValue('Biscoff Cheesecake Latté')
+    expect(within(dialog).getByLabelText(/Price/)).toHaveValue(145)
+    expect(within(dialog).getByLabelText(/Category/)).toHaveValue(category)
+    await user.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+    expect(screen.queryByRole('dialog', { name: 'Edit Product' })).not.toBeInTheDocument()
+    expect(screen.getByText('Biscoff Cheesecake Latté')).toBeInTheDocument()
   })
 })
 

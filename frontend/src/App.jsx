@@ -3,7 +3,7 @@ import {
   ShoppingCart, Package, ClipboardList, Settings,
   Coffee, Plus, Minus, Users, Tag, X, Search, Edit, Trash2,
   TrendingUp, Receipt, Lock, ShieldAlert, Play, Square,
-  RefreshCcw, CakeSlice, Menu, Sparkles, LogOut, UserCog, Clock, BrainCircuit, Send
+  RefreshCcw, CakeSlice, Menu, Sparkles, LogOut, UserCog, Clock, BrainCircuit, Send, Maximize, Minimize
 } from 'lucide-react';
 import './App.css';
 import LoginPage from './pages/LoginPage';
@@ -16,6 +16,7 @@ import DashboardContent from './pages/DashboardContent';
 import { setCurrentActor } from './services/apiClient';
 import { authAPI } from './services/authAPI';
 import { hasAccess, pageModule, firstPage } from './services/permissions';
+import useAppFullscreen from './utils/useAppFullscreen';
 
 function App() {
   const [currentUser, setCurrentUser] = useState(null);
@@ -27,6 +28,7 @@ function App() {
   const [resumeOrderId, setResumeOrderId] = useState(null);
   const signedIn = useRef(false), sessionRevision = useRef(0);
   const [sessionError, setSessionError] = useState(null), [sessionRetry, setSessionRetry] = useState(0);
+  const fullscreen = useAppFullscreen(Boolean(currentUser));
   const handleLogin = (user) => {
     sessionRevision.current += 1; signedIn.current = true; setSessionError(null);
     localStorage.removeItem('jowen_user');
@@ -136,7 +138,7 @@ function App() {
   };
 
   return (
-    <div className="app-container">
+    <div className="app-container" onClickCapture={fullscreen.onAppClick}>
       <div className={`sidebar-overlay ${isMobileOpen ? 'show' : ''}`} onClick={() => setIsMobileOpen(false)}></div>
 
       <aside className={`sidebar ${isMobileOpen ? 'mobile-open' : ''} ${isDesktopCollapsed ? 'desktop-collapsed' : ''}`}>
@@ -182,6 +184,15 @@ function App() {
             <button className="menu-toggle desktop-hidden" onClick={handleMenuToggle}><Menu size={20} /></button>
             <h2>{visibleMenuItems.find(i => i.id === currentPage)?.label || "Jowen's Cafe"}</h2>
           </div>
+          {fullscreen.supported && <div className="fullscreen-control">
+            <button type="button" className="menu-toggle fullscreen-toggle" data-fullscreen-toggle
+              onClick={fullscreen.toggle} disabled={fullscreen.isBusy} aria-pressed={fullscreen.isFullscreen}
+              aria-label={fullscreen.isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
+              title={fullscreen.isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}>
+              {fullscreen.isFullscreen ? <Minimize size={20} /> : <Maximize size={20} />}
+            </button>
+            {fullscreen.error && <span className="fullscreen-message" role="status">{fullscreen.error}</span>}
+          </div>}
         </header>
         <div className={`page-container${currentPage !== 'pos' ? ' page-container--scroll' : ''}`}>
           {renderContent()}

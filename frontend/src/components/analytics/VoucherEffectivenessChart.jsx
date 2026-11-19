@@ -47,7 +47,7 @@ export default function VoucherEffectivenessChart({ stats, factsStatus }) {
   usePublishChartFacts({ chartId: 'voucher-effectiveness', status: factsStatus && factsStatus !== 'ready' ? factsStatus : rows.length ? 'ready' : 'empty',
     rows: rows.map(row => ({ key: row.key, name: row.name, discounted: chartMetric(row.pesos, 'PHP', formatPeso(row.pesos)), redemptions: chartMetric(row.redemptions, 'transactions') })),
     metrics: { discounted: chartMetric(totalPesos, 'PHP', formatPeso(totalPesos)), redemptions: chartMetric(totalUses, 'transactions'), topVoucher: top?.name || null },
-    limitations: ['Bars show pesos discounted, not revenue earned or promotion ROI. These observations do not establish that a voucher caused additional sales.'],
+    limitations: ['Bars show recorded discount amounts, including receipts later refunded, not revenue earned or promotion ROI. Other recorded discounts have no identifiable voucher or program. These observations do not establish that a voucher caused additional sales.'],
   });
 
   if (rows.length === 0) {
@@ -77,7 +77,7 @@ export default function VoucherEffectivenessChart({ stats, factsStatus }) {
     <div data-testid="voucher-chart" style={{ width: "100%", height: "100%", flex: 1, minHeight: 0, display: "flex", flexDirection: "column", gap: "6px", overflow: "hidden", boxSizing: "border-box" }}>
       <div data-testid="voucher-summary" style={{ display: "flex", flexWrap: "wrap", gap: "12px", fontSize: "0.8rem", color: "var(--text-muted, #6b7280)" }}>
         <span>
-          Top: <strong style={{ color: "var(--text-main, #111827)" }}>{top.name} ({formatPeso(top.pesos)})</strong>
+          Largest group: <strong style={{ color: "var(--text-main, #111827)" }}>{top.name} ({formatPeso(top.pesos)})</strong>
         </span>
         <span>
           Given: <strong style={{ color: "var(--text-main, #111827)" }}>{formatPeso(totalPesos)}</strong>

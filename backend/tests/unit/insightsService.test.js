@@ -90,6 +90,30 @@ describe("insightsService helpers", () => {
     expect(stats.map((s) => s.name)).toEqual(["Weekend 15%", "Senior"])
     expect(stats[0]).toMatchObject({ redemptions: 1, pesos: 75 })
   })
+
+  it('matches frontend grouping for linked calculation types and unidentified receipt discounts', async () => {
+    const rows = [
+      { discount: '20.10', discount_type: 'percent', discount_id: 'v1', status: 'REFUNDED' },
+      { discount: 15, discount_type: 'flat', discount_id: 'v1' },
+      { discount: 8, discount_type: null, discount_id: 'v1' },
+      { discount: 30, discount_type: 'pwd' },
+      { discount: 12.10, discount_type: 'Generated receipt discount' },
+      { discount: 0.20, discount_type: 'Historical receipt discount' },
+      { discount: 0, discount_type: 'percent', discount_id: 'v1' },
+      { discount: -5, discount_type: 'voucher' },
+      { discount: Infinity },
+      null,
+    ]
+    const discounts = [{ id: 'v1', name: 'Weekend 15%' }]
+    const expected = [
+      { key: 'voucher:v1', name: 'Weekend 15%', redemptions: 3, pesos: 43.10 },
+      { key: 'pwd', name: 'PWD', redemptions: 1, pesos: 30 },
+      { key: 'discount:other', name: 'Other recorded discounts', redemptions: 2, pesos: 12.30 },
+    ]
+    expect(voucherStats(rows, discounts)).toEqual(expected)
+    const frontend = await import('../../../frontend/src/services/salesAnalytics.js')
+    expect(frontend.voucherStats(rows, discounts)).toEqual(expected)
+  })
 })
 
 describe('forecastDemand', () => {
@@ -262,6 +286,15 @@ describe("promoLever", () => {
 
   it("should return null with no discount data", () => {
     expect(promoLever({ txns: [], discounts: [] }, CFG)).toBe(null)
+  })
+
+  it('does not recommend unidentified discounts or call named vouchers unused when usage is unknown', () => {
+    const discounts = [{ id: 'v1', name: 'Weekend 15%', is_active: true }]
+    const unknown = { discount: 100, discount_type: 'Generated receipt discount' }
+    expect(promoLever({ txns: [unknown], discounts }, CFG)).toBeNull()
+    const out = promoLever({ txns: [unknown, { discount: 10, discount_type: 'percent', discount_id: 'v1' }], discounts }, CFG)
+    expect(out.value).toBe('Weekend 15%')
+    expect(out.detail.stat.pesos).toBe(10)
   })
 })
 

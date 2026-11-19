@@ -70,6 +70,13 @@ describe('Tier-1 analytics widgets', () => {
     expect(screen.getByTestId('voucher-empty')).toHaveTextContent(/No discounts/)
   })
 
+  it('shows unidentified discount usage as a group instead of an empty chart', () => {
+    render(<VoucherEffectivenessChart stats={[{ key: 'discount:other', name: 'Other recorded discounts', redemptions: 3, pesos: 110 }]} />)
+    expect(screen.getByTestId('voucher-summary')).toHaveTextContent('Largest group: Other recorded discounts')
+    expect(screen.getByTestId('voucher-summary')).toHaveTextContent('Uses: 3')
+    expect(screen.queryByTestId('voucher-empty')).not.toBeInTheDocument()
+  })
+
   it('RefundInsights should show rate, totals, and celebrate zero refunds', () => {
     const { rerender } = render(
       <RefundInsights summary={{

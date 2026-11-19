@@ -80,32 +80,30 @@ export function paymentMix(txns) {
 const LEGACY_DISCOUNT_LABELS = { pwd: 'PWD', senior: 'Senior', promo: 'Promo' }
 
 // Voucher effectiveness: [{ key, name, redemptions, pesos }] sorted by pesos desc.
-// Resolves DB vouchers by discount_id, legacy types by name. Orders without a
-// discount are skipped.
+// Resolve linked vouchers regardless of the stored type, then legacy labels.
+// Keep unidentified discounts visible without guessing their program.
 export function voucherStats(txns, discounts) {
   const byId = new Map((Array.isArray(discounts) ? discounts : []).map((d) => [String(d.id), d]))
   const map = new Map()
   ;(Array.isArray(txns) ? txns : []).forEach((t) => {
-    const pesos = toPeso(t.discount)
+    const pesos = toPeso(t?.discount)
     if (!(pesos > 0)) return
     let key
     let name
-    if (t.discount_type === 'voucher' && t.discount_id && byId.has(String(t.discount_id))) {
+    if (t.discount_id && byId.has(String(t.discount_id))) {
       const v = byId.get(String(t.discount_id))
       key = `voucher:${v.id}`
       name = v.name
-    } else if (t.discount_type && LEGACY_DISCOUNT_LABELS[t.discount_type]) {
+    } else if (Object.hasOwn(LEGACY_DISCOUNT_LABELS, t.discount_type)) {
       key = t.discount_type
       name = LEGACY_DISCOUNT_LABELS[t.discount_type]
-    } else if (t.discount_type === 'voucher') {
-      key = 'voucher:unknown'
-      name = 'Voucher'
     } else {
-      return
+      key = 'discount:other'
+      name = 'Other recorded discounts'
     }
     const prev = map.get(key) || { key, name, redemptions: 0, pesos: 0 }
     prev.redemptions += 1
-    prev.pesos += pesos
+    prev.pesos = Math.round((prev.pesos + pesos) * 100) / 100
     map.set(key, prev)
   })
   return [...map.values()].sort((a, b) => b.pesos - a.pesos)

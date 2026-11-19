@@ -66,7 +66,7 @@ function findingsFor(facts, stockFormat = value => String(value), compareStock =
     const total = sum(rows, 'discounted')
     rows.slice(0, 5).forEach(row => {
       const amount = v(row.discounted), redemptions = v(row.redemptions)
-      add(`${compact(row.name)}: ${money(amount)} discounted across ${countText(redemptions, 'transaction')}.${total > 0 ? ` This is ${share(amount, total)} of the discount amount shown.` : ''}${redemptions > 0 ? ` Average discount is ${money(amount / redemptions)} per redemption.` : ''} These are recorded discount amounts; they do not establish extra sales, profit or return on the promotion.`)
+      add(`${compact(row.name)}: ${money(amount)} discounted across ${countText(redemptions, 'transaction')}.${total > 0 ? ` This is ${share(amount, total)} of the discount amount shown.` : ''}${redemptions > 0 ? ` Average discount is ${money(amount / redemptions)} per transaction with a discount.` : ''}${row.key === 'discount:other' ? ' The voucher or program cannot be identified from these records; this group may combine different discounts.' : ''} These are recorded discount amounts, including receipts later refunded; they do not establish extra sales, profit or return on the promotion.`)
     })
   }
   if (facts.chartId === 'refunds') {

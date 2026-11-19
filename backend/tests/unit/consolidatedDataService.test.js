@@ -746,8 +746,11 @@ describe('detailed explanations remain grounded in verified values',()=>{
  it('keeps product shares limited to the displayed list and discount averages separate from profit',()=>{
   expect(text({chartId:'top-selling',rows:[{name:'Coffee',sold:metric(3)},{name:'Tea',sold:metric(1)}]})).toContain('75.0% of the product units in this displayed list, not all products')
   const discount=text({chartId:'voucher-effectiveness',rows:[{name:'Senior',discounted:metric(100),redemptions:metric(4)}]})
-  expect(discount).toMatch(/25\.00 per redemption/)
+  expect(discount).toMatch(/25\.00 per transaction with a discount/)
   expect(discount).toContain('do not establish extra sales, profit')
+  const unknown=text({chartId:'voucher-effectiveness',rows:[{key:'discount:other',name:'Other recorded discounts',discounted:metric(20),redemptions:metric(2)}]})
+  expect(unknown).toContain('voucher or program cannot be identified')
+  expect(unknown).toContain('including receipts later refunded')
  })
  it('does not confuse a threshold or tiny positive stock with a stock-out forecast',async()=>{
   const [,,stock]=await require('../../src/services/chartFactsService').loadHelpers()

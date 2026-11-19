@@ -58,7 +58,29 @@ describe('salesAnalytics', () => {
       [{ discount: 10, discount_type: 'voucher', discount_id: 'gone' }],
       []
     )
-    expect(stats).toEqual([{ key: 'voucher:unknown', name: 'Voucher', redemptions: 1, pesos: 10 }])
+    expect(stats).toEqual([{ key: 'discount:other', name: 'Other recorded discounts', redemptions: 1, pesos: 10 }])
+  })
+
+  it('counts linked percent/flat discounts and reconciles unidentified receipt discounts without guessing', () => {
+    const rows = [
+      { discount: '20.10', discount_type: 'percent', discount_id: 'v1', status: 'REFUNDED' },
+      { discount: 15, discount_type: 'flat', discount_id: 'v1' },
+      { discount: 8, discount_type: null, discount_id: 'v1' },
+      { discount: 30, discount_type: 'pwd' },
+      { discount: 12.10, discount_type: 'Generated receipt discount' },
+      { discount: 0.20, discount_type: 'Historical receipt discount' },
+      { discount: 0, discount_type: 'percent', discount_id: 'v1' },
+      { discount: -5, discount_type: 'voucher' },
+      { discount: Infinity },
+      null,
+    ]
+    const stats = voucherStats(rows, DISCOUNTS)
+    expect(stats).toEqual([
+      { key: 'voucher:v1', name: 'Weekend 15%', redemptions: 3, pesos: 43.10 },
+      { key: 'pwd', name: 'PWD', redemptions: 1, pesos: 30 },
+      { key: 'discount:other', name: 'Other recorded discounts', redemptions: 2, pesos: 12.30 },
+    ])
+    expect(stats.reduce((sum, row) => sum + Math.round(row.pesos * 100), 0)).toBe(8540)
   })
 
   it('refundSummary should compute rate and group by reason', () => {

@@ -114,8 +114,8 @@ function unitsSoldByProduct(itemRows, txns) {
   return totals
 }
 
-// Voucher ROI replica of the dashboard's voucherStats: [{key,name,
-// redemptions,pesos}] sorted by pesos desc. Legacy types resolve by name.
+// Mirror dashboard discount groups; amounts/redemptions do not establish ROI.
+// Linked IDs take precedence over type labels; unidentified discounts stay separate.
 const LEGACY_DISCOUNT_LABELS = { pwd: "PWD", senior: "Senior", promo: "Promo" }
 
 function voucherStats(txns, discounts) {
@@ -126,22 +126,20 @@ function voucherStats(txns, discounts) {
     if (!(pesos > 0)) return
     let key
     let name
-    if (t.discount_type === "voucher" && t.discount_id && byId.has(String(t.discount_id))) {
+    if (t.discount_id && byId.has(String(t.discount_id))) {
       const v = byId.get(String(t.discount_id))
       key = `voucher:${v.id}`
       name = v.name
-    } else if (t.discount_type && LEGACY_DISCOUNT_LABELS[t.discount_type]) {
+    } else if (Object.hasOwn(LEGACY_DISCOUNT_LABELS, t.discount_type)) {
       key = t.discount_type
       name = LEGACY_DISCOUNT_LABELS[t.discount_type]
-    } else if (t.discount_type === "voucher") {
-      key = "voucher:unknown"
-      name = "Voucher"
     } else {
-      return
+      key = "discount:other"
+      name = "Other recorded discounts"
     }
     const prev = map.get(key) || { key, name, redemptions: 0, pesos: 0 }
     prev.redemptions += 1
-    prev.pesos += pesos
+    prev.pesos = Math.round((prev.pesos + pesos) * 100) / 100
     map.set(key, prev)
   })
   return [...map.values()].sort((a, b) => b.pesos - a.pesos)
@@ -323,7 +321,8 @@ function unitAwareWastage({ adjustments, inventory, recipeLinks, slowProducts },
 // with zero redemptions to retire. Reuses voucherStats semantics.
 function promoLever({ txns, discounts }, cfg = insightsConfig) {
   void cfg
-  const stats = voucherStats(txns, discounts)
+  const allStats = voucherStats(txns, discounts)
+  const stats = allStats.filter(stat => stat.key !== 'discount:other')
   if (stats.length > 0) {
     const best = stats[0]
     return {
@@ -336,7 +335,8 @@ function promoLever({ txns, discounts }, cfg = insightsConfig) {
       detail: { action: "repeat", stat: best },
     }
   }
-  // stats is empty here, so any active DB voucher is by definition unused.
+  // Unknown usage cannot establish that a particular voucher was unused.
+  if (allStats.length) return null
   const idle = (Array.isArray(discounts) ? discounts : []).find(
     (d) => d && d.is_active !== false && d.id
   )

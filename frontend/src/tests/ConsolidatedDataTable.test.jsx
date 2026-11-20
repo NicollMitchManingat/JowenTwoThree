@@ -1,6 +1,8 @@
 import PredictiveReportPanel from '../components/analytics/PredictiveReportPanel'
 import { apiRequest } from '../services/apiClient'
+import { downloadPredictiveExcel } from '../utils/exportPredictiveExcel'
 vi.mock('../services/apiClient', () => ({ apiRequest: vi.fn() }))
+vi.mock('../utils/exportPredictiveExcel', async importOriginal => ({ ...await importOriginal(), downloadPredictiveExcel: vi.fn().mockResolvedValue('predictive-report.xlsx') }))
 import { render, screen, waitFor, within, fireEvent, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { vi, describe, it, expect, beforeEach } from "vitest";
@@ -68,6 +70,8 @@ const mockData = {
       inventoryStatus: "Low",
     },
   ],
+  inventorySummary: [{ id: 'milk', name: 'Milk', inStock: '10', unit: 'L', unitVersion: '1', low_stock_threshold: '5' }],
+  inventoryAnalytics: { planning: [{ id: 'milk', name: 'Milk', unit: 'L', quantity: '10', recordedUsage: '2', status: 'estimated' }], usageWindow: { from: '2026-07-01', through: '2026-07-02', recordedSalesDays: 2 }, dataQuality: { complete: true, unlinkedProductLines: 0 } },
   meta: { from: null, to: null, category: null, dataSource: "live", complete: true },
 };
 
@@ -158,8 +162,8 @@ describe("ConsolidatedDataTable", () => {
       expect(screen.getByTestId("sort-refunded")).toBeInTheDocument();
       expect(screen.getByTestId("sort-net")).toBeInTheDocument();
       expect(screen.getByTestId("sort-status")).toBeInTheDocument();
-      expect(screen.getByTestId("sort-inStock")).toBeInTheDocument();
-      expect(screen.getByTestId("sort-inventoryStatus")).toBeInTheDocument();
+      expect(screen.queryByTestId("sort-inStock")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("sort-inventoryStatus")).not.toBeInTheDocument();
     });
   });
 
@@ -181,7 +185,7 @@ describe("ConsolidatedDataTable", () => {
     render(<ConsolidatedDataTable />);
     await waitFor(() => {
       const rows = screen.getAllByTestId("data-row");
-      expect(rows.length).toBe(3);
+      expect(rows.length).toBe(2);
     });
   });
 
@@ -191,7 +195,7 @@ describe("ConsolidatedDataTable", () => {
     await waitFor(() => {
       expect(screen.getByText("Chicken Burger")).toBeInTheDocument();
       expect(screen.getByText("Iced Coffee")).toBeInTheDocument();
-      expect(screen.getByText("Milk")).toBeInTheDocument();
+      expect(screen.queryByText("Milk")).not.toBeInTheDocument();
     });
   });
 
@@ -200,7 +204,7 @@ describe("ConsolidatedDataTable", () => {
     render(<ConsolidatedDataTable />);
     await waitFor(() => {
       const statuses = screen.getAllByTestId(/^status-\d+$/);
-      expect(statuses.length).toBe(3);
+      expect(statuses.length).toBe(2);
     });
   });
 
@@ -244,6 +248,9 @@ describe("ConsolidatedDataTable", () => {
     expect(payload.rows).toHaveLength(1);
     expect(payload.rows[0].orderId).toBe("EXPORT-ONLY");
     expect(payload.summary.totalRevenue).toBe(999);
+    expect(payload.inventorySummary[0].name).toBe('Milk');
+    expect(payload.inventoryAnalytics.usageWindow.recordedSalesDays).toBe(2);
+    expect(global.fetch.mock.calls.some(([url]) => String(url).includes('includeUsage=true'))).toBe(true);
     expect(screen.queryByText("EXPORT-ONLY")).not.toBeInTheDocument();
   });
 
@@ -251,7 +258,7 @@ describe("ConsolidatedDataTable", () => {
     mockFetchSuccess();
     render(<ConsolidatedDataTable />);
     await waitFor(() => {
-      expect(screen.getAllByTestId("data-row").length).toBe(3);
+      expect(screen.getAllByTestId("data-row").length).toBe(2);
     });
 
     const user = userEvent.setup();
@@ -275,7 +282,7 @@ describe("ConsolidatedDataTable", () => {
     mockFetchSuccess();
     render(<ConsolidatedDataTable />);
     await waitFor(() => {
-      expect(screen.getAllByTestId("data-row").length).toBe(3);
+      expect(screen.getAllByTestId("data-row").length).toBe(2);
     });
 
     const user = userEvent.setup();
@@ -389,7 +396,7 @@ describe('Predictive Business Report',()=>{
  it('uses the shared exact timestamps, labels missing forecasts and separates data bases',async()=>{
   render(<PredictiveReportPanel start="2026-11-01T00:00:00+08:00" end="2026-11-09T23:59:59.999+08:00" />)
   const table=await screen.findByRole('table',{name:'Predictive business report preview'})
-  expect(table).toHaveTextContent('Next seven days');expect(table).toHaveTextContent('Not available')
+  expect(table).toHaveTextContent('Next seven days');expect(table).toHaveTextContent('Insufficient history')
   expect(screen.getByTestId('predictive-report')).not.toHaveTextContent(/training/i)
   expect(screen.getByText(/Forecasts use recorded history through/)).toBeInTheDocument()
   expect(table).toHaveTextContent('Data period: 2026-10-13 to 2026-11-09')
@@ -403,6 +410,16 @@ describe('Predictive Business Report',()=>{
   fireEvent.change(screen.getByLabelText('Data basis'),{target:{value:'Recorded'}})
   expect(table).toHaveTextContent('Daily revenue after refunds');expect(table).not.toHaveTextContent('Next seven days')
  })
+ it('exports a structured workbook for the chosen dates independently of preview filters',async()=>{
+  render(<PredictiveReportPanel />); await screen.findByRole('table')
+  fireEvent.change(screen.getByLabelText('Aspect'),{target:{value:'Inventory'}})
+  fireEvent.click(screen.getByRole('button',{name:'Export Excel'}))
+  const dialog=screen.getByRole('dialog',{name:'Export predictive report'})
+  fireEvent.click(within(dialog).getByRole('button',{name:'Download file'}))
+  await waitFor(()=>expect(downloadPredictiveExcel).toHaveBeenCalledTimes(1))
+  expect(downloadPredictiveExcel.mock.calls[0][0].rows.some(row=>row.section==='Sales')).toBe(true)
+  expect(downloadPredictiveExcel.mock.calls[0][1]).toBeInstanceOf(AbortSignal)
+ })
  it('fetches and downloads a complete CSV for independently chosen export dates despite preview filters',async()=>{
   let capturedBlob,filename
   URL.createObjectURL=vi.fn(blob=>{capturedBlob=blob;return 'blob:predictive'})
@@ -411,7 +428,7 @@ describe('Predictive Business Report',()=>{
   render(<PredictiveReportPanel />)
   await screen.findByRole('table')
   fireEvent.change(screen.getByLabelText('Aspect'),{target:{value:'Inventory'}})
-  fireEvent.click(screen.getByRole('button',{name:'Export full predictive CSV'}))
+  fireEvent.click(screen.getByRole('button',{name:'Export CSV'}))
   const dialog = screen.getByRole('dialog', { name: 'Export predictive report' })
   expect(apiRequest).toHaveBeenCalledTimes(1)
   fireEvent.change(within(dialog).getByLabelText('From date'), {target:{value:'2026-11-02'}})
@@ -437,7 +454,7 @@ describe('Predictive Business Report',()=>{
   vi.useFakeTimers()
   try {
    apiRequest.mockImplementation((_url, {signal}) => new Promise((_resolve, reject) => signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')))))
-   fireEvent.click(screen.getByRole('button', {name:'Export full predictive CSV'}))
+   fireEvent.click(screen.getByRole('button', {name:'Export CSV'}))
    const dialog = screen.getByRole('dialog')
    fireEvent.click(within(dialog).getByRole('button', {name:'Download file'}))
    expect(within(dialog).getByRole('button', {name:'Cancel'})).toBeDisabled()
@@ -452,14 +469,14 @@ describe('Predictive Business Report',()=>{
   await screen.findByRole('table')
   apiRequest.mockImplementation(()=>new Promise(()=>{}))
   view.rerender(<PredictiveReportPanel start="2026-11-02T00:00:00Z" />)
-  expect(screen.getByRole('button',{name:'Export full predictive CSV'})).toBeDisabled()
+  expect(screen.getByRole('button',{name:'Export CSV'})).toBeDisabled()
   expect(screen.queryByRole('table')).not.toBeInTheDocument()
  })
  it('shows source failure with retry and never downloads a partial report',async()=>{
   apiRequest.mockRejectedValueOnce(new Error('Traffic unavailable')).mockResolvedValue({data:predictivePayload()})
   render(<PredictiveReportPanel />)
   expect(await screen.findByRole('alert')).toHaveTextContent('Traffic unavailable')
-  expect(screen.getByRole('button',{name:'Export full predictive CSV'})).toBeDisabled()
+  expect(screen.getByRole('button',{name:'Export CSV'})).toBeDisabled()
   fireEvent.click(screen.getByRole('button',{name:'Retry predictive report'}))
   await screen.findByRole('table')
  })
@@ -468,7 +485,7 @@ describe('Predictive Business Report',()=>{
   apiRequest.mockResolvedValue({data})
   render(<PredictiveReportPanel />)
   expect(await screen.findByRole('alert')).toHaveTextContent('unavailable or incomplete')
-  expect(screen.getByRole('button',{name:'Export full predictive CSV'})).toBeDisabled()
+  expect(screen.getByRole('button',{name:'Export CSV'})).toBeDisabled()
  })
  it('bounds report requests at eight seconds',async()=>{
   vi.useFakeTimers()

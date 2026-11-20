@@ -25,7 +25,9 @@ function defaultFetchInventory() {
   const client = defaultSupabase()
   return readAll((a, b) => store.readUnitRows(versioned => client.from('inventory')
     .select(store.inventoryColumns(versioned)).eq('is_active', true).order('id').range(a, b)), { label: 'Inventory' })
-    .then(rows => rows.map(mapInventoryRow))
+    .then(rows => rows.map(row => ({ ...mapInventoryRow(row),
+      inStock: String(row.stock_quantity), unitVersion: String(row.unit_version ?? 0),
+      low_stock_threshold: row.low_stock_threshold ?? '5' })))
 }
 
 function startOfDayISO(dateStr) { return calendarStart(dateStr) }

@@ -41,8 +41,6 @@ const COLUMNS = [
   { key: "refunded", label: "Refunded" },
   { key: "net", label: "Net" },
   { key: "status", label: "Status" },
-  { key: "inStock", label: "In Stock" },
-  { key: "inventoryStatus", label: "Inv Status" },
 ]
 
 const toISODate = manilaDay
@@ -80,6 +78,7 @@ async function readReport(bounds, signal) {
   if (bounds.to) params.set('to', bounds.to)
   if (bounds.start) params.set('rangeStart', bounds.start)
   if (bounds.end) params.set('rangeEnd', bounds.end)
+  if (bounds.includeUsage) params.set('includeUsage', 'true')
   const response = await fetch(API_BASE + '/api/consolidated-data?' + params, { credentials: 'include', signal })
   const json = await response.json().catch(() => ({}))
   if (!response.ok) throw Object.assign(new Error(json.error || 'Report data is unavailable. Please retry.'), { status: response.status })
@@ -175,14 +174,15 @@ export default function ConsolidatedDataTable({ sharedRange } = {}) {
   }
 
   const categories = useMemo(() => {
-    const names = new Set((data?.categories || []).map((c) => c.name))
-    ;(data?.rows || []).forEach((r) => { if (r.category) names.add(r.category) })
+    const names = new Set()
+    ;(data?.rows || []).forEach((r) => { if (r.orderId && r.orderId !== 'N/A' && r.category) names.add(r.category) })
     return [...names].sort((a, b) => a.localeCompare(b))
   }, [data])
 
   const filterRows = rows => {
     const q = search.trim().toLowerCase()
     return (rows || [])
+      .filter(row => row.orderId && row.orderId !== 'N/A')
       .filter((r) => {
         if (category !== "all" && r.category !== category) return false
         if (statusFilter !== "all" && r.status !== statusFilter) return false
@@ -217,10 +217,12 @@ export default function ConsolidatedDataTable({ sharedRange } = {}) {
     : (DATE_PRESETS.find((o) => o.key === datePreset) || {}).label || datePreset
 
   const handleExportExcel = async (range, signal) => {
-    const report = await readReport(range, signal)
+    const report = await readReport({ ...range, includeUsage: true }, signal)
     if (signal.aborted) return
+    if (!Array.isArray(report.inventorySummary) || report.inventoryAnalytics?.dataQuality?.complete !== true || !Array.isArray(report.inventoryAnalytics.planning)) throw new Error('Complete inventory and usage data is unavailable. Refresh and retry.')
     await downloadConsolidatedExcel({
       rows: filterRows(report.rows), summary: report.summary || {}, categories: report.categories || [],
+      inventorySummary: report.inventorySummary, inventoryAnalytics: report.inventoryAnalytics, signal,
       meta: {
         dateLabel: 'Custom (' + range.from + ' to ' + range.to + ')', range,
         search: search.trim(), category: category === 'all' ? '' : category,
@@ -352,6 +354,7 @@ export default function ConsolidatedDataTable({ sharedRange } = {}) {
       </div>
 
       {sharedRange !== undefined && <p className="text-sm text-muted" data-testid="consolidated-shared-range">{dateLabel}. Change the period or session above to update this report.</p>}
+      <p className="text-sm text-muted">Sales details are shown below. The Excel workbook also includes current inventory balances and estimated ingredient usage.</p>
       {(data?.categories || []).length > 0 && (
         <div className="table-wrapper">
           <table data-testid="category-table">
@@ -364,7 +367,7 @@ export default function ConsolidatedDataTable({ sharedRange } = {}) {
               </tr>
             </thead>
             <tbody>
-              {(data.categories || []).map((c) => (
+          {(data.categories || []).filter(c => categories.includes(c.name)).map((c) => (
                 <tr key={c.name} data-testid="category-row">
                   <td className="font-semibold">{c.name}</td>
                   <td>{peso(c.revenue)}</td>
@@ -410,12 +413,6 @@ export default function ConsolidatedDataTable({ sharedRange } = {}) {
                 <td>
                   <span className="status-badge" style={{ color: statusColor(row.status) }} data-testid={`status-${idx}`}>
                     {txnStatusLabel(row.status)}
-                  </span>
-                </td>
-                <td>{row.inStock === "N/A" ? "N/A" : Number(row.inStock).toLocaleString()}</td>
-                <td>
-                  <span style={{ color: statusColor(row.inventoryStatus) }}>
-                    {row.inventoryStatus}
                   </span>
                 </td>
               </tr>

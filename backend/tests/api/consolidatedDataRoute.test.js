@@ -27,6 +27,20 @@ describe('protected consolidated analytics routes', () => {
   expect(inventory.getInventoryAnalytics).toHaveBeenCalledWith({start,end})
   expect(res.headers['cache-control']).toBe('private, no-store')
  })
+ it('adds selected-period ingredient usage only for complete workbook requests',async()=>{
+  const data={rows:[],inventorySummary:[{id:'milk',inStock:'1.234567890123456789',unit:'L',unitVersion:'1'}],meta:{complete:true}}
+  vi.spyOn(reports,'getConsolidatedData').mockResolvedValue(data)
+  vi.spyOn(inventory,'getInventoryAnalytics').mockResolvedValue({planning:[{id:'milk',quantity:'1.234567890123456789',unit:'L',unitVersion:'1'}],dataQuality:{complete:true}})
+  const res=await request(app).get('/api/consolidated-data?from=2026-11-01&to=2026-11-09&includeUsage=true')
+  expect(res.status).toBe(200);expect(res.body.data.inventoryAnalytics.planning).toHaveLength(1)
+  expect(inventory.getInventoryAnalytics).toHaveBeenCalledWith({start:'2026-10-31T16:00:00.000Z',end:'2026-11-09T15:59:59.999Z',usage:'selected'})
+ })
+ it('refuses a workbook assembled with changed inventory balances',async()=>{
+  vi.spyOn(reports,'getConsolidatedData').mockResolvedValue({inventorySummary:[{id:'milk',inStock:'1',unit:'L',unitVersion:'1'}]})
+  vi.spyOn(inventory,'getInventoryAnalytics').mockResolvedValue({planning:[{id:'milk',quantity:'2',unit:'L',unitVersion:'1'}]})
+  const res=await request(app).get('/api/consolidated-data?from=2026-11-01&to=2026-11-09&includeUsage=true')
+  expect(res.status).toBe(503);expect(res.body.error).toContain('Inventory changed');expect(res.body.data).toBeUndefined()
+ })
  it.each([400,503])('preserves actionable inventory errors (%s) without demo results',async statusCode=>{
   vi.spyOn(inventory,'getInventoryAnalytics').mockRejectedValue(Object.assign(new Error('Inventory unavailable'),{statusCode}))
   const res=await request(app).get('/api/consolidated-data/inventory')

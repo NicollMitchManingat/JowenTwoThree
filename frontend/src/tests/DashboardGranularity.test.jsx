@@ -364,7 +364,7 @@ describe('DashboardContent granularity', () => {
   fireEvent.click(screen.getByRole('tab',{name:'Overview'}))
   fireEvent.click(screen.getByRole('tab',{name:'Reports & Sessions'}))
   expect(screen.getByTestId('predictive-report')).toBeInTheDocument()
-  expect(screen.getByRole('button',{name:'Export full predictive CSV'})).toBeInTheDocument()
+  expect(screen.getByRole('button',{name:'Export CSV'})).toBeInTheDocument()
   expect(apiRequest.mock.calls.some(([url])=>url.includes('/api/consolidated-data/predictive'))).toBe(true)
   vi.unstubAllGlobals()
  })

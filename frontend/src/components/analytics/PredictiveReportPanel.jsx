@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { apiRequest } from '../../services/apiClient'
 import ExportDateRangeModal from '../ExportDateRangeModal'
 import { manilaDay, manilaStart, manilaEnd } from '../../utils/analyticsTime'
+import { downloadPredictiveExcel, predictiveValue } from '../../utils/exportPredictiveExcel'
 
 const PAGE_SIZE = 15
 const bases = ['Planning', 'All', 'Recorded', 'Current balance', 'Prediction', 'Scenario', 'Historical check', 'Advisory', 'Limitation']
@@ -19,7 +20,7 @@ const validReport = data => data?.schemaVersion === 1 && data.dataQuality?.compl
   /^predictive-report-\d{4}-\d{2}-\d{2}(?:_to_\d{4}-\d{2}-\d{2})?\.csv$/.test(data.export?.filename || '') && typeof data.export.csv === 'string' && data.export.csv.length > 0
 
 function displayValue(row) {
-  if (row.value == null) return 'Not available'
+  if (row.value == null) return predictiveValue(row)
   // Decimal strings retain every source digit in the report/export.
   const value = typeof row.value === 'number' ? row.value.toLocaleString('en-PH', { maximumFractionDigits: 2 }) : row.value
   return value + (row.unit ? ' ' + row.unit : '')
@@ -68,6 +69,7 @@ export default function PredictiveReportPanel({ start, end }) {
       const result = await apiRequest('/api/consolidated-data/predictive?' + params, { signal })
       if (signal.aborted) return
       if (!validReport(result?.data)) throw new Error('Predictive report is unavailable or incomplete. Please retry.')
+      if (exportOpen === 'xlsx') { await downloadPredictiveExcel(result.data, signal); return }
       url = URL.createObjectURL(new Blob([result.data.export.csv], { type: 'text/csv;charset=utf-8' }))
       anchor = document.createElement('a'); anchor.href = url; anchor.download = result.data.export.filename
       document.body.appendChild(anchor); anchor.click()
@@ -79,7 +81,10 @@ export default function PredictiveReportPanel({ start, end }) {
   }
   return <div className="card predictive-report-card" data-testid="predictive-report">
     <div className="card-header"><h3 className="m-0">Predictive Business Report</h3>
-      <button type="button" className="btn btn-primary" disabled={!data || loading || !!error} onClick={() => setExportOpen(true)}>Export full predictive CSV</button></div>
+      <div className="flex items-center gap-2 flex-wrap">
+        <button type="button" className="btn btn-primary" disabled={!data || loading || !!error} onClick={() => setExportOpen('xlsx')}>Export Excel</button>
+        <button type="button" className="btn btn-secondary" disabled={!data || loading || !!error} onClick={() => setExportOpen('csv')}>Export CSV</button>
+      </div></div>
     {exportOpen && <ExportDateRangeModal title="Export predictive report"
       initialRange={{ from: manilaDay(data.period.start), to: manilaDay(data.period.end) }}
       description="Includes all report sections. Forecast history is anchored to the selected end date; inventory balances are current. Future dates are capped at today."
@@ -101,7 +106,7 @@ export default function PredictiveReportPanel({ start, end }) {
           <label>Data basis<select name="predictive-report-panel-basis" className="form-input" value={basis} onChange={event => { setBasis(event.target.value); setPage(0) }}>
             {bases.map(value => <option key={value}>{value}</option>)}</select></label>
         </div>
-        <p className="text-sm text-muted">Preview filters change the table only. Choose the export dates before downloading the CSV, which includes all sections, exact source decimals, methods and limitations.</p>
+        <p className="text-sm text-muted">Preview filters change the table only. Choose export dates for a structured Excel workbook or the full CSV. Each includes all sections, source decimals, methods and recording coverage.</p>
         <table className="data-table predictive-report-table" aria-label="Predictive business report preview">
           <colgroup><col style={{ width: '30%' }} /><col style={{ width: '28%' }} /><col style={{ width: '18%' }} /><col style={{ width: '24%' }} /></colgroup>
           <thead><tr><th>Metric / method</th><th>Date / item</th><th>Value / unit</th><th>Basis / status</th></tr></thead>

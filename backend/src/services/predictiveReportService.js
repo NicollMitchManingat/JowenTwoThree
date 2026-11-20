@@ -67,7 +67,7 @@ function reportRows({ generatedAt, period, sales, traffic, inventory, validation
         : 'No distinct peak/lean claim. Unknown hours are not confirmed quiet; no staff count is inferred.' })
   }
   for (const item of inventory.planning) {
-    const meta = { section: 'Inventory', item: item.name, unit: item.unit, unitVersion: item.unitVersion,
+    const meta = { section: 'Inventory', inventoryId: item.id, item: item.name, unit: item.unit, unitVersion: item.unitVersion,
       method: 'Current recipes × recorded-day sales rate', trainingFrom: inventory.usageWindow.from,
       trainingThrough: inventory.usageWindow.through, observedDays: inventory.usageWindow.recordedSalesDays, horizonDays: 7 }
     add({ ...meta, basis: 'Current balance', metric: 'Current quantity', value: item.quantity, status: 'Current',
@@ -81,7 +81,7 @@ function reportRows({ generatedAt, period, sales, traffic, inventory, validation
   }
   if (!inventory.planning.length) add({ section: 'Inventory', basis: 'Scenario', metric: 'Ingredient planning', status: 'No active inventory', note: 'No inventory scenarios available.' })
   for (const item of inventory.wastage) {
-    const meta = { section: 'Inventory', basis: 'Recorded', item: item.name, unit: item.unit, unitVersion: item.unitVersion,
+    const meta = { section: 'Inventory', inventoryId: item.inventoryId, basis: 'Recorded', item: item.name, unit: item.unit, unitVersion: item.unitVersion,
       date: inventory.period.start, through: inventory.period.end, status: item.unit === null ? 'Unknown unit' : 'Recorded',
       note: [...item.reasons, item.currentUnit ? 'Current unit/version' : 'Earlier or unrecorded unit; not combined with current units', item.active ? 'Active ingredient' : 'Archived ingredient'].join('; ') }
     add({ ...meta, metric: 'Recorded wastage quantity', value: item.quantity })
@@ -132,7 +132,7 @@ async function getPredictiveReport({ start, end, client, now = new Date() } = {}
     'Historical checks use revised current records, not stored issued forecasts. Current refund statuses and later edits can affect historical calculations. They do not prove future accuracy.',
     'Hourly traffic and staffing advice are unvalidated; unknown hours are not lean periods. No staffing headcount or confidence percentage is inferred.',
     'All sources must finish their bounded reads. These parallel/paginated reads are not one transactional database snapshot; refresh after concurrent edits.',
-    'The CSV exports every section from this loaded report. Preview filters do not change its contents. Text cells that could be spreadsheet formulas are escaped.',
+    'Exports include every section from this loaded report. Preview filters do not change their contents. CSV text cells that could be spreadsheet formulas are escaped.',
   ]
   const rows = reportRows({ generatedAt, period, sales, traffic, inventory, validation })
   for (const note of notes) rows.push({ section: 'Report', basis: 'Limitation', metric: 'Report limitation', value: null, note })
@@ -140,7 +140,8 @@ async function getPredictiveReport({ start, end, client, now = new Date() } = {}
   return { schemaVersion: 1, generatedAt, period, forecastThrough: through,
     summary: { salesStatus: sales.status, salesTotal: sales.total, trafficStatus: traffic.status, trafficTotal: traffic.total,
       inventoryItems: inventory.planning.length, salesScoredDays: validation[0].coverage.scoredDays, trafficScoredDays: validation[1].coverage.scoredDays },
-    dataQuality: { complete: true, timeZone: 'Asia/Manila', recordingCoverage: 'unknown', historicalSnapshots: false }, notes, rows,
+    dataQuality: { complete: true, timeZone: 'Asia/Manila', recordingCoverage: 'unknown', historicalSnapshots: false,
+      inventory: inventory.dataQuality }, notes, rows,
     export: { filename: 'predictive-report-' + dayKey(first) + '_to_' + dayKey(stop) + '.csv', contentType: 'text/csv;charset=utf-8', csv: predictiveCsv(rows) } }
 }
 module.exports = { getPredictiveReport, reportRows, predictiveCsv }

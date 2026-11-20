@@ -379,7 +379,7 @@ describe('inventory analytics estimates and recorded wastage',()=>{
  it('uses exact current recipes and recorded sales days, with shortage and stock cover',()=>{
   const result=buildInventoryAnalytics(fixture())
   expect(result.usageWindow.recordedSalesDays).toBe(2)
-  expect(result.planning.find(row=>row.id==='flour')).toMatchObject({dailyUsage:'1',daysCover:'20',sevenDayUsage:'7',shortage:'0',status:'estimated'})
+  expect(result.planning.find(row=>row.id==='flour')).toMatchObject({recordedUsage:'2',dailyUsage:'1',daysCover:'20',sevenDayUsage:'7',shortage:'0',status:'estimated'})
   expect(result.planning.find(row=>row.id==='milk')).toMatchObject({dailyUsage:'5',daysCover:'1',sevenDayUsage:'35',shortage:'30',recommendation:'Review replenishment'})
   expect(result.dataQuality.recipeBasis).toBe('current_recipes')
  })
@@ -399,7 +399,7 @@ describe('inventory analytics estimates and recorded wastage',()=>{
   const input=fixture();input.inventory[0].stock_quantity='0'
   expect(buildInventoryAnalytics(input).planning.find(row=>row.id==='flour')).toMatchObject({quantity:'0',daysCover:'0',shortage:'7',recommendation:'Out of stock; review replenishment'})
   input.recipes[0].product_id='unsold'
-  expect(buildInventoryAnalytics(input).planning.find(row=>row.id==='flour')).toMatchObject({status:'no_recorded_usage',daysCover:null,dailyUsage:null})
+  expect(buildInventoryAnalytics(input).planning.find(row=>row.id==='flour')).toMatchObject({status:'no_recorded_usage',recordedUsage:'0',daysCover:null,dailyUsage:null})
  })
  it('uses cart compatibility per transaction without counting canonical item rows twice',()=>{
   const input=fixture();input.transactions[0].cart=[{productId:'p',qty:999}];input.transactions[1].cart=[{productId:'p',qty:2}];input.items=input.items.slice(0,1)
@@ -472,6 +472,18 @@ describe('inventory analytics estimates and recorded wastage',()=>{
  })
  it.each(['inventory','product_recipes','transactions','transaction_items','inventory_adjustments'])('fails explicitly when the %s read fails',async errorOn=>{
   await expect(getInventoryAnalytics({client:makeSupabase({errorOn})})).rejects.toMatchObject({statusCode:503})
+ })
+ it('uses exact selected timestamp bounds for report usage without changing the default forecast window',async()=>{
+  const input=fixture(),client=makeSupabase({inventoryRows:input.inventory,recipes:input.recipes,transactions:input.transactions,items:input.items})
+  const result=await getInventoryAnalytics({start:'2026-11-02T00:00:00+08:00',end:'2026-11-02T23:59:59.999+08:00',usage:'selected',now:new Date('2026-11-10T02:00:00Z'),client})
+  expect(result.usageWindow).toMatchObject({from:'2026-11-02',through:'2026-11-02',recordedSalesDays:1,calendarDays:1,basis:'selected_period'})
+  expect(result.planning.find(row=>row.id==='flour')).toMatchObject({recordedUsage:'1',dailyUsage:'1'})
+ })
+ it('reports product IDs without recipe links without guessing a name match',()=>{
+  const input=fixture();input.transactions[1].cart=[{id:'retired-product',name:'Current dish',qty:1}];input.items=input.items.slice(0,1)
+  const result=buildInventoryAnalytics(input)
+  expect(result.dataQuality.unlinkedProductLines).toBe(1)
+  expect(result.planning.find(row=>row.id==='flour').recordedUsage).toBe('1')
  })
  it.each([{start:'bad'},{end:'2026-11-02T00:00:00'},{start:'2026-11-02T00:00:00Z',end:'2026-11-01T00:00:00Z'}])('rejects invalid or reversed bounds before querying',async input=>{
   await expect(getInventoryAnalytics({...input,client:makeSupabase()})).rejects.toMatchObject({statusCode:400})

@@ -37,7 +37,8 @@ const version = value => /^(0|[1-9]\d{0,18})$/.test(String(value ?? '')) ? Strin
 
 function buildInventoryAnalytics({ inventory, recipes, transactions, items, adjustments, usageWindow, period, generatedAt }) {
   const sold = new Map(), recordedDays = new Set(), byTxn = new Map()
-  let unmappedLines = 0
+  const recipeProducts = new Set(recipes.map(row => String(row.product_id)))
+  let unmappedLines = 0, unlinkedProductLines = 0
   for (const item of items) {
     if (!byTxn.has(item.transaction_id)) byTxn.set(item.transaction_id, [])
     byTxn.get(item.transaction_id).push(item)
@@ -57,6 +58,7 @@ function buildInventoryAnalytics({ inventory, recipes, transactions, items, adju
       if (!id || quantity == null) { unmappedLines++; continue }
       const amount = decimal(quantity)
       if (amount.n <= 0n) { unmappedLines++; continue }
+      if (!recipeProducts.has(String(id))) unlinkedProductLines++
       sold.set(String(id), add(sold.get(String(id)) || zero(), amount))
     }
   }
@@ -83,6 +85,7 @@ function buildInventoryAnalytics({ inventory, recipes, transactions, items, adju
     if (status === 'estimated' && usage.n === 0n) status = 'no_recorded_usage'
     const row = { id: item.id, name: item.name, unit: item.unit, unitVersion: currentVersion,
       quantity: String(item.stock_quantity), status, dailyUsage: null, daysCover: null,
+      recordedUsage: ['estimated', 'no_recorded_usage'].includes(status) ? exactText(usage) : null,
       sevenDayUsage: null, shortage: null, recommendation: 'Review usage history' }
     if (status === 'estimated') {
       const days = BigInt(recordedDays.size)
@@ -126,34 +129,40 @@ function buildInventoryAnalytics({ inventory, recipes, transactions, items, adju
     .sort((a, b) => String(a.name).localeCompare(String(b.name)) || String(a.unit).localeCompare(String(b.unit)) || String(a.unitVersion).localeCompare(String(b.unitVersion)))
   return { planning, wastage, period, generatedAt,
     usageWindow: { ...usageWindow, recordedSalesDays: recordedDays.size },
-    dataQuality: { complete: true, recordingCoverage: 'unknown', recipeBasis: 'current_recipes', unmappedLines,
+    dataQuality: { complete: true, recordingCoverage: 'unknown', recipeBasis: 'current_recipes', unmappedLines, unlinkedProductLines,
       unknownUnitWastageEntries: wastage.filter(row => row.unit === null).reduce((sum, row) => sum + row.entries, 0), ignoredPositiveEntries },
   }
 }
 
-async function getInventoryAnalytics({ start, end, client, now = new Date(), signal } = {}) {
+async function getInventoryAnalytics({ start, end, usage, client, now = new Date(), signal } = {}) {
   const timestamp = value => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})$/.test(value) && Number.isFinite(new Date(value).getTime())
   if ((start !== undefined && !timestamp(start)) || (end !== undefined && !timestamp(end))) throw Object.assign(new Error('Provide valid start/end timestamps with a timezone.'), { statusCode: 400 })
+  if (usage !== undefined && usage !== 'selected') throw Object.assign(new Error('Choose a valid inventory usage period.'), { statusCode: 400 })
   const stop = new Date(Math.min(end ? new Date(end).getTime() : now.getTime(), now.getTime()))
   const first = start ? new Date(start) : new Date(dayStart(stop).getTime() - 28 * DAY_MS)
   if (first > stop) throw Object.assign(new Error('Start must not follow the end of the period.'), { statusCode: 400 })
   const anchor = dayStart(stop).getTime()
   const complete = stop.getTime() === anchor + DAY_MS - 1 && stop < dayStart(now)
-  const usageUntil = new Date(complete ? anchor + DAY_MS : anchor)
-  const usageFrom = new Date(usageUntil.getTime() - 28 * DAY_MS)
+  const usageUntil = usage === 'selected' ? stop : new Date(complete ? anchor + DAY_MS : anchor)
+  const usageFrom = usage === 'selected' ? first : new Date(usageUntil.getTime() - 28 * DAY_MS)
   const database = client !== undefined ? client : require('../config/supabaseClient').supabase
   if (!database) throw unavailable()
   const cancellable = query => signal && query.abortSignal ? query.abortSignal(signal) : query
   const read = (label, build) => readAll((a, b) => cancellable(build(a, b)), { label })
+  const usageBounds = (query, column) => usage === 'selected'
+    ? query.gte(column, usageFrom.toISOString()).lte(column, usageUntil.toISOString())
+    : query.gte(column, usageFrom.toISOString()).lt(column, usageUntil.toISOString())
   const [inventory, recipes, transactions, items, adjustments] = await Promise.all([
     read('Inventory', (a, b) => units.readUnitRows(versioned => cancellable(database.from('inventory').select(units.inventoryColumns(versioned)).order('id').range(a, b)))),
     read('Recipes', (a, b) => database.from('product_recipes').select('product_id,inventory_id,qty_per_sale:qty_per_sale::text,inventory_unit_version:inventory_unit_version::text').order('product_id').order('inventory_id').range(a, b)),
-    read('Sales', (a, b) => database.from('transactions').select('id,created_at,cart').gte('created_at', usageFrom.toISOString()).lt('created_at', usageUntil.toISOString()).order('id').range(a, b)),
-    read('Sold items', (a, b) => database.from('transaction_items').select('id,transaction_id,product_id,quantity,transactions!inner(created_at)').gte('transactions.created_at', usageFrom.toISOString()).lt('transactions.created_at', usageUntil.toISOString()).order('id').range(a, b)),
+    read('Sales', (a, b) => usageBounds(database.from('transactions').select('id,created_at,cart'), 'created_at').order('id').range(a, b)),
+    read('Sold items', (a, b) => usageBounds(database.from('transaction_items').select('id,transaction_id,product_id,quantity,transactions!inner(created_at)'), 'transactions.created_at').order('id').range(a, b)),
     read('Wastage', (a, b) => units.readUnitRows(versioned => cancellable(database.from('inventory_adjustments').select('id,inventory_id,created_at,reason,change_amount:change_amount::text' + (versioned ? ',unit_snapshot,unit_version:unit_version::text' : '')).gte('created_at', first.toISOString()).lte('created_at', stop.toISOString()).order('id').range(a, b)))),
   ])
   return buildInventoryAnalytics({ inventory, recipes, transactions, items, adjustments,
-    usageWindow: { from: dayKey(usageFrom), through: dayKey(new Date(usageUntil.getTime() - 1)), calendarDays: 28 },
+    usageWindow: { from: dayKey(usageFrom), through: dayKey(usage === 'selected' ? usageUntil : new Date(usageUntil.getTime() - 1)),
+      calendarDays: usage === 'selected' ? Math.round((dayStart(stop) - dayStart(first)) / DAY_MS) + 1 : 28,
+      basis: usage === 'selected' ? 'selected_period' : 'complete_day_window' },
     period: { start: first.toISOString(), end: stop.toISOString() }, generatedAt: now.toISOString() })
 }
 

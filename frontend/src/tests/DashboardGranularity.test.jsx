@@ -384,6 +384,26 @@ describe('DashboardContent granularity', () => {
   expect(screen.getByText('Review replenishment')).toBeInTheDocument()
  })
 
+ it('keeps all stock alerts and chart facts in a keyboard-scrollable list beside the matching chart',async()=>{
+  setup()
+  const items=Array.from({length:5},(_,index)=>({id:'alert-'+index,name:'Alert ingredient '+index,category:'Ingredients',stock_quantity:String(index),unit:'g',unit_version:'1',low_stock_threshold:'10'}))
+  db.getInventoryStatus.mockResolvedValue(items)
+  const spy=vi.spyOn(chartFacts,'createChartFacts')
+  try {
+   render(<AnalyticsProvider><DashboardContent user={{role:'admin'}} /></AnalyticsProvider>)
+   fireEvent.click(screen.getByRole('tab',{name:'Inventory'}))
+   const list=screen.getByRole('region',{name:'Current low stock alerts'})
+   await within(list).findByText('Alert ingredient 4')
+   expect(list).toHaveClass('analytics-low-stock-list')
+   expect(list).toHaveAttribute('tabindex','0')
+   expect(list.querySelectorAll('.stock-item')).toHaveLength(5)
+   expect(list.closest('.charts-grid')).toHaveClass('analytics-inventory-charts')
+   const facts=spy.mock.results.map(result=>result.value).filter(fact=>fact.chartId==='low-stock'&&fact.status==='ready').at(-1)
+   expect(facts.rows).toHaveLength(5)
+   expect(facts.rows[4].name).toBe('Alert ingredient 4')
+  } finally {spy.mockRestore()}
+ })
+
  it('opens each section at the top of the page while preserving filters and chart detail',async()=>{
   setup()
   render(<div className="page-container page-container--scroll" data-testid="analytics-page-scroll"><AnalyticsProvider><DashboardContent user={{role:'admin'}} /></AnalyticsProvider></div>)

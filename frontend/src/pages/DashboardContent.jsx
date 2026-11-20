@@ -424,6 +424,29 @@ export default function DashboardContent({ activeTab, user, onNavigate }) {
   const refundInfo = useMemo(() => refundSummary(rangeTxns, rangeRefunds), [rangeTxns, rangeRefunds]);
   const salesFactsStatus = salesError ? 'error' : loading || !salesData || salesSourceKey !== chartRequestKey(dateRange.start, dateRange.end, chartRefreshKey) ? 'loading' : 'ready';
   const sortedLowStock = useMemo(() => [...lowStock].sort((a, b) => Number(a.stock_quantity) - Number(b.stock_quantity)), [lowStock]);
+  const lowStockListRef = useRef(null);
+  useLayoutEffect(() => {
+    const list = lowStockListRef.current;
+    if (!list || activeGroup !== 'inventory') return;
+    const items = [...list.querySelectorAll('.stock-item')];
+    const measure = () => {
+      list.style.removeProperty('--analytics-stock-row-height');
+      if (!items.length) { list.style.removeProperty('--analytics-stock-list-height'); return; }
+      // Equal natural row heights keep four visible even when later names wrap.
+      const rowHeight = Math.ceil(Math.max(...items.map(item => item.getBoundingClientRect().height)));
+      if (rowHeight <= 0) return;
+      list.style.setProperty('--analytics-stock-row-height', `${rowHeight}px`);
+      const visibleItems = items.slice(0, 4);
+      const height = Math.ceil(visibleItems.at(-1).getBoundingClientRect().bottom - visibleItems[0].getBoundingClientRect().top);
+      if (height > 0 && list.style.getPropertyValue('--analytics-stock-list-height') !== `${height}px`) list.style.setProperty('--analytics-stock-list-height', `${height}px`);
+    };
+    measure();
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure);
+    observer?.observe(list);
+    items.forEach(item => observer?.observe(item));
+    window.addEventListener('resize', measure);
+    return () => { observer?.disconnect(); window.removeEventListener('resize', measure); };
+  }, [sortedLowStock, inventoryLoading, inventoryError, activeGroup]);
 
   // Reconnect retries the sales load silently (no skeleton flash when data
   // is already on screen) instead of waiting for a manual retry.
@@ -625,7 +648,7 @@ export default function DashboardContent({ activeTab, user, onNavigate }) {
       </>;
       case 'inventory': return <>
       <p className="text-sm text-muted analytics-section-note">Top-selling products follow the selected period. Low Stock Alerts show current balances.</p>
-      <div className="charts-grid">
+      <div className="charts-grid analytics-inventory-charts">
         <div className="card analytics-chart-card">
           <div className="card-header">
             <h3 className="m-0">Top-Selling Products</h3>
@@ -648,7 +671,8 @@ export default function DashboardContent({ activeTab, user, onNavigate }) {
           <ChartExplanation chartId="low-stock" />
         </div>
         <div className="card-body">
-          <div className="stock-list">
+          <div className="stock-list analytics-low-stock-list" ref={lowStockListRef}
+            role="region" aria-label="Current low stock alerts" tabIndex={sortedLowStock.length > 4 ? 0 : -1}>
           {inventoryLoading ? <p role="status">Loading current inventory...</p> : inventoryError ? <div role="alert"><p className="text-danger">{inventoryError}</p><button className="btn btn-secondary" onClick={() => setInventoryRetryKey(key => key + 1)}>Retry</button></div> : sortedLowStock.length > 0 ? sortedLowStock
             .map(item => {
               const out = Number(item.stock_quantity) <= 0

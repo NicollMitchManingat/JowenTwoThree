@@ -4635,6 +4635,17 @@
 .analytics-page .analytics-section-note { margin: 0; line-height: 1.6; }
 .analytics-page .analytics-chart-card { display: flex; flex-direction: column; }
 .analytics-page .analytics-chart-card--wide { grid-column: 1 / -1; }
+.analytics-page .analytics-inventory-charts { align-items: stretch; grid-auto-rows: 1fr; }
+.analytics-page .analytics-low-stock-list {
+  max-height: var(--analytics-stock-list-height, 24rem);
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  scrollbar-gutter: stable;
+}
+.analytics-page .analytics-low-stock-list .stock-item { flex-shrink: 0; gap: .75rem; min-height: var(--analytics-stock-row-height, 0); }
+.analytics-page .analytics-low-stock-list .stock-item > div { min-width: 0; overflow-wrap: anywhere; }
+.analytics-page .analytics-low-stock-list .badge { flex-shrink: 0; }
+.analytics-page .analytics-low-stock-list:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 3px; }
 .analytics-page .analytics-chart-area {
   display: flex;
   flex-direction: column;

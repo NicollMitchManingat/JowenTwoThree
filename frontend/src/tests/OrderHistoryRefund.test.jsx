@@ -56,9 +56,93 @@ describe('OrderHistoryPage refunds', () => {
     ])
   })
 
+  it.each(['admin', 'cashier', 'stockist'])('opens transaction items and recorded totals from a row for %s', async role => {
+    const user = userEvent.setup()
+    render(<OrderHistoryPage user={{ role, permissions: ['transactions'] }} />)
+    await user.click(await screen.findByTestId('order-row-t3'))
+    const dialog = screen.getByRole('dialog', { name: 'Transaction Details' })
+    expect(dialog).toHaveTextContent('TXN-3')
+    expect(within(dialog).getByRole('table', { name: 'Transaction items' })).toHaveTextContent('Cake')
+    expect(within(dialog).getByText('Subtotal').parentElement).toHaveTextContent('400.00')
+    expect(within(dialog).getByText('Discount').parentElement).toHaveTextContent('40.00')
+    expect(within(dialog).getByText('Transaction total').parentElement).toHaveTextContent('360.00')
+    expect(dialog).toHaveTextContent('Partially refunded')
+    expect(dialog).toHaveTextContent('Wrong item served')
+    expect(dialog).toHaveTextContent('180.00')
+    expect(within(dialog).queryByRole('button', { name: /export|refund|resume/i })).not.toBeInTheDocument()
+    expect(db.getTransactionExport).not.toHaveBeenCalled()
+    expect(db.getCustomerTrafficExport).not.toHaveBeenCalled()
+  })
+
+  it('shows unpaid details without presenting payment as completed', async () => {
+    const user = userEvent.setup()
+    db.getTransactions.mockResolvedValueOnce([{ ...ORDERS[0], payment_status: 'UNPAID', status: 'SAVED', payment_method: null, order_type: 'DELIVERY' }])
+    render(<OrderHistoryPage user={{ role: 'cashier', permissions: ['transactions'] }} />)
+    await user.click(await screen.findByRole('button', { name: 'View TXN-1' }))
+    const dialog = screen.getByRole('dialog')
+    expect(dialog).toHaveTextContent('Unpaid')
+    expect(dialog).toHaveTextContent('Delivery')
+    expect(dialog).toHaveTextContent('Awaiting payment')
+    expect(within(dialog).getByText('Amount due').parentElement).toHaveTextContent('300.00')
+    expect(within(dialog).queryByText('Cash received')).not.toBeInTheDocument()
+    expect(within(dialog).queryByText('Refunds')).not.toBeInTheDocument()
+    expect(dialog).toHaveTextContent('Espresso')
+  })
+
+  it('supports legacy quantity fields and retains recorded item notes and payment details', async () => {
+    const user = userEvent.setup()
+    db.getTransactions.mockResolvedValueOnce([{ ...ORDERS[0], order_type: 'DINE_IN', cash_received: '500', change_amount: '200', special_instructions: 'Serve together',
+      cart: [{ name: 'Historical product', quantity: 2, unit_price: '150.00', note: 'No sugar' }] }])
+    render(<OrderHistoryPage user={{ role: 'admin' }} />)
+    await user.click(await screen.findByTestId('order-row-t1'))
+    const dialog = screen.getByRole('dialog')
+    expect(dialog).toHaveTextContent('Historical product')
+    expect(dialog).toHaveTextContent('No sugar')
+    expect(dialog).toHaveTextContent('Serve together')
+    expect(dialog).toHaveTextContent('Dine-in')
+    expect(within(dialog).getByText('Cash received').parentElement).toHaveTextContent('500.00')
+    expect(within(dialog).getByText('Change').parentElement).toHaveTextContent('200.00')
+    const row = within(dialog).getByRole('row', { name: /Historical product/ })
+    expect(within(row).getAllByRole('cell').map(cell => cell.textContent)).toEqual([expect.stringContaining('Historical product'), '2', expect.stringContaining('150.00'), expect.stringContaining('300.00')])
+  })
+
+  it('keeps historical missing fields unrecorded rather than inventing receipt details', async () => {
+    const user = userEvent.setup()
+    db.getTransactions.mockResolvedValueOnce([{ ...ORDERS[1], cart: null, created_at: null, payment_method: null }])
+    render(<OrderHistoryPage user={{ role: 'admin' }} />)
+    await user.click(await screen.findByTestId('order-row-t2'))
+    const dialog = screen.getByRole('dialog')
+    expect(dialog).toHaveTextContent('Item details were not recorded')
+    expect(within(dialog).getByText('Date (Manila)').parentElement).toHaveTextContent('Not recorded')
+    expect(within(dialog).getByText('Order type').parentElement).toHaveTextContent('Not recorded')
+    expect(dialog).toHaveTextContent('Amount not recorded')
+    expect(dialog).not.toHaveTextContent('Invalid Date')
+  })
+
+  it('supports keyboard opening, traps dialog focus and restores it on Escape', async () => {
+    const user = userEvent.setup()
+    render(<OrderHistoryPage user={{ role: 'stockist', permissions: ['transactions'] }} />)
+    const row = await screen.findByTestId('order-row-t1')
+    row.focus()
+    await user.keyboard('{Enter}')
+    let dialog = screen.getByRole('dialog')
+    expect(within(dialog).getByRole('button', { name: 'Close transaction details' })).toHaveFocus()
+    await user.tab({ shift: true })
+    expect(within(dialog).getByRole('button', { name: 'Close', exact: true })).toHaveFocus()
+    await user.tab()
+    expect(within(dialog).getByRole('button', { name: 'Close transaction details' })).toHaveFocus()
+    await user.keyboard('{Escape}')
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(row).toHaveFocus()
+    await user.keyboard(' ')
+    dialog = screen.getByRole('dialog')
+    await user.click(dialog.closest('.transaction-details-overlay'))
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
   it('chooses export dates independently of page dates, search and payment filters for traffic', async () => {
     const user = userEvent.setup()
-    render(<OrderHistoryPage user={{ role: 'cashier', permissions: ['transactions'], username: 'cashier' }} />)
+    render(<OrderHistoryPage user={{ role: 'admin', username: 'admin' }} />)
     await screen.findByTestId('order-row-t1')
     fireEvent.change(screen.getByLabelText('Filter by date'), { target: { value: 'today' } })
     fireEvent.change(screen.getByPlaceholderText('Search by transaction number...'), { target: { value: 'not-a-transaction' } })
@@ -74,6 +158,31 @@ describe('OrderHistoryPage refunds', () => {
     expect(downloadTransactionsExcel).not.toHaveBeenCalled()
     expect(screen.getByLabelText('Filter by date')).toHaveValue('today')
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
+  it.each([
+    { role: 'cashier', permissions: ['pos', 'transactions', 'inventory', 'analytics', 'settings'] },
+    { role: 'stockist', permissions: ['pos', 'transactions', 'inventory', 'analytics', 'settings'] },
+  ])('hides both exports and their instructions without export access ($role)', async account => {
+    render(<OrderHistoryPage user={account} />)
+    await screen.findByTestId('order-row-t1')
+    expect(screen.queryByTestId('txn-export-btn')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('traffic-export-btn')).not.toBeInTheDocument()
+    expect(screen.queryByText(/Choose a date range after clicking Export/)).not.toBeInTheDocument()
+    expect(db.getTransactionExport).not.toHaveBeenCalled()
+    expect(db.getCustomerTrafficExport).not.toHaveBeenCalled()
+  })
+
+  it.each(['cashier', 'stockist'])('hides an open export dialog when the account changes to %s', async role => {
+    const user = userEvent.setup()
+    const { rerender } = render(<OrderHistoryPage user={{ role: 'admin' }} />)
+    await screen.findByTestId('order-row-t1')
+    await user.click(screen.getByTestId('traffic-export-btn'))
+    expect(screen.getByRole('dialog', { name: 'Export customer traffic' })).toBeInTheDocument()
+    rerender(<OrderHistoryPage user={{ role, permissions: ['transactions'] }} />)
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(screen.getByTestId('order-row-t1')).toBeInTheDocument()
+    expect(db.getCustomerTrafficExport).not.toHaveBeenCalled()
   })
 
   it('exports transactions outside the page date filter and validates dates inside the dialog', async () => {
@@ -294,7 +403,7 @@ describe('OrderHistoryPage refunds', () => {
     expect(screen.getByTestId('order-row-t2')).toHaveTextContent('Refunded')
   })
 
-  it('should toggle selection when the selected row is clicked again', async () => {
+  it('keeps selection separate from opening a transaction and toggles it through the selection circle', async () => {
     const user = userEvent.setup()
     render(<OrderHistoryPage user={{ username: 'admin', role: 'admin' }} />)
 
@@ -306,8 +415,13 @@ describe('OrderHistoryPage refunds', () => {
     expect(screen.getByTestId('selected-chip')).toHaveTextContent('TXN-1')
 
     await user.click(screen.getByTestId('select-order-t1').closest('tr'))
+    expect(screen.getByRole('dialog', { name: 'Transaction Details' })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Close transaction details' }))
+    expect(screen.getByTestId('selected-chip')).toHaveTextContent('TXN-1')
+    await user.click(screen.getByTestId('select-order-t1'))
     expect(screen.getByTestId('toolbar-refund-btn')).toBeDisabled()
     expect(screen.queryByTestId('selected-chip')).not.toBeInTheDocument()
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
 
     it('should keep the search row sticky with the selection chip above it', async () => {

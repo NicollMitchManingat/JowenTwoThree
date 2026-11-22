@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { Search, FileSpreadsheet, Receipt, Clock, CheckCircle, XCircle, Undo2, ChevronUp, Users, Trash2 } from 'lucide-react';
 import { db } from '../services/db';
 import { customerTotals } from '../services/salesAnalytics';
@@ -8,6 +8,7 @@ import { manilaDay } from '../utils/analyticsTime';
 import { presetReportRange, reportDateRange } from '../utils/reportDateRange';
 import RefundModal from '../components/pos/RefundModal';
 import RemoveUnpaidOrderModal from '../components/pos/RemoveUnpaidOrderModal';
+import TransactionDetailsModal from '../components/pos/TransactionDetailsModal';
 import LoadingSkeleton from '../components/analytics/LoadingSkeleton';
 import ExportDateRangeModal from '../components/ExportDateRangeModal';
 import { hasAccess } from '../services/permissions';
@@ -45,6 +46,8 @@ export default function OrderHistoryPage({ user, onResume }) {
   const [loadError, setLoadError] = useState(null);
   const [search, setSearch] = useState('');
   const [selectedId, setSelectedId] = useState(null);
+  const [viewedId, setViewedId] = useState(null);
+  const closeDetails = useCallback(() => setViewedId(null), []);
   const [statusFilter, setStatusFilter] = useState('all');
   const [refundFilter, setRefundFilter] = useState('all');
   const [datePreset, setDatePreset] = useState('all');
@@ -197,11 +200,13 @@ export default function OrderHistoryPage({ user, onResume }) {
   // Selection persists by id across pages and filters; the toolbar resolves
   // it against live data so a removed order simply disables the button.
   const selectedOrder = orders.find(o => String(o.id) === String(selectedId)) ?? null;
+  const viewedOrder = viewedId == null ? null : orders.find(o => String(o.id) === String(viewedId));
   const selectedFullyRefunded = selectedOrder && (selectedOrder.status || 'COMPLETED') === 'REFUNDED';
   const canRefund = user?.role !== 'stockist';
   const selectedUnpaid = selectedOrder && paymentStatusFor(selectedOrder) === 'UNPAID';
   const canResume = hasAccess(user, 'pos') && typeof onResume === 'function';
   const canRemove = ['admin', 'cashier'].includes(user?.role) && (hasAccess(user, 'pos') || hasAccess(user, 'transactions'));
+  const canExport = user?.role === 'admin' && hasAccess(user, 'transactions');
   const canSelect = canRefund || canResume;
   const canActOnSelected = !loadError && canRefund && selectedOrder && !selectedFullyRefunded && !selectedUnpaid;
 
@@ -272,6 +277,7 @@ export default function OrderHistoryPage({ user, onResume }) {
   }
 
   const handleExportExcel = async (range, signal) => {
+    if (!canExport) throw new Error('You do not have permission to export transactions.')
     const report = await db.getTransactionExport(range)
     if (signal.aborted) return
     if (report?.dataQuality?.complete !== true || !Array.isArray(report.orders) || !report.refundsByTxn) throw new Error('Transaction data is unavailable or incomplete.')
@@ -293,6 +299,7 @@ export default function OrderHistoryPage({ user, onResume }) {
   }
 
   const handleExportTraffic = async (range, signal) => {
+    if (!canExport) throw new Error('You do not have permission to export customer traffic.')
     const data = await db.getCustomerTrafficExport(range)
     if (signal.aborted) return
     if (data?.dataQuality?.complete !== true || !Array.isArray(data.rows)) throw new Error('Customer traffic data is unavailable or incomplete.')
@@ -335,7 +342,7 @@ export default function OrderHistoryPage({ user, onResume }) {
         </p>
       )}
       {canSelect && !selectedOrder && orders.length > 0 && (
-        <p className="selected-hint" data-testid="selection-hint">Select a row to resume an unpaid order or refund a paid transaction.</p>
+        <p className="selected-hint" data-testid="selection-hint">Click a transaction to view its details. Use the selection circles for refund and saved-order actions.</p>
       )}
 
       <div className="action-bar action-bar--filters action-bar--sticky">
@@ -397,15 +404,15 @@ export default function OrderHistoryPage({ user, onResume }) {
               <Undo2 size={16} /> Refund
             </button>
           )}
-          <button className="btn btn-primary" onClick={() => setExportKind('transactions')} data-testid="txn-export-btn" title="Choose dates and export transactions"><FileSpreadsheet size={16} /> Export transactions</button>
-          <button className="btn btn-secondary" onClick={() => setExportKind('traffic')} data-testid="traffic-export-btn" title="Choose dates and export recorded customer traffic"><FileSpreadsheet size={16} /> Export traffic</button>
+          {canExport && <button className="btn btn-primary" onClick={() => setExportKind('transactions')} data-testid="txn-export-btn" title="Choose dates and export transactions"><FileSpreadsheet size={16} /> Export transactions</button>}
+          {canExport && <button className="btn btn-secondary" onClick={() => setExportKind('traffic')} data-testid="traffic-export-btn" title="Choose dates and export recorded customer traffic"><FileSpreadsheet size={16} /> Export traffic</button>}
         </div>
       </div>
 
       {loadError && <div role="alert" className="card"><p>Could not refresh transaction and refund history: {loadError}. Displayed values are from the last successful load.</p><button type="button" className="btn btn-secondary" onClick={() => setRetryCount(count => count + 1)}>Retry history</button></div>}
       {dateError && <p role="alert" className="text-danger">{dateError}</p>}
-      <p className="text-sm text-muted">Choose a date range after clicking Export. Traffic exports include all recorded headcounts for those dates; transaction search and payment filters apply to the transaction export.</p>
-      {exportKind && <ExportDateRangeModal
+      {canExport && <p className="text-sm text-muted">Choose a date range after clicking Export. Traffic exports include all recorded headcounts for those dates; transaction search and payment filters apply to the transaction export.</p>}
+      {canExport && exportKind && <ExportDateRangeModal
         title={exportKind === 'traffic' ? 'Export customer traffic' : 'Export transactions'}
         initialRange={dateError ? undefined : exportKind === 'traffic' ? dateBounds : reportDateRange({ ...dateBounds, dates: orders.map(order => order.created_at) })}
         description={exportKind === 'traffic' ? 'Includes all recorded headcounts for the chosen dates.' : 'Current search, payment and refund filters also apply.'}
@@ -423,6 +430,7 @@ export default function OrderHistoryPage({ user, onResume }) {
         setOrders(rows => rows.filter(row => row.id !== id)); setSelectedId(null); setRemoveOrder(null);
         setToast({ type: 'success', message: 'Unpaid transaction removed.' });
       }} />}
+      {viewedOrder && <TransactionDetailsModal order={viewedOrder} refunds={refundsByTxn[viewedOrder.id] || []} historyError={loadError} onClose={closeDetails} />}
 
       <div className="record-table-layout">
       <div className="card table-card table-responsive record-table">
@@ -455,14 +463,16 @@ export default function OrderHistoryPage({ user, onResume }) {
                 role="row"
                 key={order.id}
                 data-testid={`order-row-${order.id}`}
-                className={`${canSelect ? 'row-selectable' : ''} ${isSelected ? 'row-selected' : ''}`}
+                className={`row-selectable ${isSelected ? 'row-selected' : ''}`}
                 aria-selected={canSelect ? isSelected : undefined}
-                onClick={canSelect ? () => toggleSelect(order.id) : undefined}
-                onKeyDown={canSelect ? (e) => {
-                  if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleSelect(order.id); }
+                onClick={() => { if (canSelect) setSelectedId(order.id); setViewedId(order.id); }}
+                onKeyDown={(e) => {
+                  if (e.target !== e.currentTarget) return;
+                  if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); if (canSelect) setSelectedId(order.id); setViewedId(order.id); }
                   else if (e.key === 'Escape') { setSelectedId(null); }
-                } : undefined}
-                tabIndex={canSelect ? 0 : undefined}
+                }}
+                tabIndex={0}
+                aria-haspopup="dialog"
               >
                 {canSelect && (
                   <td role="cell" data-label="Select" className="record-select-cell" onClick={(e) => e.stopPropagation()}>
@@ -471,13 +481,16 @@ export default function OrderHistoryPage({ user, onResume }) {
                       name="transaction-selection"
                       className="row-select-radio"
                       checked={isSelected}
-                      onChange={() => toggleSelect(order.id)}
+                      readOnly
+                      onClick={() => toggleSelect(order.id)}
                       aria-label={`Select ${order.transaction_number}`}
                       data-testid={`select-order-${order.id}`}
                     />
                   </td>
                 )}
-                <td role="cell" data-label="Transaction #" className="font-semibold record-title-cell">{order.transaction_number}</td>
+                <td role="cell" data-label="Transaction #" className="font-semibold record-title-cell"><button type="button" className="transaction-details-link" aria-label={`View ${order.transaction_number}`} onClick={event => {
+                  event.stopPropagation(); if (canSelect) setSelectedId(order.id); setViewedId(order.id);
+                }}>{order.transaction_number}</button></td>
                 <td role="cell" data-label="Subtotal">₱{Number(order.subtotal).toFixed(2)}</td>
                 <td role="cell" data-label="Discount">{Number(order.discount) > 0 ? `-₱${Number(order.discount).toFixed(2)}` : '-'}</td>
                 <td role="cell" data-label="Total" className="font-semibold">₱{Number(order.total).toFixed(2)}</td>

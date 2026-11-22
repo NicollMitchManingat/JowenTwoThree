@@ -7,7 +7,7 @@ const unitChanges = require('../services/unitConversionService')
 const traffic = require('../services/customerTrafficService')
 const { modules, throttle, admin } = require('../middleware/authentication')
 const run = fn => (req, res, next) => Promise.resolve(fn(req, res)).catch(next)
-router.get('/customer-traffic/export', modules('transactions'), run(async (req, res) => {
+router.get('/customer-traffic/export', modules('transactions'), admin, run(async (req, res) => {
   res.json({ data: await traffic.getTrafficExport({ from: req.query.from, to: req.query.to }) })
 }))
 router.post('/discount-approval', modules('pos'), throttle, run(async (req, res) => res.json(await checkout.approveDiscount(req.auth, req.body))))

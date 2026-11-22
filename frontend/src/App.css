@@ -4728,11 +4728,46 @@
 .session-details-state { display: flex; flex-direction: column; align-items: flex-start; gap: .75rem; margin: 1.25rem 0 0; padding: 1rem; border: 1px solid var(--border-color); border-radius: 8px; }
 .session-details-state p { margin: 0; }
 .session-details-dialog > .modal-footer { flex-shrink: 0; padding: 1rem 1.25rem; }
+.transaction-details-link { padding: 0; border: 0; background: none; color: var(--color-primary); font: inherit; text-align: left; cursor: pointer; overflow-wrap: anywhere; }
+.transaction-details-link:hover { text-decoration: underline; }
+.transaction-details-link:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 3px; border-radius: 2px; }
+.transaction-details-overlay { overscroll-behavior: contain; }
+.modal-content.transaction-details-dialog { width: min(42rem, 100%); max-width: 42rem; max-height: calc(100dvh - 2rem); padding: 0; gap: 0; overflow: hidden; }
+.transaction-details-dialog > .modal-header, .transaction-details-dialog > .modal-footer { flex-shrink: 0; padding: 1rem 1.25rem; gap: .75rem; }
+.transaction-details-dialog .modal-header h3 { display: flex; align-items: center; gap: .625rem; min-width: 0; margin: 0; }
+.transaction-details-dialog .modal-header svg { flex-shrink: 0; }
+.transaction-details-dialog .btn-icon-small { flex-shrink: 0; min-width: 40px; min-height: 40px; }
+.transaction-details-body { display: flex; flex-direction: column; gap: 1.25rem; min-height: 0; padding: 1.25rem; overflow-y: auto; overflow-wrap: anywhere; overscroll-behavior: contain; }
+.transaction-details-body h4 { margin: 0 0 .75rem; font-size: .9rem; }
+.transaction-details-heading { display: flex; justify-content: space-between; align-items: center; gap: .75rem; flex-wrap: wrap; }
+.transaction-details-heading > strong { font-variant-numeric: tabular-nums; }
+.transaction-details-meta { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; margin: 0; padding: 1rem; border: 1px solid var(--border-color); border-radius: 8px; }
+.transaction-details-meta dt { color: var(--text-muted); font-size: .75rem; margin-bottom: .25rem; }
+.transaction-details-meta dd { margin: 0; font-size: .875rem; font-weight: 600; }
+.transaction-details-meta small, .transaction-details-items small, .transaction-details-refunds small { display: block; margin-top: .25rem; color: var(--text-muted); font-size: .75rem; font-weight: 400; white-space: pre-wrap; }
+.transaction-details-items { table-layout: fixed; width: 100%; border-collapse: collapse; font-size: .85rem; }
+.transaction-details-items th, .transaction-details-items td { padding: .75rem .5rem; vertical-align: top; border-bottom: 1px solid var(--border-color); overflow-wrap: anywhere; }
+.transaction-details-items th { color: var(--text-muted); font-size: .75rem; text-align: left; }
+.transaction-details-items th:not(:first-child), .transaction-details-items td:not(:first-child) { text-align: right; font-variant-numeric: tabular-nums; }
+.transaction-details-items th:first-child, .transaction-details-items td:first-child { padding-left: 0; }
+.transaction-details-items th:last-child, .transaction-details-items td:last-child { padding-right: 0; }
+.transaction-details-totals { display: flex; flex-direction: column; gap: .625rem; margin: 0; padding: 1rem; background: var(--bg-main); border: 1px solid var(--border-color); border-radius: 8px; }
+.transaction-details-totals > div { display: flex; justify-content: space-between; gap: 1rem; font-size: .85rem; }
+.transaction-details-totals dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
+.transaction-details-total { padding-top: .75rem; border-top: 1px solid var(--border-color); font-weight: 700; color: var(--color-primary); }
+.transaction-details-note { margin: 0; font-size: .85rem; line-height: 1.6; white-space: pre-wrap; }
+.transaction-details-refunds { list-style: none; display: flex; flex-direction: column; gap: .75rem; margin: .75rem 0 0; padding: 0; }
+.transaction-details-refunds li { display: flex; justify-content: space-between; gap: 1rem; padding-top: .75rem; border-top: 1px solid var(--border-color); font-size: .85rem; }
+.transaction-details-refunds li > div { min-width: 0; }
+.transaction-details-refunds li > span { flex-shrink: 0; font-variant-numeric: tabular-nums; }
 @media (max-width: 480px) {
   .analytics-session-search { width: 100%; }
   .analytics-session-search-controls .form-input { flex: 1; }
   .session-details-dialog > .modal-header, .session-details-body, .session-details-dialog > .modal-footer { padding: 1rem; }
   .session-details-meta, .session-details-metrics { grid-template-columns: minmax(0, 1fr); gap: .75rem; }
+  .transaction-details-dialog > .modal-header, .transaction-details-body, .transaction-details-dialog > .modal-footer { padding: 1rem; }
+  .transaction-details-meta { grid-template-columns: minmax(0, 1fr); }
+  .transaction-details-items th, .transaction-details-items td { padding: .625rem .25rem; font-size: .75rem; }
 }
 .analytics-page .insights-grid { gap: var(--analytics-inner-gap); }
 .analytics-page .insight-card { padding: 1rem; gap: .75rem; }

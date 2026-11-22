@@ -1,6 +1,6 @@
 const router = require('express').Router()
 const a = require('../services/accessService')
-const { modules } = require('../middleware/authentication')
+const { modules, admin } = require('../middleware/authentication')
 const service = require('../services/transactionService')
 const checkout = require('../services/checkoutService')
 const run = fn => (req, res, next) => Promise.resolve(fn(req, res)).catch(next)
@@ -12,7 +12,7 @@ router.get(['/','/history'], modules('transactions'), run(async (req, res) => {
     .sort((x, y) => new Date(y.created_at) - new Date(x.created_at))
   res.json({ success: true, history, transactions: history })
 }))
-router.get('/export', modules('transactions'), run(async (req, res) => {
+router.get('/export', modules('transactions'), admin, run(async (req, res) => {
   res.json({ data: await service.getTransactionExport({ from: req.query.from, to: req.query.to }) })
 }))
 router.post('/:id/refund', (req, res) => res.status(410).json({ error: 'Use the authenticated refund command with administrator approval' }))

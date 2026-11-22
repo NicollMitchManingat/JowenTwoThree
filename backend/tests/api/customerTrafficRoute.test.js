@@ -8,12 +8,11 @@ describe('protected customer traffic routes', () => {
     vi.spyOn(access, 'authenticate').mockResolvedValue({user:{id:'fixture-admin',role:'admin',isActive:true}})
   })
   afterEach(() => vi.restoreAllMocks())
-  it('lets Transactions users export date-bounded traffic without granting Analytics access', async () => {
+  it('lets admins export date-bounded traffic', async () => {
     const spy=vi.spyOn(traffic,'getTrafficExport').mockResolvedValue({rows:[],summary:{customers:0},dataQuality:{complete:true}})
-    access.authenticate.mockResolvedValue({user:{id:'cashier',role:'cashier',isActive:true,permissions:['transactions']}})
+    access.authenticate.mockResolvedValue({user:{id:'admin',role:'admin',isActive:true,permissions:['transactions']}})
     const res=await request(app).get('/api/commands/customer-traffic/export?from=2026-10-01&to=2026-10-15')
     expect(res.status).toBe(200);expect(spy).toHaveBeenCalledWith({from:'2026-10-01',to:'2026-10-15'});expect(res.headers['cache-control']).toBe('private, no-store')
-    expect((await request(app).get('/api/customer-traffic/forecast')).status).toBe(403)
   })
   it('denies traffic export without authentication or Transactions permission', async () => {
     const spy=vi.spyOn(traffic,'getTrafficExport')
@@ -25,10 +24,10 @@ describe('protected customer traffic routes', () => {
     }
     expect(spy).not.toHaveBeenCalled()
   })
-  it('protects date-selected transaction export with Transactions permission', async () => {
+  it('allows date-selected transaction export for admins', async () => {
     const service = require('../../src/services/transactionService');
     const spy = vi.spyOn(service, 'getTransactionExport').mockResolvedValue({ orders: [], refundsByTxn: {}, dataQuality: { complete: true } });
-    access.authenticate.mockResolvedValue({ user: { role: 'cashier', isActive: true, permissions: ['transactions'] } });
+    access.authenticate.mockResolvedValue({ user: { role: 'admin', isActive: true, permissions: ['transactions'] } });
     const response = await request(app).get('/api/transactions/export?from=2026-10-15&to=2026-10-16');
     expect(response.status).toBe(200); expect(response.headers['cache-control']).toBe('private, no-store');
     expect(spy).toHaveBeenCalledWith({ from: '2026-10-15', to: '2026-10-16' });
@@ -37,6 +36,30 @@ describe('protected customer traffic routes', () => {
     access.authenticate.mockRejectedValue(access.httpError('Sign in', 401));
     expect((await request(app).get('/api/transactions/export')).status).toBe(401);
     expect(spy).toHaveBeenCalledTimes(1);
+  })
+  it.each(['cashier', 'stockist', 'unknown'])('denies both export endpoints to %s even with every module', async role => {
+    const service = require('../../src/services/transactionService')
+    const transactions = vi.spyOn(service, 'getTransactionExport')
+    const customerTraffic = vi.spyOn(traffic, 'getTrafficExport')
+    access.authenticate.mockResolvedValue({ user: { role, isActive: true, permissions: [...access.MODULES] } })
+    for (const path of ['/api/transactions/export', '/api/commands/customer-traffic/export']) {
+      const response = await request(app).get(path).query({ from: '2026-10-01', to: '2026-10-15' })
+      expect(response.status).toBe(403)
+      expect(response.body.error).toBe('Administrator access is required')
+      expect(response.headers['cache-control']).toBe('private, no-store')
+    }
+    expect(transactions).not.toHaveBeenCalled()
+    expect(customerTraffic).not.toHaveBeenCalled()
+  })
+  it.each(['cashier', 'stockist'])('preserves %s transaction history access while exports are restricted', async role => {
+    const service = require('../../src/services/transactionService')
+    const checkout = require('../../src/services/checkoutService')
+    vi.spyOn(service, 'getTransactionHistory').mockResolvedValue([{ id: 'paid', created_at: '2026-10-15T06:00:00Z' }])
+    vi.spyOn(checkout, 'listSavedOrders').mockResolvedValue([])
+    access.authenticate.mockResolvedValue({ user: { role, isActive: true, permissions: ['transactions'] } })
+    const response = await request(app).get('/api/transactions/history')
+    expect(response.status).toBe(200)
+    expect(response.body.history).toEqual([expect.objectContaining({ id: 'paid' })])
   })
   it('preserves the live hourly response contract and bounds', async () => {
     vi.spyOn(traffic,'getCustomerTrafficData').mockResolvedValue([{hour:8,customers:12}])

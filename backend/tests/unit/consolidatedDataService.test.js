@@ -691,6 +691,8 @@ describe('server/display evidence agreement across all chart types', () => {
   ['refunds',{summary:[0,0,0],rows:[]}],
   ['top-selling',[['Beans Brew',1]]],
   ['low-stock',[['beans','Beans','2.5','g','0','5','low']]],
+  ['inventory-status',[['good','In Stock',0],['low','Low Stock',1],['out','Out of Stock',0]]],
+  ['traffic-demographics',[['male','Male',1],['female','Female',2],['unspecified','Unspecified',1]]],
   ['recorded-wastage',[[JSON.stringify(['beans','g','0']),'Beans','g','0','1',1,['spoiled'],[],true]]],
   ['inventory-planning',[['beans','Beans','g','2.5','1','2.5','7','4.5','estimated','Review replenishment']]],
   ['traffic-comparison',Array.from({length:24},(_,hour)=>[hour,hour===12?4:0,hour===12?1:0])],
@@ -803,4 +805,108 @@ describe('detailed explanations remain grounded in verified values',()=>{
   expect(planning).toContain('usage estimates are unavailable')
   expect(planning).not.toContain('Estimated stock cover')
  })
+})
+
+
+describe('ingredient deduction charts and projections', () => {
+ const { buildInventoryCharts } = require('../../src/services/inventoryForecastService')
+ const now = new Date('2026-11-25T12:00:00+08:00'), dayMs = 86400000
+ const inventory = [{ id: '11111111-1111-4111-8111-111111111111', name: 'Beans', stock_quantity: '500', low_stock_threshold: '50', unit: 'g', unit_version: '1', is_active: true }]
+ const adjustments = Array.from({length:56}, (_,i) => ({ id:'a'+i, inventory_id:inventory[0].id, reason:'sale', created_at:new Date(Date.parse('2026-11-24T15:00:00+08:00')-(55-i)*dayMs).toISOString(), change_amount:'-100', unit_snapshot:'g',unit_version:'1' }))
+ const input = () => ({ inventory, adjustments, start:'2026-11-01T00:00:00+08:00',end:'2026-11-25T23:59:59.999+08:00',now })
+ it('forecasts compatible recorded deductions, preserves source rows and bounds projected stock at zero', async () => {
+  const before=JSON.stringify(input()),result=await buildInventoryCharts(input())
+  expect(result.forecast.status).toBe('ready');expect(result.forecast.total).toBe(700)
+  expect(result.forecast.forecast).toHaveLength(7);expect(result.forecast.forecast.every(row=>row.quantity===100)).toBe(true)
+  expect(result.projection).toHaveLength(8);expect(result.projection[0]).toMatchObject({date:'2026-11-25',quantity:'500'})
+  expect(result.projection.at(-1)).toMatchObject({quantity:'0',shortage:'200'})
+  expect(result.thresholdDate).toBe('2026-11-30');expect(result.validation.metrics).toMatchObject({days:28,mae:0,bias:0})
+  expect(JSON.stringify(input())).toBe(before)
+ })
+ it('withholds dates with unknown or incompatible units instead of mixing partial quantities', async () => {
+  const result=await buildInventoryCharts({...input(),adjustments:[...adjustments,{...adjustments.at(-1),id:'old',unit_snapshot:'kg',unit_version:'0'}]})
+  expect(result.history.find(row=>row.date==='2026-11-24').quantity).toBeNull()
+  expect(result.coverage.excludedEntries).toBe(1);expect(result.coverage.excludedDates).toBe(1)
+ })
+ it('retains missing days as unknown and refuses forecasts from sparse records', async () => {
+  const result=await buildInventoryCharts({...input(),adjustments:adjustments.slice(-1)})
+  expect(result.forecast.status).toBe('insufficient_history');expect(result.forecast.forecast).toEqual([])
+  expect(result.projection).toEqual([]);expect(result.validation.metrics).toBeNull()
+  expect(result.history.some(row=>row.quantity===null)).toBe(true)
+ })
+ it('preserves fractional deduction forecasts instead of rounding them to whole units', async () => {
+  const result=await buildInventoryCharts({...input(),adjustments:adjustments.map(row=>({...row,change_amount:'-0.125'}))})
+  expect(result.forecast.forecast.every(row=>row.quantity===0.125)).toBe(true)
+  expect(result.history.find(row=>row.date==='2026-11-24').quantity).toBe('0.125')
+ })
+ it('never projects current stock from a historical starting balance', async () => {
+  const result=await buildInventoryCharts({...input(),end:'2026-11-20T23:59:59.999+08:00'})
+  expect(result.coverage.historicalOrigin).toBe(true);expect(result.projection).toEqual([])
+  expect(result.projectionNotice).toMatch(/Historical starting balances are unavailable/)
+ })
+ it('does not let later adjustments affect an earlier forecast origin', async () => {
+  const earlier={...input(),end:'2026-11-20T23:59:59.999+08:00'}
+  const original=await buildInventoryCharts(earlier)
+  const changed=await buildInventoryCharts({...earlier,adjustments:adjustments.map(row=>Date.parse(row.created_at)>Date.parse(earlier.end)?{...row,change_amount:'-9999'}:row)})
+  expect(changed.forecast).toEqual(original.forecast);expect(changed.validation).toEqual(original.validation)
+ })
+ it('rejects invalid date ranges and unknown ingredients', async () => {
+  await expect(buildInventoryCharts({...input(),ingredientId:'unknown'})).rejects.toMatchObject({statusCode:400})
+  await expect(buildInventoryCharts({...input(),start:'bad'})).rejects.toMatchObject({statusCode:400})
+ })
+})
+
+
+it('rebuilds ingredient display evidence from protected reads in the selected unit and rejects read failures',async()=>{
+ const {getInventoryCharts}=require('../../src/services/inventoryForecastService')
+ const factsService=require('../../src/services/chartFactsService')
+ const {ingredientChartSnapshot,chartEvidence}=await import('../../../frontend/src/services/chartFacts.js')
+ const id='11111111-1111-4111-8111-111111111111', now=new Date('2026-11-25T04:00:00Z')
+ const inventoryRows=[{id,name:'Beans',unit:'g',unit_version:'1',stock_quantity:'500',low_stock_threshold:'50',is_active:true}]
+ const adjustments=Array.from({length:56},(_,i)=>({id:'a'+i,inventory_id:id,reason:'sale',created_at:new Date(Date.parse('2026-11-24T07:00:00Z')-(55-i)*86400000).toISOString(),change_amount:'-0.125',unit_snapshot:'g',unit_version:'1'}))
+ const client=makeSupabase({inventoryRows,adjustments}),scope={start:'2026-11-01T00:00:00+08:00',end:'2026-11-25T23:59:59.999+08:00',detail:'daily',timeZone:'Asia/Manila'}
+ const data=await getInventoryCharts({...scope,ingredientId:id,client,now})
+ for(const chartId of ['ingredient-usage','ingredient-demand','projected-stock']){
+  const rebuilt=await factsService.buildFacts({chartId,scope,view:{ingredientId:id}},{client,now})
+  expect(chartEvidence(rebuilt)).toEqual(chartEvidence(ingredientChartSnapshot(data,chartId)))
+  expect(rebuilt.coverage.currentUnitVersion).toBe('1')
+ }
+ await expect(getInventoryCharts({...scope,client:makeSupabase({errorOn:'inventory_adjustments'}),now})).rejects.toBeTruthy()
+})
+
+
+it('keeps ingredient explanation units and scenario limitations tied to verified chart facts',async()=>{
+ const {findingsFor,limitationsFor}=require('../../src/services/chartExplanationService')
+ const facts={chartId:'ingredient-demand',basis:'forecast',status:'ready',scope:{},rows:[],series:[],metrics:{forecastTotal:{value:7}},coverage:{ingredientName:'Milk',unit:'mL',currentUnitVersion:'1'},limitations:[]}
+ const text=findingsFor(facts).findings.map(row=>row.text).join(' ')
+ expect(text).toContain('7 mL');expect(text).not.toContain('7 customers')
+ const projected={...facts,chartId:'projected-stock',basis:'scenario',metrics:{quantity:'50',threshold:'5'},limitations:['Starts at the current balance; no replenishment is assumed.']}
+ expect(limitationsFor(projected).join(' ')).toContain('no replenishment')
+ expect(limitationsFor(projected).join(' ')).not.toContain('current recipes')
+})
+
+
+it('builds exact multi-ingredient summaries from selected dates and verifies comparison selections against server facts',async()=>{
+ const {getInventoryCharts}=require('../../src/services/inventoryForecastService'),facts=require('../../src/services/chartFactsService')
+ const {usageComparisonSnapshot,chartEvidence}=await import('../../../frontend/src/services/chartFacts.js')
+ const scope={start:'2026-11-01T00:00:00+08:00',end:'2026-11-03T23:59:59.999+08:00',detail:'daily',timeZone:'Asia/Manila'},now=new Date('2026-11-25T04:00:00Z')
+ const ids=['11111111-1111-4111-8111-111111111111','22222222-2222-4222-8222-222222222222','33333333-3333-4333-8333-333333333333']
+ const inventoryRows=ids.map((id,i)=>({id,name:['Beans','Sugar','Milk'][i],unit:i===2?'mL':'g',unit_version:'1',stock_quantity:'500',low_stock_threshold:'50',is_active:true}))
+ const adjustment=(i,date,change)=>({id:date+i,inventory_id:ids[i],created_at:date+'T07:00:00Z',change_amount:change,unit_snapshot:inventoryRows[i].unit,unit_version:'1',reason:'sale'})
+ const adjustments=[adjustment(0,'2026-11-01','-0.125'),adjustment(0,'2026-11-03','-0.25'),adjustment(1,'2026-11-01','-1'),adjustment(2,'2026-11-01','-100'),adjustment(0,'2026-10-31','-999')]
+ const client=makeSupabase({inventoryRows,adjustments}),data=await getInventoryCharts({...scope,client,now})
+ expect(data.comparison.items[0]).toMatchObject({name:'Beans',values:['0.125',null,'0.25'],total:'0.375',recordedDays:2})
+ const snapshot=usageComparisonSnapshot(data.comparison)
+ expect(snapshot.rows.map(row=>row.name)).toEqual(['Sugar','Beans'])
+ expect(snapshot.rows[1]).toMatchObject({average:0.1875,periodDays:3})
+ const body={chartId:'ingredient-usage',scope,view:snapshot.view,expected:chartEvidence(snapshot)},user={role:'admin',isActive:true}
+ const verified=await facts.verifyFacts(user,body,{client,now})
+ expect(chartEvidence(verified)).toEqual(body.expected)
+ const narration=require('../../src/services/chartExplanationService').findingsFor(verified)
+ expect(narration.findings.map(row=>row.text).join(' ')).toContain('recorded across 2 of 3 selected days')
+ await expect(facts.verifyFacts(user,{...body,expected:{...body.expected,unit:'mL'}},{client,now})).rejects.toMatchObject({statusCode:409,code:'CHART_CHANGED'})
+ await expect(facts.verifyFacts(user,{...body,view:{comparisonUnit:'mL',ingredientIds:[ids[0]]}},{client,now})).rejects.toMatchObject({statusCode:400})
+ await expect(facts.validateRequest({...body,view:{comparisonUnit:'g',ingredientIds:Array(6).fill(ids[0])}})).rejects.toMatchObject({statusCode:400})
+ const excluded=await getInventoryCharts({...scope,client:makeSupabase({inventoryRows,adjustments:[...adjustments,{...adjustment(0,'2026-11-01','-5'),unit_version:'0'}]}),now})
+ expect(excluded.comparison.items[0]).toMatchObject({values:[null,null,'0.25'],total:'0.25',recordedDays:1,excludedDays:1})
 })

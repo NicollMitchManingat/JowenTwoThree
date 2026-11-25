@@ -20,7 +20,7 @@ const stockVersion = item => ({ baseStockQty: item?.stock_quantity,
 
 const STATUS_OPTIONS = [
   { key: 'all', label: 'All' },
-  { key: 'good', label: 'Good' },
+  { key: 'good', label: 'In Stock' },
   { key: 'low', label: 'Low Stock' },
   { key: 'out', label: 'Out of Stock' },
 ];
@@ -405,7 +405,7 @@ export default function InventoryPage({ userRole }) {
     } finally { wastageBusy.current = false; setLoggingWastage(false); }
   };
 
-  const getStatus = item => ({ out: 'Out of Stock', low: 'Low Stock', good: 'Good' })[inventoryStatus(item)]
+  const getStatus = item => ({ out: 'Out of Stock', low: 'Low Stock', good: 'In Stock' })[inventoryStatus(item)]
 
   if (loading) {
     return <div className="page-content"><LoadingSkeleton variant="inventory" /><p className="text-sm text-muted">If this takes over 8s, Supabase timed out — it will fail fast with a retry.</p></div>
@@ -695,7 +695,7 @@ export default function InventoryPage({ userRole }) {
                 <td role="cell" data-label="Unit">{item.unit || 'units'}</td>
                 <td role="cell" data-label="Price per Unit">{item.unit_price == null ? <span className="text-muted">Not recorded</span> : <span>{formatUnitPrice(item.unit_price)} / {item.unit || 'units'}</span>}</td>
                 <td role="cell" data-label="Status">
-                  <span className={`badge ${status === 'Good' ? 'badge-success' : status === 'Low Stock' ? 'badge-warning' : 'badge-danger'}`}>
+                  <span className={`badge ${status === 'In Stock' ? 'badge-success' : status === 'Low Stock' ? 'badge-warning' : 'badge-danger'}`}>
                     {status}
                   </span>
                   {item._pendingSync && (

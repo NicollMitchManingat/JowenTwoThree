@@ -64,6 +64,8 @@ export function addStock(left, right) {
 export const lowStockThreshold = (item, fallback = 5) => item?.low_stock_threshold ?? fallback
 export const isLowStock = (item, fallback = 5) => compareStock(item?.stock_quantity, 0) > 0 && compareStock(item?.stock_quantity, lowStockThreshold(item, fallback)) <= 0
 export const inventoryStatus = item => Number(item?.stock_quantity) <= 0 ? 'out' : isLowStock(item) ? 'low' : 'good'
+export const stockStatusLabel = status => ({ good: 'In Stock', Good: 'In Stock', InStock: 'In Stock', NearingExpiration: 'In Stock',
+  low: 'Low Stock', Low: 'Low Stock', out: 'Out of Stock', OutOfStock: 'Out of Stock' })[status] || status || 'Not recorded'
 
 // Unit prices can become sub-cent values after conversion; totals stay in cents.
 export function formatUnitPrice(value) {

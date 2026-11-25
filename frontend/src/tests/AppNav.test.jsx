@@ -17,6 +17,7 @@ it('lands stockman on Inventory and retains its internal role',async()=>{
 it('keeps all administrator modules available',async()=>{
  authAPI.session.mockResolvedValue({id:'a',username:'admin',role:'admin',permissions:[]});render(<App/>);const nav=within(await screen.findByRole('navigation'))
  for(const label of ['POS & Traffic','Inventory','Transactions','Analytics','Management'])expect(nav.getByText(label)).toBeInTheDocument()
+ expect(document.querySelector('.sidebar-footer-role')).toHaveTextContent('Owner')
 })
 it('applies permission changes when the session refreshes',async()=>{
  const user={id:'s',username:'stockman',role:'stockist',permissions:['inventory','transactions']};authAPI.session.mockResolvedValue(user);render(<App/>);await screen.findByPlaceholderText('Search inventory...')

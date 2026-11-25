@@ -183,7 +183,7 @@ describe('InventoryPage roles', () => {
     const dialog = screen.getByRole('dialog', { name: 'Edit Item' })
     expect(screen.getByLabelText('Low stock threshold')).toHaveValue(5)
     fireEvent.change(screen.getByLabelText('Low stock threshold'), { target: { value: threshold } })
-    expect(within(dialog).getByText(threshold === '0' ? 'Good' : 'Low Stock')).toBeVisible()
+    expect(within(dialog).getByText(threshold === '0' ? 'In Stock' : 'Low Stock')).toBeVisible()
     fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }))
     await waitFor(() => expect(db.updateInventoryItem).toHaveBeenCalledWith('i1', { name: 'Milk', category: 'Dairy', unit: 'L', low_stock_threshold: threshold }, { baseStockQty: item.stock_quantity, expectedUnitVersion: '1', expectedUpdatedAt: item.updated_at }))
     expect(db.updateInventoryItem.mock.calls[0][1]).not.toHaveProperty('stock_quantity')
@@ -242,7 +242,7 @@ describe('InventoryPage roles', () => {
     expect(screen.getByTestId('selection-hint')).toBeInTheDocument()
     // Status filter pills with live counts.
     expect(screen.getByTestId('status-filter-all')).toHaveTextContent('All (1)')
-    expect(screen.getByTestId('status-filter-good')).toHaveTextContent('Good (1)')
+    expect(screen.getByTestId('status-filter-good')).toHaveTextContent('In Stock (1)')
   })
 
   it('shows the unit, unit price and total without inventing missing prices', async () => {
@@ -785,7 +785,7 @@ describe('InventoryPage roles', () => {
       expect(screen.getByText('Beans')).toBeInTheDocument()
     })
     expect(screen.getByTestId('status-filter-all')).toHaveTextContent('All (3)')
-    expect(screen.getByTestId('status-filter-good')).toHaveTextContent('Good (1)')
+    expect(screen.getByTestId('status-filter-good')).toHaveTextContent('In Stock (1)')
     expect(screen.getByTestId('status-filter-low')).toHaveTextContent('Low Stock (1)')
     expect(screen.getByTestId('status-filter-out')).toHaveTextContent('Out of Stock (1)')
 

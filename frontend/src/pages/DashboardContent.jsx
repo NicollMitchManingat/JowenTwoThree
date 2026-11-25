@@ -15,7 +15,10 @@ import SalesTrendChart from "../components/analytics/SalesTrendChart";
 import SalesForecastPanel from "../components/analytics/SalesForecastPanel";
 import TrafficForecastPanel from "../components/analytics/TrafficForecastPanel";
 import StockMovementChart from "../components/analytics/StockMovementChart";
+import InventoryIngredientCharts from "../components/analytics/InventoryIngredientCharts";
 import InventoryAnalyticsPanel from "../components/analytics/InventoryAnalyticsPanel";
+import BreakdownChart from '../components/analytics/BreakdownChart';
+import CustomerDemographicsChart from '../components/analytics/CustomerDemographicsChart';
 import DateRangeFilter from "../components/analytics/DateRangeFilter";
 import CustomerTrafficHeatmap from "../components/analytics/CustomerTrafficHeatmap";
 import LoadingSkeleton from "../components/analytics/LoadingSkeleton";
@@ -75,6 +78,7 @@ export default function DashboardContent({ activeTab, user, onNavigate }) {
   const [customStartDate, setCustomStartDate] = useState("");
   const [customEndDate, setCustomEndDate] = useState("");
   const [lowStock, setLowStock] = useState([]);
+  const [currentInventory, setCurrentInventory] = useState([]);
   const [inventoryLoading, setInventoryLoading] = useState(false);
   const [inventoryError, setInventoryError] = useState(null);
   const [inventoryRetryKey, setInventoryRetryKey] = useState(0);
@@ -247,6 +251,7 @@ export default function DashboardContent({ activeTab, user, onNavigate }) {
     setInventoryLoading(true); setInventoryError(null);
     db.getInventoryStatus().then(items => {
       if (!cancelled) {
+        setCurrentInventory((items || []).filter(item => item.is_active !== false));
         setLowStock((items || []).filter(item => inventoryStatus(item) !== 'good'));
         setInventoryObservedAt(new Date().toISOString());
         setInventoryRefreshKey(chartRefreshKey);
@@ -648,6 +653,12 @@ export default function DashboardContent({ activeTab, user, onNavigate }) {
       </>;
       case 'inventory': return <>
       <p className="text-sm text-muted analytics-section-note">Top-selling products follow the selected period. Low Stock Alerts show current balances.</p>
+      <div className="card analytics-breakdown-card"><div className="card-header"><h3 className="m-0">Inventory Status Overview</h3><ChartExplanation chartId="inventory-status" /></div>
+        <div className="card-body"><BreakdownChart chartId="inventory-status" status={inventoryError ? 'error' : inventoryLoading || inventoryRefreshKey !== chartRefreshKey ? 'loading' : 'ready'}
+          rows={['good', 'low', 'out'].map((key, index) => ({ key, label: ['In Stock', 'Low Stock', 'Out of Stock'][index], count: currentInventory.filter(item => inventoryStatus(item) === key).length,
+            color: ['#16a34a', '#f59e0b', '#dc2626'][index] }))} coverage={{ observedAt: inventoryObservedAt }}
+          limitations={['Counts current active inventory items, not quantities. Current balances do not represent the selected historical date.']} />
+          <p className="text-sm text-muted">Current active inventory items. Selected dates do not change these balances.</p></div></div>
       <div className="charts-grid analytics-inventory-charts">
         <div className="card analytics-chart-card">
           <div className="card-header">
@@ -696,7 +707,9 @@ export default function DashboardContent({ activeTab, user, onNavigate }) {
         </div>
       </div>
       </div>
-      <InventoryAnalyticsPanel start={dateRange.start} end={dateRange.end} showPlanning={SHOW_FORECASTING} />
+      <InventoryIngredientCharts start={dateRange.start} end={dateRange.end} showForecast={SHOW_FORECASTING}>
+        <InventoryAnalyticsPanel start={dateRange.start} end={dateRange.end} showPlanning={SHOW_FORECASTING} />
+      </InventoryIngredientCharts>
       </>;
       case 'traffic': return <>
       <p className="text-sm text-muted analytics-section-note">Traffic charts use recorded customer counts, including checkout traffic, without adding transactions again. Missing recordings are unknown, not confirmed zero visits.</p>
@@ -708,6 +721,8 @@ export default function DashboardContent({ activeTab, user, onNavigate }) {
           sub={`♂ ${totals.customers.male.toLocaleString()} · ♀ ${totals.customers.female.toLocaleString()}${totals.customers.unspecified > 0 ? ` · ? ${totals.customers.unspecified.toLocaleString()}` : ''}`}
         />
       <div className="charts-grid analytics-traffic-charts">
+        <div className="card analytics-chart-card analytics-chart-card--wide"><div className="card-header"><h3 className="m-0">Customer Demographics</h3><ChartExplanation chartId="traffic-demographics" /></div>
+          <div className="card-body"><CustomerDemographicsChart start={dateRange.start} end={dateRange.end} /><p className="text-sm text-muted">Recorded visits by demographic category, including checkout traffic. These are not verified unique people.</p></div></div>
         <div className="card analytics-chart-card">
           <div className="card-header">
             <h3 className="m-0">Recorded Customers vs Transactions</h3>

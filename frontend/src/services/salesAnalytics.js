@@ -46,6 +46,25 @@ export function customerTotals(txns) {
   return totals
 }
 
+// Unclassified recorded headcounts belong to Unspecified, never a guessed split.
+export function demographicTotals(rows) {
+  const count = value => {
+    const n = Number(value ?? 0)
+    if (!Number.isSafeInteger(n) || n < 0) throw new Error('Customer demographic counts need review.')
+    return n
+  }
+  const totals = { male: 0, female: 0, unspecified: 0, total: 0 }
+  for (const row of rows || []) {
+    const male = count(row.male ?? row.male_count), female = count(row.female ?? row.female_count)
+    const unspecified = count(row.unspecified ?? row.unspecified_count)
+    const total = count(row.number_of_customer ?? row.customers ?? row.customer_count ?? male + female + unspecified)
+    if (male + female + unspecified > total) throw new Error('Customer demographic totals do not match.')
+    totals.male += male; totals.female += female; totals.unspecified += total - male - female; totals.total += total
+    if (Object.values(totals).some(value => !Number.isSafeInteger(value))) throw new Error('Customer demographic totals exceed the safe limit.')
+  }
+  return totals
+}
+
 function toNonNegative(n) {
   const v = Number(n)
   return Number.isFinite(v) && v > 0 ? Math.floor(v) : 0

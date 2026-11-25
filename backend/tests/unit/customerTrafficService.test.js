@@ -100,7 +100,7 @@ describe('retrospective daily customer forecast checks',()=>{
  it('evaluates actual daily headcounts without transaction duplication or hourly accuracy claims',async()=>{
   const result=await getForecastValidation({metric:'traffic',client:clientFor(rows),now:new Date('2026-11-10T08:00:00Z')})
   expect(result.status).toBe('replay_available');expect(result.coverage.scoredDays).toBe(28)
-  expect(result.metrics).toEqual({days:28,mae:6,wape:30})
+  expect(result.metrics).toEqual({days:28,mae:6,bias:-6,wape:30})
   expect(result.comparison.baseline.mae).toBe(2.5)
   expect(result.limitations.join(' ')).toMatch(/Hourly peaks, lean periods and staffing advice have not been validated/)
  })

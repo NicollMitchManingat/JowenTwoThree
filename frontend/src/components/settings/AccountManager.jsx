@@ -3,7 +3,7 @@ import { UserCog, Plus, Pencil, X, Eye, EyeOff } from 'lucide-react'
 import { authAPI } from '../../services/authAPI'
 import { MODULES } from '../../services/permissions'
 import { ROLES } from '../../services/managerApproval'
-const ROLE_LABELS = { admin: 'Admin', cashier: 'Cashier', stockist: 'Stockman' }
+const ROLE_LABELS = { admin: 'Owner', cashier: 'Cashier', stockist: 'Stockman' }
 const empty = () => ({ username: '', fullName: '', role: 'cashier', currentPassword: '', password: '', permissions: ['pos', 'transactions', 'settings'] })
 
 export default function AccountManager({ currentUser }) {
@@ -67,7 +67,7 @@ export default function AccountManager({ currentUser }) {
   if (currentUser?.role !== 'admin') return null
   return <div data-testid="account-manager">
     <div className="account-manager-header">
-      <p className="text-sm text-muted m-0">Choose the modules each account can access. Administrators retain full access.</p>
+      <p className="text-sm text-muted m-0">Choose the modules each account can access. Owners retain full access.</p>
       <button className="btn btn-primary" onClick={() => open()} data-testid="account-add-btn"><Plus size={16} /> Add account</button>
     </div>
     {loading && <p className="text-muted">Loading accounts…</p>}

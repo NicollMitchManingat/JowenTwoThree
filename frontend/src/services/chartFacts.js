@@ -15,6 +15,11 @@ export const CHART_FACTS = {
   'sales-forecast': ['Sales Forecast', 'forecast'],
   'traffic-forecast': ['Customer Traffic Forecast', 'forecast'],
   'inventory-planning': ['Ingredient Usage & Stock Cover', 'scenario'],
+  'traffic-demographics': ['Customer Demographics', 'recorded'],
+  'inventory-status': ['Inventory Status Overview', 'current'],
+  'ingredient-usage': ['Ingredient Usage Trend', 'recorded'],
+  'ingredient-demand': ['Ingredient Demand Forecast', 'forecast'],
+  'projected-stock': ['Projected Stock Balance', 'scenario'],
 }
 
 export function canonicalChartValue(value) {
@@ -86,12 +91,82 @@ export function chartSeries(data, { unit = 'PHP', keys, bases } = {}) {
 
 export const chartMetric = (value, unit, display) => ({ value, unit, ...(display === undefined ? {} : { display }) })
 
+export const usageColor = id => {
+  let hash = 0
+  for (const char of id) hash = (hash * 31 + char.charCodeAt(0)) >>> 0
+  return ['#2563eb', '#0d9488', '#d97706', '#9333ea', '#e11d48', '#4f46e5', '#059669'][hash % 7]
+}
+export const usageUnitLabel = unit => ({ g: 'Grams', mL: 'Milliliters', pcs: 'Pieces', slices: 'Slices' })[unit] || unit
+export function usageComparisonSnapshot(comparison, view = {}) {
+  const items = comparison?.items || [], dates = comparison?.dates || []
+  const rank = unit => ({ g: 0, mL: 1, pcs: 2 })[unit] ?? 3
+  const units = [...new Set(items.map(row => row.unit))].sort((a, b) => rank(a) - rank(b) || a.localeCompare(b))
+  const unit = view.comparisonUnit ?? units.find(unit => items.some(row => row.unit === unit && row.recordedDays > 0)) ?? units[0] ?? ''
+  const available = items.filter(row => row.unit === unit).sort((a, b) => Number(b.total || 0) - Number(a.total || 0) || a.name.localeCompare(b.name) || a.id.localeCompare(b.id))
+  const ids = view.ingredientIds ?? available.filter(row => row.recordedDays > 0).slice(0, 3).map(row => row.id)
+  const rows = ids.map(id => available.find(row => row.id === id)).filter(Boolean).map(({ values, ...row }) => ({ ...row, average: row.recordedDays ? Number(row.total) / row.recordedDays : null, periodDays: dates.length }))
+  const usedColors = new Set(), palette = ['#2563eb', '#0d9488', '#d97706', '#9333ea', '#e11d48', '#4f46e5', '#059669']
+  const series = rows.map(row => {
+    const values = available.find(item => item.id === row.id).values
+    const color = usedColors.has(usageColor(row.id)) ? palette.find(value => !usedColors.has(value)) : usageColor(row.id)
+    usedColors.add(color)
+    return { id: row.id, label: row.name, unit, basis: 'recorded', color,
+      points: dates.map((date, i) => ({ key: date, value: values[i] == null ? null : Number(values[i]) })) }
+  })
+  return { chartId: 'ingredient-usage', status: series.some(row => row.points.some(point => point.value !== null)) ? 'ready' : 'empty', rows, series,
+    metrics: {}, view: { comparisonUnit: unit, ingredientIds: ids }, coverage: { unit, complete: true, source: 'inventory_adjustments', recordingCoverage: 'unknown' },
+    limitations: ['Each line follows one ingredient in its current saved unit/version. Different units are not combined.',
+      'Totals include comparable recorded sale deductions only. Averages divide by recorded days, not all selected days. Missing and incompatible dates remain gaps; today may be incomplete.',
+      'Recorded deductions are a usage proxy, not all customer demand or reconstructed recipe consumption. Different recording coverage can affect ingredient rankings.'] }
+}
+
+// Shared server/browser projection of already calculated ingredient chart data.
+export function ingredientChartSnapshot(data, chartId) {
+  const selected = data?.selected, unit = selected?.unit || 'Unrecorded'
+  let points = [], series = [], status = selected ? 'ready' : 'empty'
+  if (chartId === 'ingredient-usage') {
+    points = (data?.history || []).map(row => ({ key: row.date, value: row.quantity == null ? null : Number(row.quantity) }))
+    series = [{ unit, basis: 'recorded', label: 'Recorded sale deductions', points }]
+    if (!points.some(point => point.value !== null)) status = 'empty'
+  } else if (chartId === 'ingredient-demand') {
+    const history = data?.forecast?.history || [], forecast = data?.forecast?.forecast || [], all = [...history, ...forecast]
+    series = [
+      { unit, basis: 'recorded', label: 'Recorded sale deductions', points: all.map((row, i) => ({ key: row.date, value: i < history.length ? row.quantity : null })) },
+      { unit, basis: 'forecast', label: 'Forecast usage', points: all.map((row, i) => ({ key: row.date, value: i >= history.length ? row.quantity : null })) },
+    ]
+    status = data?.forecast?.status || 'empty'
+  } else if (chartId === 'projected-stock') {
+    points = (data?.projection || []).map(row => ({ key: row.date, value: Number(row.quantity) }))
+    series = [{ unit, basis: 'scenario', label: 'Projected remaining stock', points },
+      { unit, basis: 'current', label: 'Low-stock threshold', points: points.map(point => ({ key: point.key, value: Number(selected?.threshold) })) }]
+    status = points.length ? 'ready' : data?.forecast?.status === 'insufficient_history' ? 'insufficient_history' : 'empty'
+  }
+  return { chartId, status, series, rows: [], view: { ingredientId: selected?.id },
+    metrics: { quantity: selected?.quantity ?? null, threshold: selected?.threshold ?? null,
+      ...(chartId === 'ingredient-demand' ? { forecastTotal: chartMetric(data?.forecast?.total ?? null, unit) } : {}) },
+    coverage: { ...data?.dataQuality, ...data?.coverage, ingredientName: selected?.name, unit,
+      historyWindow: data?.forecast?.training, method: data?.forecast?.method, thresholdDate: data?.thresholdDate },
+    limitations: ['Recorded sale deductions are a usage proxy, not unmet customer demand or reconstructed recipe consumption. Missing days and incompatible unit/version entries remain unknown.',
+      'Forecasts use complete days through the selected period end, independently of the selected period start.',
+      ...(chartId === 'projected-stock' ? [data?.projectionNotice || 'Projection unavailable.'] : []),
+      'Current-record and generated-data comparisons do not establish real-world future accuracy.'],
+  }
+}
+
 // Compare semantic display values, not locale labels, formatting or fetch times.
 // The server rebuilds this projection from database reads before any AI call.
 export function chartEvidence(facts) {
   const value = entry => entry && typeof entry === 'object' ? entry.value : entry
   const rows = facts.rows || [], metrics = facts.metrics || {}
   switch (facts.chartId) {
+    case 'traffic-demographics': case 'inventory-status': return rows.map(row => [row.key, row.label, row.count])
+    case 'ingredient-usage':
+      if (facts.view.comparisonUnit !== undefined) return { unit: facts.view.comparisonUnit, rows: rows.map(row => [row.id, row.name, row.unit, row.unitVersion, row.total, row.average, row.recordedDays, row.excludedDays, row.periodDays]),
+        series: facts.series.map(row => [row.id, row.unit, row.points.map(point => [point.key, point.value])]) }
+      // Preserve the earlier single-ingredient contract for an already-open client.
+    case 'ingredient-demand': case 'projected-stock':
+      return { ingredientId: facts.view.ingredientId, series: (facts.series || []).map(series => ({ unit: series.unit, basis: series.basis,
+        points: series.points.map(point => [point.key, point.value]) })), unitVersion: facts.coverage.currentUnitVersion ?? null, quantity: metrics.quantity ?? null, threshold: metrics.threshold ?? null }
     case 'revenue-trend': case 'weekday-pattern': case 'sales-forecast':
       return { series: (facts.series || []).map(series => ({ unit: series.unit, basis: series.basis,
         points: series.points.map(point => [point.key, point.value]) })) }

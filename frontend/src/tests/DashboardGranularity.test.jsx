@@ -44,6 +44,7 @@ const TXNS = [
 function setup() {
   apiRequest.mockImplementation(async url => {
     const base={status:'insufficient_history',total:null,forecast:[],history:[],generatedAt:'2026-11-10T02:00:00Z',method:{label:'Same-weekday moving average',windowDays:28,occurrences:4},training:{from:'2026-10-13',through:'2026-11-09',observedDays:0,missingDays:28},dataQuality:{complete:true},notice:'Insufficient history.'}
+    if(url.includes('/consolidated-data/inventory/charts')) return {data:{ingredients:[],comparison:{dates:[],items:[]},selectedIngredientId:null,history:[],forecast:null,projection:[],validation:null,dataQuality:{complete:true}}}
     if(url.includes('/consolidated-data/inventory')) return {data:{planning:[],wastage:[],usageWindow:{from:'2026-10-13',through:'2026-11-09',recordedSalesDays:0},dataQuality:{complete:true}}}
     if(url.includes('/customer-traffic/forecast')) return {data:{...base,hourlyForecast:Array.from({length:7},(_,index)=>({date:'2026-11-'+(10+index),hours:Array.from({length:24},(_,hour)=>({hour,samples:0,predictedCustomers:null})),staffing:{supportedHours:0,peakHours:[],leanHours:[]}}))}}
     if(url.includes('/consolidated-data/predictive')) return {data:{schemaVersion:1,generatedAt:base.generatedAt,period:{},forecastThrough:'2026-11-09',dataQuality:{complete:true},summary:{salesStatus:'insufficient_history',salesTotal:null,trafficStatus:'insufficient_history',trafficTotal:null,inventoryItems:0,salesScoredDays:0,trafficScoredDays:0},notes:['Insufficient recording history.'],rows:[{section:'Sales',basis:'Limitation',metric:'Recording coverage',value:null,status:'Insufficient history'}],export:{filename:'predictive-report-2026-11-10.csv',csv:'data'}}}
@@ -399,6 +400,9 @@ describe('DashboardContent granularity', () => {
    expect(list.querySelectorAll('.stock-item')).toHaveLength(5)
    expect(list.closest('.charts-grid')).toHaveClass('analytics-inventory-charts')
    const facts=spy.mock.results.map(result=>result.value).filter(fact=>fact.chartId==='low-stock'&&fact.status==='ready').at(-1)
+   const overview=spy.mock.results.map(result=>result.value).filter(fact=>fact.chartId==='inventory-status'&&fact.status==='ready').at(-1)
+   expect(overview.rows.map(row=>row.count)).toEqual([0,4,1])
+   expect(overview.rows.map(row=>row.label)).toEqual(['In Stock','Low Stock','Out of Stock'])
    expect(facts.rows).toHaveLength(5)
    expect(facts.rows[4].name).toBe('Alert ingredient 4')
   } finally {spy.mockRestore()}

@@ -15,7 +15,7 @@ import { AnalyticsProvider } from './pages/AnalyticsContext';
 import DashboardContent from './pages/DashboardContent';
 import { setCurrentActor } from './services/apiClient';
 import { authAPI } from './services/authAPI';
-import { hasAccess, pageModule, firstPage } from './services/permissions';
+import { hasAccess, pageModule, firstPage, roleLabel } from './services/permissions';
 import useAppFullscreen from './utils/useAppFullscreen';
 
 function App() {
@@ -169,7 +169,7 @@ function App() {
           <div className="avatar">{currentUser.username?.charAt(0)}</div>
           <div className="sidebar-footer-meta">
             <span className="sidebar-footer-name">{currentUser.username}</span>
-            <span className="sidebar-footer-role">{currentUser.role === 'stockist' ? 'Stockman' : currentUser.role}</span>
+            <span className="sidebar-footer-role">{roleLabel(currentUser.role)}</span>
           </div>
           <button className="sidebar-logout-btn" onClick={handleLogout} title="Logout" aria-label="Log out of POS">
             <LogOut size={17} />

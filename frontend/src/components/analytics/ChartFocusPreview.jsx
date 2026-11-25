@@ -6,6 +6,7 @@ import RefundInsights from './RefundInsights'
 import SalesTrendChart from './SalesTrendChart'
 import StockMovementChart from './StockMovementChart'
 import CustomerTrafficHeatmap, { formatHour } from './CustomerTrafficHeatmap'
+import BreakdownChart from './BreakdownChart'
 import { compareStock, formatStock } from '../../utils/formatStock'
 
 const value = entry => entry && typeof entry === 'object' ? entry.value : entry
@@ -28,16 +29,17 @@ function DataTable({ columns, rows, title }) {
 function Preview({ facts }) {
   const { chartId, rows, series, metrics, view } = facts
   if (!['ready', 'empty', 'insufficient_history'].includes(facts.status)) return <p className="text-muted">Waiting for the current chart data.</p>
+  if (['traffic-demographics', 'inventory-status'].includes(chartId)) return <BreakdownChart rows={rows} />
   if (series.length) {
     const data = { labels: series[0].points.map(point => point.label || point.key), datasets: series.map(entry => ({
       label: entry.label || (entry.basis === 'forecast' ? 'Forecast' : 'Recorded'),
       data: entry.points.map(point => point.value),
-      borderColor: entry.basis === 'forecast' ? '#d4a373' : '#16a34a',
-      backgroundColor: entry.basis === 'forecast' ? '#d4a373' : '#16a34a',
+      borderColor: entry.color || (entry.basis === 'forecast' ? '#d4a373' : '#16a34a'),
+      backgroundColor: entry.color || (entry.basis === 'forecast' ? '#d4a373' : '#16a34a'),
       borderDash: entry.basis === 'forecast' ? [6, 4] : undefined, fill: false, spanGaps: false,
     })) }
     return <><div className="chart-focus-series"><SalesTrendChart data={data} variant={view.variant || (chartId === 'weekday-pattern' ? 'bar' : 'line')}
-      showSummary={false} showLegend={series.length > 1} allowZeroValues valueType={series[0].unit === 'customers' ? 'count' : 'currency'} /></div>
+      showSummary={false} showLegend={series.length > 1} allowZeroValues valueType={series[0].unit === 'customers' ? 'count' : series[0].unit.startsWith('PHP') ? 'currency' : 'quantity'} valueUnit={series[0].unit} /></div>
       {chartId === 'traffic-forecast' && rows.length > 0 && <div className="chart-focus-hourly"><h3>Hourly estimates: {view.selectedDay}</h3><div className="chart-focus-hours">{rows.map(row => <div key={row.hour}>
         <strong>{formatHour(row.hour)}</strong><span>{row.predictedCustomers ?? 'Unavailable'}</span><small>{row.samples} recorded samples</small>
       </div>)}</div></div>}</>

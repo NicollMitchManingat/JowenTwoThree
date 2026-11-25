@@ -1,6 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor, fireEvent, act, within } from '@testing-library/react'
+import IngredientUsageComparison from '../components/analytics/IngredientUsageComparison'
+import InventoryIngredientCharts from '../components/analytics/InventoryIngredientCharts'
+import ForecastValidationPanel from '../components/analytics/ForecastValidationPanel'
+import ForecastComparisonChart from '../components/analytics/ForecastComparisonChart'
 import PaymentMixChart from '../components/analytics/PaymentMixChart'
+import CustomerDemographicsChart from '../components/analytics/CustomerDemographicsChart'
 import { ChartFactsProvider, useChartFacts, PublishChartFacts } from '../components/analytics/ChartFactsContext'
 import VoucherEffectivenessChart from '../components/analytics/VoucherEffectivenessChart'
 import RefundInsights from '../components/analytics/RefundInsights'
@@ -27,6 +32,21 @@ vi.mock('../services/db', () => ({
 describe('Tier-1 analytics widgets', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+  })
+  it('shows the recorded demographic split and retains unclassified customers as Unspecified', async () => {
+    db.getHourlyTraffic.mockResolvedValue([{ customers: 8, male: 2, female: 3, unspecified: 1 }])
+    render(<ChartFactsProvider scope={{ start: '2026-11-01', end: '2026-11-09', detail: 'daily' }}>
+      <CustomerDemographicsChart start="2026-11-01" end="2026-11-09" /><FactReader id="traffic-demographics" />
+    </ChartFactsProvider>)
+    await waitFor(() => expect(readFact('traffic-demographics')?.status).toBe('ready'))
+    expect(readFact('traffic-demographics').rows.map(row => row.count)).toEqual([2, 3, 3])
+    expect(screen.getByText('Unspecified').closest('div')).toHaveTextContent('3')
+    expect(db.getHourlyTraffic).toHaveBeenCalledWith('2026-11-01', '2026-11-09')
+  })
+  it('rejects inconsistent demographic counts rather than inventing a split', async () => {
+    db.getHourlyTraffic.mockResolvedValue([{ customers: 1, male: 2, female: 0, unspecified: 0 }])
+    render(<CustomerDemographicsChart start="2026-11-01" end="2026-11-09" />)
+    expect(await screen.findByRole('alert')).toHaveTextContent('do not match')
   })
 
   it('PaymentMixChart should show the top method share and empty state', () => {
@@ -385,6 +405,11 @@ describe('focused chart previews',()=>{
   'low-stock':{rows:[{name:'Milk',quantity:'0.00001',unit:'L',threshold:'3',status:'low'}]},
   'recorded-wastage':{rows:[{name:'Beans',unit:null,recordedQuantities:['1','2'],unitVersion:null,entries:2,reasons:['spoiled']}]},
   'inventory-planning':{rows:[{name:'Beans',quantity:'2',unit:'g',dailyUsage:null,daysCover:null,sevenDayUsage:null,shortage:null,recommendation:'Review recipe links'}]},
+  'traffic-demographics':{rows:[{key:'male',label:'Male',count:3,color:'#3b82f6'}]},
+  'inventory-status':{rows:[{key:'good',label:'In Stock',count:3,color:'#16a34a'}]},
+  'ingredient-usage':{series:series.map(row=>({...row,unit:'g'})),view:{ingredientId:'ingredient'}},
+  'ingredient-demand':{series:series.map(row=>({...row,unit:'g'})),view:{ingredientId:'ingredient'}},
+  'projected-stock':{series:series.map(row=>({...row,unit:'g',basis:'scenario'})),view:{ingredientId:'ingredient'}},
  }
  beforeEach(()=>vi.clearAllMocks())
  it.each(Object.keys(CHART_FACTS))('renders %s from displayed facts without another API read',async chartId=>{
@@ -430,4 +455,122 @@ it('bounds an explanation request timeout and clears the loading state', async (
   expect(screen.getByRole('alert')).toHaveTextContent('timed out')
   expect(screen.queryByRole('status')).not.toBeInTheDocument()
  } finally {view.unmount();vi.useRealTimers()}
+})
+
+
+describe('ingredient charts and retrospective comparisons',()=>{
+ const scope={start:'2026-11-01T00:00:00+08:00',end:'2026-11-25T23:59:59.999+08:00',detail:'daily'}
+ const days=(from,n)=>Array.from({length:n},(_,i)=>new Date(Date.parse(from+'T12:00:00Z')+i*86400000).toISOString().slice(0,10))
+ const validation=()=>({metric:'inventory',status:'replay_available',generatedAt:'2026-11-25T04:00:00Z',method:{trainingDays:28,horizonDays:7},
+  readWindow:{from:'2026-09-30',through:'2026-11-24'},evaluation:{from:'2026-10-28',through:'2026-11-24'},
+  coverage:{attemptedFolds:4,scoredFolds:4,scoredDays:28,missingActualDays:0},metrics:{days:28,mae:1,bias:-1,wape:10},
+  folds:[0,1,2,3].map(i=>({origin:days('2026-10-27',22)[i*7],from:days('2026-10-28',28)[i*7],through:days('2026-10-28',28)[i*7+6],status:'scored',observedActualDays:7,trainingObservedDays:28,metrics:{days:7,mae:1,bias:-1,wape:10}})),
+  comparison:{days:0,model:null,baseline:null,lowerError:null},points:days('2026-10-28',28).map(date=>({date,actual:10,predicted:9,deviation:-1})),
+  dataQuality:{complete:true,historicalSnapshots:false,basis:'current_record_replay'},limitations:['Current-record replay; future accuracy is not established.']})
+ const payload=()=>{
+  const selected={id:'11111111-1111-4111-8111-111111111111',name:'Beans',unit:'g',unitVersion:'1',quantity:'500',threshold:'50'}
+  return {comparison:{dates:days('2026-11-01',25),items:[selected,{...selected,id:'22222222-2222-4222-8222-222222222222',name:'Milk',unit:'mL'}].map(row=>({...row,values:days('2026-11-01',25).map((_,i)=>i===24?null:'100'),total:'2400',recordedDays:24,excludedDays:0}))},ingredients:[selected,{...selected,id:'22222222-2222-4222-8222-222222222222',name:'Milk',unit:'mL'}],selectedIngredientId:selected.id,selected,
+   history:days('2026-11-01',25).map(date=>({date,quantity:date==='2026-11-25'?null:'100'})),
+   forecast:{status:'ready',total:700,history:days('2026-10-28',28).map(date=>({date,quantity:100})),forecast:days('2026-11-25',7).map(date=>({date,quantity:100})),method:{windowDays:28,minimumSamplesPerWeekday:2},training:{from:'2026-10-28',through:'2026-11-24',observedDays:28,missingDays:0},notice:'Recorded deductions are a usage proxy.'},
+   projection:days('2026-11-25',8).map((date,i)=>({date,quantity:String(Math.max(500-i*100,0)),shortage:String(Math.max(i*100-500,0))})),validation:validation(),thresholdDate:'2026-11-30',projectionNotice:'No replenishment is assumed.',coverage:{currentUnitVersion:'1'},dataQuality:{complete:true},generatedAt:'2026-11-25T04:00:00Z'}
+ }
+ beforeEach(()=>vi.resetAllMocks())
+ it('renders recorded use before planning charts, publishes exact displayed evidence and selects ingredients',async()=>{
+  apiRequest.mockResolvedValue({data:payload()})
+  render(<ChartFactsProvider scope={scope}><InventoryIngredientCharts {...scope}><h3>Recorded Wastage</h3></InventoryIngredientCharts><FactReader id="ingredient-demand" /><FactReader id="ingredient-usage" /></ChartFactsProvider>)
+  await waitFor(()=>expect(readFact('ingredient-demand')?.status).toBe('ready'))
+  expect(screen.getAllByRole('heading',{level:3}).map(node=>node.textContent)).toEqual(['Ingredient Usage Trend','Recorded Wastage','Ingredient Demand Forecast','Projected Stock Balance','Historical Forecast Check'])
+  expect(readFact('ingredient-demand').metrics.forecastTotal).toMatchObject({value:700,unit:'g'})
+  expect(readFact('ingredient-demand').view.ingredientId).toBe(payload().selected.id)
+  expect(screen.getByTestId('validation-mae')).toHaveTextContent('1 g')
+  expect(screen.getByTestId('validation-bias')).toHaveTextContent('-1 g')
+  apiRequest.mockImplementationOnce(()=>new Promise(()=>{}))
+  fireEvent.change(screen.getByLabelText('Forecast ingredient'),{target:{value:payload().ingredients[1].id}})
+  expect(readFact('ingredient-usage').status).toBe('ready')
+  expect(screen.getByRole('table',{name:'Ingredient usage comparison summary'})).toBeVisible()
+  await waitFor(()=>expect(apiRequest.mock.calls.at(-1)[0]).toContain('ingredientId='+payload().ingredients[1].id))
+ })
+ it('retains unknown history and does not invent a forecast from incomplete coverage',async()=>{
+  const data=payload();data.forecast={...data.forecast,status:'insufficient_history',total:null,forecast:[]};data.projection=[]
+  apiRequest.mockResolvedValue({data})
+  render(<InventoryIngredientCharts {...scope} />)
+  await screen.findAllByText(/Forecast unavailable: insufficient matching/)
+  expect(screen.queryByText(/Seven-day estimated use/)).not.toBeInTheDocument()
+  expect(screen.queryByText(/Estimated usage exceeding stock/)).not.toBeInTheDocument()
+ })
+ it('fails closed on incomplete chart data and supports retry',async()=>{
+  apiRequest.mockResolvedValueOnce({data:{...payload(),dataQuality:{complete:false}}}).mockResolvedValue({data:payload()})
+  render(<InventoryIngredientCharts {...scope} />)
+  expect(await screen.findByRole('alert')).toHaveTextContent('incomplete')
+  expect(screen.queryByText(/Seven-day estimated use/)).not.toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button',{name:'Retry ingredient charts'}))
+  await screen.findByText(/Seven-day estimated use/)
+ })
+ it('aborts changed filters and ignores late chart results',async()=>{
+  let late;apiRequest.mockImplementationOnce(()=>new Promise(resolve=>{late=resolve})).mockResolvedValue({data:payload()})
+  const view=render(<InventoryIngredientCharts {...scope} />)
+  const firstSignal=apiRequest.mock.calls[0][1].signal
+  view.rerender(<InventoryIngredientCharts {...scope} start="2026-11-02T00:00:00+08:00" />)
+  expect(firstSignal.aborted).toBe(true)
+  await screen.findByText(/Seven-day estimated use/)
+  await act(async()=>late({data:{...payload(),selected:{...payload().selected,name:'Stale ingredient'}}}))
+  expect(screen.queryByText('Stale ingredient')).not.toBeInTheDocument()
+ })
+ it('plots signed error with correct units and preserves unscored gaps',()=>{
+  render(<ForecastComparisonChart points={[{date:'2026-11-01',actual:10,predicted:8,deviation:-2},{date:'2026-11-03',actual:10,predicted:12,deviation:2}]} unit="g" />)
+  expect(Line.mock.calls.at(-1)[0].data.datasets[0].data).toEqual([10,null,10])
+  fireEvent.change(screen.getByLabelText('Comparison view'),{target:{value:'deviation'}})
+  expect(Line.mock.calls.at(-1)[0].data.datasets[0].data).toEqual([-2,null,2])
+  expect(Line.mock.calls.at(-1)[0].options.plugins.tooltip.callbacks.label({dataset:{label:'Error'},parsed:{y:-2}})).toContain('-2 g')
+ })
+ it('rejects inconsistent scored point dates and deviations',async()=>{
+  const data=validation();data.metric='sales';data.points[0].deviation=100
+  apiRequest.mockResolvedValue({data})
+  render(<ForecastValidationPanel metric="sales" />)
+  fireEvent.click(screen.getByRole('button',{name:'Run historical check'}))
+  expect(await screen.findByRole('alert')).toHaveTextContent('incomplete')
+  expect(screen.queryByTestId('validation-mae')).not.toBeInTheDocument()
+ })
+})
+
+
+describe('professional ingredient usage comparisons',()=>{
+ const unitItem=(n,unit='g',total='10')=>({id:String(n).padStart(8,'0')+'-1111-4111-8111-111111111111',name:'Ingredient '+n,unit,unitVersion:'2',values:[total,null],total,recordedDays:1,excludedDays:0})
+ const comparison=()=>({dates:['2026-11-01','2026-11-02'],items:[unitItem(1,'g','30'),unitItem(2,'g','20'),unitItem(3),unitItem(4),unitItem(5),unitItem(6),unitItem(7,'mL','50')]})
+ const scope={start:'2026-11-01T00:00:00+08:00',end:'2026-11-02T23:59:59.999+08:00',detail:'daily'}
+ beforeEach(()=>vi.resetAllMocks())
+ it('defaults to the three highest recorded totals in one unit, with distinct lines and unknown gaps',async()=>{
+  render(<ChartFactsProvider scope={scope}><IngredientUsageComparison data={{comparison:comparison()}} /><FactReader id="ingredient-usage" /></ChartFactsProvider>)
+  const table=screen.getByRole('table',{name:'Ingredient usage comparison summary'})
+  expect(within(table).getAllByRole('row')).toHaveLength(4)
+  expect(screen.getByRole('button',{name:'Grams g'})).toHaveAttribute('aria-pressed','true')
+  expect(Line.mock.calls.at(-1)[0].data.datasets.map(row=>row.data)).toEqual([[30,null],[20,null],[10,null]])
+  expect(new Set(Line.mock.calls.at(-1)[0].data.datasets.map(row=>row.borderColor)).size).toBe(3)
+  await waitFor(()=>expect(readFact('ingredient-usage')?.rows).toHaveLength(3))
+  expect(readFact('ingredient-usage').rows[0]).toMatchObject({total:'30',average:30,recordedDays:1,periodDays:2})
+  expect(apiRequest).not.toHaveBeenCalled()
+ })
+ it('allows up to five selected ingredients, removal and separate unit selections without fetching forecasts',()=>{
+  render(<IngredientUsageComparison data={{comparison:comparison()}} />)
+  fireEvent.change(screen.getByLabelText('Add ingredient'),{target:{value:unitItem(4).id}})
+  fireEvent.change(screen.getByLabelText('Add ingredient'),{target:{value:unitItem(5).id}})
+  expect(screen.getByLabelText('Add ingredient')).toBeDisabled()
+  fireEvent.click(screen.getByRole('button',{name:'Remove Ingredient 1 from comparison'}))
+  expect(screen.getByLabelText('Add ingredient')).not.toBeDisabled()
+  fireEvent.click(screen.getByRole('button',{name:'Milliliters mL'}))
+  expect(screen.getByRole('table')).toHaveTextContent('Ingredient 7')
+  expect(screen.getByRole('table')).not.toHaveTextContent('Ingredient 2')
+  fireEvent.click(screen.getByRole('button',{name:'Grams g'}))
+  expect(screen.queryByRole('button',{name:'Remove Ingredient 1 from comparison'})).not.toBeInTheDocument()
+  expect(screen.getByRole('button',{name:'Remove Ingredient 2 from comparison'})).toBeInTheDocument()
+  expect(apiRequest).not.toHaveBeenCalled()
+ })
+ it('can select an ingredient with no comparable history without manufacturing a zero',()=>{
+  const data=comparison();data.items=[{...unitItem(1),total:null,values:[null,null],recordedDays:0}]
+  render(<IngredientUsageComparison data={{comparison:data}} />)
+  expect(screen.getByText(/Select up to five/)).toBeInTheDocument()
+  fireEvent.change(screen.getByLabelText('Add ingredient'),{target:{value:unitItem(1).id}})
+  expect(screen.getByText(/No comparable sale deductions/)).toBeInTheDocument()
+  expect(within(screen.getByRole('table')).getAllByText('Unavailable')).toHaveLength(2)
+ })
 })

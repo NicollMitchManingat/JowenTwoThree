@@ -8,9 +8,9 @@ const config = require('./insightsConfig')
 
 const FOLDS = 4
 const unavailable = () => Object.assign(new Error('Forecast checks contain invalid or unsupported history. Please review the records.'), { statusCode: 503 })
-const round = value => {
+const round = (value, precision = 2) => {
   if (!Number.isFinite(value)) throw unavailable()
-  return Number(value.toFixed(2))
+  return Number(value.toFixed(precision))
 }
 function validationWindow(asOf, now = new Date()) {
   const today = dayStart(now), requested = asOf === undefined ? today : calendarStart(asOf)
@@ -29,20 +29,20 @@ function inWindow(rows, from, until) {
     return time >= from.getTime() && time < until.getTime()
   })
 }
-function metrics(pairs) {
+function metrics(pairs, precision = 2) {
   if (!pairs.length) return null
   const error = pairs.reduce((sum, pair) => sum + Math.abs(pair.predicted - pair.actual), 0)
   const actual = pairs.reduce((sum, pair) => sum + Math.abs(pair.actual), 0)
   if (!Number.isFinite(error) || !Number.isFinite(actual)) throw unavailable()
-  return { days: pairs.length, mae: round(error / pairs.length),
+  return { days: pairs.length, mae: round(error / pairs.length, precision), bias: round(pairs.reduce((sum, pair) => sum + pair.predicted - pair.actual, 0) / pairs.length, precision),
     wape: actual > 0 ? round(error / actual * 100) : null }
 }
 
 // Replays the production builders without passing later dated rows to training.
 // Current row revisions/statuses are NOT historical snapshots; never label this
 // a prospective accuracy result. Nonoverlapping holdouts avoid scoring a day twice.
-function buildForecastValidation({ metric, through, transactions = [], refunds = [], trafficRows = [] }) {
-  if (!['sales', 'traffic'].includes(metric)) throw Object.assign(new Error('Unknown forecast check.'), { statusCode: 400 })
+function buildForecastValidation({ metric, through, transactions = [], refunds = [], trafficRows = [], dailySeries }) {
+  if (!['sales', 'traffic', 'inventory'].includes(metric)) throw Object.assign(new Error('Unknown forecast check.'), { statusCode: 400 })
   const end = calendarStart(through)
   if (!end) throw Object.assign(new Error('Invalid forecast check date.'), { statusCode: 400 })
   const horizon = config.FORECAST_DAYS, trainingDays = config.TRAILING_DAYS
@@ -56,8 +56,10 @@ function buildForecastValidation({ metric, through, transactions = [], refunds =
   for (const row of losses) {
     if (row.refund_amount == null || !Number.isFinite(Number(row.refund_amount)) || Number(row.refund_amount) < 0) throw unavailable()
   }
-  const actuals = metric === 'sales' ? netDailySales(sales, losses)
+  if (metric === 'inventory' && (!dailySeries || Object.entries(dailySeries).some(([date, value]) => !calendarStart(date) || !Number.isFinite(value) || value < 0))) throw unavailable()
+  const actuals = metric === 'inventory' ? dailySeries : metric === 'sales' ? netDailySales(sales, losses)
     : Object.fromEntries([...aggregateTraffic(traffic)].map(([date, row]) => [date, row.customers]))
+  const precision = metric === 'inventory' ? 6 : 2
   const allPairs = [], commonModel = [], commonBaseline = []
   const folds = Array.from({ length: FOLDS }, (_, index) => {
     const origin = new Date(end.getTime() - (FOLDS - index) * horizon * DAY_MS)
@@ -65,16 +67,16 @@ function buildForecastValidation({ metric, through, transactions = [], refunds =
     const trainUntil = new Date(origin.getTime() + DAY_MS)
     const trainSales = inWindow(sales, trainFrom, trainUntil), trainRefunds = inWindow(losses, trainFrom, trainUntil)
     const trainTraffic = inWindow(traffic, trainFrom, trainUntil)
-    const trainActuals = metric === 'sales' ? netDailySales(trainSales, trainRefunds)
+    const trainActuals = metric === 'inventory' ? Object.fromEntries(Object.entries(dailySeries).filter(([date]) => calendarStart(date) >= trainFrom && calendarStart(date) < trainUntil)) : metric === 'sales' ? netDailySales(trainSales, trainRefunds)
       : Object.fromEntries([...aggregateTraffic(trainTraffic)].map(([date, row]) => [date, row.customers]))
-    const prediction = metric === 'sales' ? buildSalesForecast(trainActuals, dayKey(origin), config)
+    const prediction = metric === 'inventory' ? buildSalesForecast(trainActuals, dayKey(origin), { ...config, FORECAST_DECIMAL_PLACES: 6 }) : metric === 'sales' ? buildSalesForecast(trainActuals, dayKey(origin), config)
       : buildTrafficForecast(trainTraffic, dayKey(origin), config)
     const dates = Array.from({ length: horizon }, (_, day) => dayKey(new Date(origin.getTime() + (day + 1) * DAY_MS)))
     const known = date => actuals[date] != null && Number.isFinite(actuals[date]) && actuals[date] >= 0
     const observed = dates.filter(known).length
     const status = prediction.status !== 'ready' ? 'insufficient_training' : observed !== horizon ? 'missing_actuals' : 'scored'
     const pairs = status === 'scored' ? prediction.forecast.map(row => ({ date: row.date,
-      actual: actuals[row.date], predicted: metric === 'sales' ? row.predictedRevenue : row.predictedCustomers })) : []
+      actual: actuals[row.date], predicted: metric === 'traffic' ? row.predictedCustomers : row.predictedRevenue })) : []
     const baseline = pairs.map(pair => ({ ...pair, predicted: trainActuals[dayKey(new Date(calendarStart(pair.date).getTime() - horizon * DAY_MS))] }))
     const baselineAvailable = pairs.length === horizon && baseline.every(pair => pair.predicted != null && Number.isFinite(pair.predicted))
     allPairs.push(...pairs)
@@ -82,9 +84,9 @@ function buildForecastValidation({ metric, through, transactions = [], refunds =
     if (baselineAvailable) { commonModel.push(...pairs); commonBaseline.push(...baseline) }
     return { origin: dayKey(origin), trainingFrom: dayKey(trainFrom), from: dates[0], through: dates.at(-1), status,
       observedActualDays: observed, trainingObservedDays: prediction.training.observedDays,
-      metrics: metrics(pairs), baselineAvailable }
+      metrics: metrics(pairs, precision), baselineAvailable }
   })
-  const comparisonModel = metrics(commonModel), baselineMetrics = metrics(commonBaseline)
+  const comparisonModel = metrics(commonModel, precision), baselineMetrics = metrics(commonBaseline, precision)
   const modelError = commonModel.reduce((sum, pair) => sum + Math.abs(pair.actual - pair.predicted), 0)
   const baselineError = commonBaseline.reduce((sum, pair) => sum + Math.abs(pair.actual - pair.predicted), 0)
   return { metric, status: allPairs.length ? 'replay_available' : 'insufficient_history',
@@ -95,7 +97,8 @@ function buildForecastValidation({ metric, through, transactions = [], refunds =
     coverage: { attemptedFolds: FOLDS, scoredFolds: folds.filter(fold => fold.status === 'scored').length,
       scoredDays: allPairs.length, missingActualDays: folds.reduce((sum, fold) => sum + horizon - fold.observedActualDays, 0),
       insufficientTrainingFolds: folds.filter(fold => fold.status === 'insufficient_training').length },
-    metrics: metrics(allPairs),
+    metrics: metrics(allPairs, precision),
+    points: allPairs.map(pair => ({ ...pair, deviation: round(pair.predicted - pair.actual, precision) })),
     comparison: { label: 'Same weekday last week', days: commonModel.length, model: comparisonModel, baseline: baselineMetrics,
       lowerError: !commonModel.length ? null : Math.abs(modelError - baselineError) < 1e-9 ? 'tie' : modelError < baselineError ? 'model' : 'baseline' },
     dataQuality: { complete: true, timeZone: 'Asia/Manila', recordingCoverage: 'unknown', historicalSnapshots: false,
@@ -106,6 +109,8 @@ function buildForecastValidation({ metric, through, transactions = [], refunds =
       'Only complete seven-day comparison periods with enough earlier recorded history and results for every day are scored. Missing recordings are unknown, not zero; coverage is not verified.',
       'MAE is the average absolute daily error. WAPE is total absolute error divided by total recorded amount, as a percentage; it is unavailable when that total is zero. Lower error is better. WAPE is not an accuracy percentage.',
       'WAPE depends on the recorded volume in the scored period. Do not compare it across different periods or treat it as a guarantee of performance.',
+      'Signed deviation is forecast minus recorded actual. Positive bias means overestimation; negative bias means underestimation. This is prediction error, not statistical variance.',
+      ...(metric === 'inventory' ? ['Checks compare recorded stock deductions in the current unit version. Deductions are a usage proxy and do not measure unmet customer demand; missing adjustment days are unknown.'] : []),
       'The last-week benchmark is compared on the same complete weeks only. The calculation method stays the same; no confidence percentage or prediction interval is inferred.',
       ...(metric === 'traffic' ? ['This checks daily customer forecasts only. Hourly peaks, lean periods and staffing advice have not been validated.'] : []),
     ] }

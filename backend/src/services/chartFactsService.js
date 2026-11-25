@@ -31,7 +31,10 @@ async function validateRequest(body) {
   if (scope.refreshKey !== undefined && (!Number.isSafeInteger(scope.refreshKey) || scope.refreshKey < 0)) throw fail('Invalid refresh state.')
   if (scope.sessionBasis != null && scope.sessionBasis !== 'selected_session_calendar_bounds') throw fail('Invalid session basis.')
   const view = body.view || {}
-  if (Array.isArray(view) || Object.keys(view).some(key => !['variant', 'averageLabel', 'page', 'pageSize', 'totalRows', 'selectedDay'].includes(key)) ||
+  if (Array.isArray(view) || Object.keys(view).some(key => !['variant', 'averageLabel', 'page', 'pageSize', 'totalRows', 'selectedDay', 'ingredientId', 'comparisonUnit', 'ingredientIds'].includes(key)) ||
+    (view.comparisonUnit !== undefined && (body.chartId !== 'ingredient-usage' || typeof view.comparisonUnit !== 'string' || view.comparisonUnit.length > 40)) ||
+    (view.ingredientIds !== undefined && (body.chartId !== 'ingredient-usage' || !Array.isArray(view.ingredientIds) || view.ingredientIds.length > 5 || new Set(view.ingredientIds).size !== view.ingredientIds.length || view.ingredientIds.some(id => typeof id !== 'string' || !/^[a-f0-9-]{36}$/i.test(id)))) ||
+    (view.ingredientId !== undefined && (typeof view.ingredientId !== 'string' || !/^[a-f0-9-]{36}$/i.test(view.ingredientId))) ||
     (view.page !== undefined && (!Number.isInteger(view.page) || view.page < 0 || view.page > 2000)) ||
     (view.pageSize !== undefined && view.pageSize !== 15) ||
     (view.variant !== undefined && !['line', 'bar'].includes(view.variant)) ||
@@ -98,15 +101,21 @@ async function buildFacts(input, { client, now = new Date(), signal } = {}) {
     items.forEach(row => add(row.products?.product_name || row.product_id, row.quantity))
     transactions.filter(row => !represented.has(row.id)).forEach(row => (Array.isArray(row.cart) ? row.cart : []).forEach(line => add(line.name || line.product_name, line.qty ?? line.quantity)))
     rows = [...totals].map(([name, sold]) => ({ name, sold: metric(sold, 'product_units') })).sort((a, b) => b.sold.value - a.sold.value).slice(0, 5)
-  } else if (chartId === 'low-stock') {
+  } else if (chartId === 'low-stock' || chartId === 'inventory-status') {
     const inventory = await readAll((a, b) => units.readUnitRows(versioned => {
       const query = database.from('inventory').select(units.inventoryColumns(versioned)).eq('is_active', true).order('id').range(a, b)
       return signal && query.abortSignal ? query.abortSignal(signal) : query
     }), { label: 'Inventory' })
-    rows = inventory.filter(row => stock.inventoryStatus(row) !== 'good').sort((a, b) => Number(a.stock_quantity) - Number(b.stock_quantity)).map(row => ({
+    rows = chartId === 'inventory-status' ? ['good', 'low', 'out'].map((key, index) => ({ key, label: ['In Stock', 'Low Stock', 'Out of Stock'][index],
+      count: inventory.filter(row => stock.inventoryStatus(row) === key).length, color: ['#16a34a', '#f59e0b', '#dc2626'][index] }))
+      : inventory.filter(row => stock.inventoryStatus(row) !== 'good').sort((a, b) => Number(a.stock_quantity) - Number(b.stock_quantity)).map(row => ({
       id: row.id, name: row.name, quantity: String(row.stock_quantity), unit: row.unit || null, unitVersion: row.unit_version == null ? null : String(row.unit_version),
       threshold: String(row.low_stock_threshold ?? 5), status: stock.inventoryStatus(row),
     }))
+  } else if (chartId === 'traffic-demographics') {
+    const traffic = await read('customer_traffic', 'id,created_at,number_of_customer,male_count,female_count,unspecified_count')
+    const totals = math.demographicTotals(traffic)
+    rows = ['male', 'female', 'unspecified'].map((key, index) => ({ key, label: ['Male', 'Female', 'Unspecified'][index], count: totals[key], color: ['#3b82f6', '#a855f7', '#94a3b8'][index] }))
   } else if (['traffic-comparison', 'traffic-heatmap'].includes(chartId)) {
     const traffic = await read('customer_traffic', 'id,created_at,number_of_customer,male_count,female_count,unspecified_count')
     const bins = Array.from({ length: 24 }, (_, hour) => ({ hour, customers: 0, male: 0, female: 0, unspecified: 0, transactions: 0 }))
@@ -126,6 +135,13 @@ async function buildFacts(input, { client, now = new Date(), signal } = {}) {
       else if (male + female + unspecified !== customers) unspecified = Math.max(0, customers - male - female)
       return { hour: row.hour, customers, male, female, unspecified }
     })
+  } else if (['ingredient-usage', 'ingredient-demand', 'projected-stock'].includes(chartId)) {
+    const data = await require('./inventoryForecastService').getInventoryCharts({ start: scope.start, end: scope.end, ingredientId: view.ingredientId, client: database, now, signal })
+    if (chartId === 'ingredient-usage' && view.comparisonUnit !== undefined) {
+      if ((!data.comparison.items.some(row => row.unit === view.comparisonUnit) && data.comparison.items.length) || (view.ingredientIds || []).some(id => !data.comparison.items.some(row => row.id === id && row.unit === view.comparisonUnit))) throw fail('Select ingredients with the same recorded unit.')
+      return { ...contract.usageComparisonSnapshot(data.comparison, view), title: contract.CHART_FACTS[chartId][0], basis: 'recorded', scope }
+    }
+    return { ...contract.ingredientChartSnapshot(data, chartId), title: contract.CHART_FACTS[chartId][0], basis: contract.CHART_FACTS[chartId][1], scope, view }
   } else if (['recorded-wastage', 'inventory-planning'].includes(chartId)) {
     const data = await inventoryAnalytics.getInventoryAnalytics({ start: scope.start, end: scope.end, client: database, now, signal })
     const all = chartId === 'recorded-wastage' ? data.wastage : data.planning
@@ -147,7 +163,7 @@ async function buildFacts(input, { client, now = new Date(), signal } = {}) {
   }
   if (status === 'ready' && !chartId.includes('forecast')) {
     const anyValue = series.some(entry => entry.points.some(point => point.value > 0)) ||
-      (chartId === 'traffic-heatmap' ? rows.some(row => row.customers > 0) : chartId === 'traffic-comparison'
+      (['traffic-demographics', 'inventory-status'].includes(chartId) ? rows.some(row => row.count > 0) : chartId === 'traffic-heatmap' ? rows.some(row => row.customers > 0) : chartId === 'traffic-comparison'
         ? rows.some(row => row.recordedCustomers.value > 0 || row.transactions.value > 0) : rows.length > 0)
     if (!anyValue) status = 'empty'
   }

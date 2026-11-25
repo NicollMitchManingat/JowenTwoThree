@@ -5,5 +5,6 @@ export const MODULES = [
 ]
 export const hasAccess = (user, module) => !!user && user.isActive !== false &&
   (user.role === 'admin' || user.permissions?.includes(module))
+export const roleLabel = role => ({ admin: 'Owner', cashier: 'Cashier', stockist: 'Stockman' })[role] || role
 export const pageModule = { pos: 'pos', inventory: 'inventory', orders: 'transactions', reports: 'analytics', settings: 'settings' }
 export const firstPage = user => Object.keys(pageModule).find(page => hasAccess(user, pageModule[page])) || null

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { UserCog, RefreshCcw, Tag, Users, CookingPot, Clock, Receipt, Lock, X } from 'lucide-react';
 import { db } from '../services/db';
-import { hasAccess } from '../services/permissions';
+import { hasAccess, roleLabel } from '../services/permissions';
 import { formatElapsed, loadSessionSummary } from '../services/sessionAnalytics';
 import DiscountManager from '../components/settings/DiscountManager';
 import AccountManager from '../components/settings/AccountManager';
@@ -154,7 +154,7 @@ export default function SettingsPage({ currentUser, onLogout }) {
               Role:
               <span className={`badge ${currentUser.role === 'admin' ? 'badge-success' : 'badge-neutral'}`}
                 style={{ textTransform: 'capitalize' }}>
-                {currentUser.role === 'stockist' ? 'Stockman' : currentUser.role}
+                {roleLabel(currentUser.role)}
               </span>
             </p>
             <button className="btn btn-secondary btn-full"

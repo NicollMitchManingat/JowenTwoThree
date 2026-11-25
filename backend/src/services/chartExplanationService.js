@@ -26,8 +26,20 @@ function findingsFor(facts, stockFormat = value => String(value), compareStock =
   const window = facts.coverage?.historyWindow, method = facts.coverage?.method
   const historyContext = Number.isInteger(window?.observedDays) && Number.isInteger(window?.missingDays)
     ? ` The history window has ${countText(window.observedDays, 'day')} with supported values and ${countText(window.missingDays, 'day')} without supported values; missing values are not filled with zero.` : ''
+  if (['traffic-demographics', 'inventory-status'].includes(facts.chartId)) {
+    const total = facts.rows.reduce((sum, row) => sum + row.count, 0)
+    add(`${total} ${facts.chartId === 'inventory-status' ? 'current active inventory items' : 'recorded customer visits'} are represented. ${facts.chartId === 'inventory-status' ? 'These counts describe current item statuses, not stock quantities at the selected historical date.' : 'These are recorded visits, not verified unique individuals. Unspecified counts remain unclassified; no male/female split is inferred.'}`)
+    facts.rows.forEach(row => add(`${compact(row.label)}: ${row.count}${total ? ` (${share(row.count, total)} of the displayed total)` : ''}.`))
+  }
   if (facts.status === 'insufficient_history') add(`There is insufficient recorded history for the full daily forecast.${historyContext}${Number.isInteger(method?.minimumSamplesPerWeekday) && Number.isInteger(method?.windowDays) ? ` The calculation requires at least ${method.minimumSamplesPerWeekday} recorded days for each weekday within its ${method.windowDays}-day history window.` : ''} Available historical figures can still be reviewed, but they do not support a complete daily projection.`)
-  if (facts.metrics.forecastTotal?.value != null) add(`The calculated seven-day projection totals ${facts.chartId === 'sales-forecast' ? money(facts.metrics.forecastTotal.value) : facts.metrics.forecastTotal.value + ' customers'}. This is an estimate, separate from recorded totals.${historyContext} It is based on the existing recorded-history calculation; it does not account for unrecorded events, future promotions or changes in operating conditions.`)
+  if (facts.metrics.forecastTotal?.value != null) add(`The calculated seven-day projection totals ${facts.chartId === 'sales-forecast' ? money(facts.metrics.forecastTotal.value) : facts.chartId === 'ingredient-demand' ? quantity(facts.metrics.forecastTotal.value) + ' ' + compact(facts.coverage.unit) : facts.metrics.forecastTotal.value + ' customers'}. This is an estimate, separate from recorded totals.${historyContext} It is based on the existing recorded-history calculation; it does not account for unrecorded events, future promotions or changes in operating conditions.`)
+  if (facts.chartId === 'ingredient-usage' && facts.view?.comparisonUnit !== undefined) {
+    add(`Comparing ${facts.rows.length} ingredients measured in ${compact(facts.coverage.unit)}. Each line includes matching recorded sale deductions in that ingredient's current unit/version; missing or incompatible dates remain unknown. Different recording coverage can affect the comparison.`)
+    facts.rows.forEach(row => add(`${compact(row.name)}: ${quantity(row.total)} ${compact(row.unit)} recorded across ${row.recordedDays} of ${row.periodDays} selected days. ${row.average === null ? 'No supported daily average is available.' : 'Average per recorded day: ' + quantity(row.average) + ' ' + compact(row.unit) + '.'} This does not measure unmet customer demand.`))
+  } else if (['ingredient-usage', 'ingredient-demand', 'projected-stock'].includes(facts.chartId)) {
+    add(`${compact(facts.coverage.ingredientName)} is measured in ${compact(facts.coverage.unit)}, current unit version ${compact(facts.coverage.currentUnitVersion)}. History includes matching recorded sale deductions only. Missing or incompatible dates remain unknown; these deductions do not establish all customer demand or historical recipe use.`)
+    if (facts.chartId === 'projected-stock') add(`Current recorded stock is ${quantity(facts.metrics.quantity)} ${compact(facts.coverage.unit)} and its low-stock threshold is ${quantity(facts.metrics.threshold)} ${compact(facts.coverage.unit)}. ${facts.coverage.thresholdDate ? 'Under the displayed scenario, the balance reaches or falls below that threshold on ' + compact(facts.coverage.thresholdDate) + '.' : 'No supported threshold-crossing date is displayed.'} The scenario assumes no further deductions today and no replenishment, wastage or other adjustments during its future complete days; it is not a guaranteed stock-out date.`)
+  }
   if (facts.chartId === 'traffic-forecast') {
     const supported = facts.rows.filter(row => row.predictedCustomers !== null && Number.isFinite(row.predictedCustomers) && row.samples > 0)
     const peak = supported.reduce((best, row) => !best || row.predictedCustomers > best.predictedCustomers ? row : best, null)
@@ -36,17 +48,17 @@ function findingsFor(facts, stockFormat = value => String(value), compareStock =
   if (facts.series.length) {
     // Put supported projections before their historical reference series so a
     // bounded fallback still explains the forecast, not only its history.
-    const ordered = facts.chartId.includes('forecast') ? [...facts.series].sort((a, b) => Number(b.basis === 'forecast') - Number(a.basis === 'forecast')) : facts.series
+    const ordered = facts.chartId.includes('forecast') || facts.chartId === 'ingredient-demand' ? [...facts.series].sort((a, b) => Number(b.basis === 'forecast') - Number(a.basis === 'forecast')) : facts.series
     ordered.forEach(series => {
       const points = series.points.filter((point, index) => point.value !== null && Number.isFinite(point.value) &&
         (facts.chartId !== 'weekday-pattern' || facts.coverage.observationsPerPoint?.[index] > 0))
       if (!points.length) return
       const maximum = points.reduce((best, row) => row.value > best.value ? row : best)
       const minimum = points.reduce((best, row) => row.value < best.value ? row : best)
-      const label = series.basis === 'forecast' ? 'forecast' : 'recorded'
-      const format = value => series.unit.startsWith('PHP') ? money(value) : `${value} customers`
+      const label = ['forecast', 'scenario', 'current'].includes(series.basis) ? series.basis : 'recorded'
+      const format = value => series.unit.startsWith('PHP') ? money(value) : series.unit === 'customers' ? `${value} customers` : `${quantity(value)} ${compact(series.unit)}`
       const samples = facts.chartId === 'weekday-pattern' ? facts.coverage.observationsPerPoint?.[series.points.indexOf(maximum)] : null
-      add(`Highest displayed ${label} value: ${format(maximum.value)} at ${compact(maximum.key)}${series.unit === 'PHP_per_recorded_day' ? ' (average recorded day)' : ''}. ${countText(points.length, 'supported point')} ${points.length === 1 ? 'is' : 'are'} available in this series.${points.length > 1 ? ` The lowest supported value is ${format(minimum.value)} (${compact(minimum.key)}).` : ''}${samples != null ? ` That weekday average is based on ${countText(samples, 'recorded day')}; weekdays may have different sample counts. Adding weekday averages does not give period revenue.` : ''}${points.filter(point => point.value === maximum.value).length > 1 ? ' Other displayed points tie for this highest value.' : ''}${label === 'forecast' ? ' These values are estimates, not recorded results.' : ' Missing points are not confirmed zero activity.'}`)
+      add(`Highest displayed ${label} value${facts.chartId === 'ingredient-usage' && facts.view?.comparisonUnit !== undefined ? ' for ' + compact(series.label) : ''}: ${format(maximum.value)} at ${compact(maximum.key)}${series.unit === 'PHP_per_recorded_day' ? ' (average recorded day)' : ''}. ${countText(points.length, 'supported point')} ${points.length === 1 ? 'is' : 'are'} available in this series.${points.length > 1 ? ` The lowest supported value is ${format(minimum.value)} (${compact(minimum.key)}).` : ''}${samples != null ? ` That weekday average is based on ${countText(samples, 'recorded day')}; weekdays may have different sample counts. Adding weekday averages does not give period revenue.` : ''}${points.filter(point => point.value === maximum.value).length > 1 ? ' Other displayed points tie for this highest value.' : ''}${label === 'forecast' ? ' These values are estimates, not recorded results.' : ' Missing points are not confirmed zero activity.'}`)
       if (facts.chartId === 'revenue-trend' && points.length > 1) {
         const first = points[0], last = points.at(-1), change = last.value - first.value
         const percent = first.value > 0 ? share(Math.abs(change), first.value) : null
@@ -97,7 +109,10 @@ function findingsFor(facts, stockFormat = value => String(value), compareStock =
     if (peak.customers > 0) add(`One of the busiest recorded clock-hour bins is ${hourText(peak.hour)} with ${peak.customers} customers, representing ${share(peak.customers, total)} of the recorded customers shown. This combines the same clock hour across selected dates. It identifies a workload period to review but does not determine required staff headcount.`)
   }
   if (!findings.length) add('No supported observations are available for this chart selection. This does not prove zero business activity.')
-  const actionText = facts.chartId.includes('forecast') ? 'Use supported projections as planning estimates and compare them with later recorded results.'
+  const actionText = facts.chartId === 'traffic-demographics' ? 'Review demographic recording completeness, including Unspecified counts, before interpreting patterns.'
+    : facts.chartId === 'inventory-status' ? 'Review low-stock and out-of-stock items against their individual thresholds before replenishment.'
+    : ['ingredient-usage', 'ingredient-demand', 'projected-stock'].includes(facts.chartId) ? 'Review recording coverage, unit consistency, physical stock and supplier delivery information before changing preparation or replenishment.'
+    : facts.chartId.includes('forecast') ? 'Use supported projections as planning estimates and compare them with later recorded results.'
     : ['low-stock', 'inventory-planning'].includes(facts.chartId) ? 'Review replenishment against the recorded unit, actual usage and supplier information before changing stock.'
     : facts.chartId === 'recorded-wastage' ? 'Review recorded waste reasons, handling and preparation quantities; confirm missing units before comparing amounts.'
     : facts.chartId.startsWith('traffic') ? 'Review staffing coverage around supported busy recorded hours; confirm recording coverage and service capacity before changing staff numbers.'
@@ -118,7 +133,11 @@ function limitationsFor(facts) {
   if (facts.basis === 'current') result.push('These are current balances, not inventory at the selected historical date. Do not combine different units.')
   if (facts.chartId === 'weekday-pattern') result.push('Weekday bars are averages over recorded days; their sum is not period revenue.')
   if (['forecast', 'scenario'].includes(facts.basis)) result.push('Projections/scenarios are separate from actual results. Recording support is not a guarantee of accuracy; historical comparisons do not prove future performance.')
-  if (facts.basis === 'scenario') result.push('Usage uses current recipes and a separate recorded-sales window; it is not exact historical consumption.')
+  if (facts.chartId === 'inventory-planning') result.push('Usage uses current recipes and a separate recorded-sales window; it is not exact historical consumption.')
+  if (['ingredient-usage', 'ingredient-demand', 'projected-stock'].includes(facts.chartId)) {
+    result.push('Uses matching recorded sale deductions in the ingredient unit/version. Missing days are unknown; deductions are a usage proxy and do not measure unmet demand.')
+    if (facts.chartId === 'projected-stock') result.push(...facts.limitations.filter(text => text.startsWith('Starts at the current balance') || text.startsWith('Historical starting balances')))
+  }
   return result
 }
 

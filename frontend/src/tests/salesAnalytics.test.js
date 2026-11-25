@@ -253,8 +253,8 @@ describe('chart facts display contract', () => {
     expect(facts.series).toHaveLength(1)
   })
 
-  it('defines the thirteen chart/panel contracts and separates current/scenario bases', () => {
-    expect(Object.keys(CHART_FACTS)).toHaveLength(13)
+  it('defines the eighteen chart/panel contracts and separates current/scenario bases', () => {
+    expect(Object.keys(CHART_FACTS)).toHaveLength(18)
     expect(createChartFacts({ chartId: 'low-stock' }).basis).toBe('current')
     expect(createChartFacts({ chartId: 'inventory-planning' }).basis).toBe('scenario')
   })

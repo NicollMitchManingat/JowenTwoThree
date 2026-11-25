@@ -8,6 +8,7 @@ function buildSalesForecast(daily, through, cfg = {}) {
   const horizon = cfg.FORECAST_DAYS || 7
   const occurrences = cfg.SAME_WEEKDAY_OCCURRENCES || 4
   const minimum = cfg.FORECAST_MIN_WEEKDAY_SAMPLES || 2
+  const precision = Number.isInteger(cfg.FORECAST_DECIMAL_PLACES) && cfg.FORECAST_DECIMAL_PLACES >= 0 && cfg.FORECAST_DECIMAL_PLACES <= 6 ? cfg.FORECAST_DECIMAL_PLACES : 0
   const first = new Date(end.getTime() - (windowDays - 1) * DAY_MS)
   const byWeekday = Array.from({ length: 7 }, () => [])
   const history = Array.from({ length: windowDays }, (_, index) => {
@@ -23,7 +24,8 @@ function buildSalesForecast(daily, through, cfg = {}) {
   const forecast = ready ? Array.from({ length: horizon }, (_, index) => {
     const date = dayKey(new Date(end.getTime() + (index + 1) * DAY_MS))
     const values = byWeekday[new Date(date + 'T12:00:00Z').getUTCDay()].slice(-occurrences)
-    return { date, predictedRevenue: Math.round(values.reduce((sum, value) => sum + value, 0) / values.length) }
+    const average = values.reduce((sum, value) => sum + value, 0) / values.length
+    return { date, predictedRevenue: Math.round(average * 10 ** precision) / 10 ** precision }
   }) : []
   return {
     status: ready ? 'ready' : 'insufficient_history',

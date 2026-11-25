@@ -116,7 +116,7 @@ export default function ChartExplanation({ chartId }) {
         <div className="chart-explanation-body" role="region" aria-label="Chart explanation">
           {facts?.scope.start && facts.scope.end && <div className="chart-explanation-period">
             <CalendarDays size={16} aria-hidden="true" /><div><span>Selected period</span><p>{new Date(facts.scope.start).toLocaleDateString('en-PH', { timeZone: 'Asia/Manila' })} to {new Date(facts.scope.end).toLocaleDateString('en-PH', { timeZone: 'Asia/Manila' })} <small>(Manila)</small></p>
-              {['current', 'forecast', 'scenario'].includes(facts.basis) && <small>{facts.basis === 'current' ? 'Inventory balances are current.' : facts.basis === 'forecast' ? 'Projection history is based on the period end.' : 'Uses current balances and recipes.'}</small>}</div>
+              {['current', 'forecast', 'scenario'].includes(facts.basis) && <small>{facts.basis === 'current' ? 'Inventory balances are current.' : facts.basis === 'forecast' ? 'Projection history is based on the period end.' : facts.chartId === 'projected-stock' ? 'Uses current balances and recorded deduction estimates.' : 'Uses current balances and recipes.'}</small>}</div>
           </div>}
           {current?.status === 'loading' ? <div className="chart-explanation-state" role="status">
             <LoaderCircle className="chart-explanation-spinner" size={26} aria-hidden="true" /><h3>Preparing your explanation</h3><p>Verifying chart data and selecting supported findings.</p>

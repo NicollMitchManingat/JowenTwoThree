@@ -104,6 +104,8 @@ export default function SalesTrendChart({
   showSummary = true,
   allowZeroValues = false,
   valueType = "currency",
+  valueUnit = '',
+  compactDates = false,
   chartId,
   factsStatus,
   pointKeys,
@@ -128,7 +130,8 @@ export default function SalesTrendChart({
     return <div data-testid="sales-loading">Loading sales chart...</div>;
   }
 
-  const formatValue = valueType === "count" ? value => Number(value).toLocaleString("en-PH", { maximumFractionDigits: 0 }) : formatPeso;
+  const formatValue = valueType === 'quantity' ? value => Number(value).toLocaleString('en-PH', { maximumFractionDigits: 4 }) + (valueUnit ? ` ${valueUnit}` : '')
+    : valueType === "count" ? value => Number(value).toLocaleString("en-PH", { maximumFractionDigits: 0 }) : formatPeso;
   const chartData = data && data.labels && data.labels.length > 0 ? data : defaultLineData;
   const isEmpty =
     !data || !data.labels || data.labels.length === 0 ||
@@ -186,8 +189,18 @@ export default function SalesTrendChart({
   };
   chartOptions.plugins = { ...baseOptions.plugins, legend: { display: showLegend, position: 'bottom' },
     tooltip: { ...baseOptions.plugins.tooltip, callbacks: { label: ctx => ' ' + (ctx.dataset.label || (valueType === 'count' ? 'Customers' : 'Revenue')) + ': ' + formatValue(ctx.parsed.y) } } };
+  if (compactDates) {
+    chartOptions.scales.x.grid = { display: false };
+    chartOptions.scales.x.ticks = { ...chartOptions.scales.x.ticks, maxRotation: 0, callback: function (value) {
+      const label = this.getLabelForValue(value);
+      return /^\d{4}-\d{2}-\d{2}$/.test(label) ? new Date(label + 'T12:00:00Z').toLocaleDateString('en-PH', { month: 'short', day: 'numeric', timeZone: 'UTC' }) : label;
+    } };
+    chartOptions.scales.y.grid = { color: 'rgba(148,163,184,.16)' };
+  }
   if (valueType === 'count') chartOptions.scales.y = { ...baseOptions.scales.y,
     ticks: { ...baseOptions.scales.y.ticks, precision: 0, callback: value => formatValue(value) } };
+  if (valueType === 'quantity') chartOptions.scales.y = { ...chartOptions.scales.y,
+    ticks: { maxTicksLimit: 5, callback: value => formatValue(value) } };
 
   return (
     <div

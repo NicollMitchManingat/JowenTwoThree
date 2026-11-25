@@ -109,7 +109,9 @@ const replaySales=replayDays.map((created_at,i)=>({id:'replay-'+i,created_at,tot
 describe('retrospective sales forecast checks',()=>{
  it('uses four past-only rolling holdouts with exact known error and an honest benchmark loss',()=>{
   const result=buildForecastValidation({metric:'sales',through:'2026-11-09',transactions:replaySales})
-  expect(result.metrics).toEqual({days:28,mae:62.5,wape:31.25})
+  expect(result.metrics).toEqual({days:28,mae:62.5,bias:-62.5,wape:31.25})
+  expect(result.points).toHaveLength(28)
+  expect(result.points.every(row=>row.deviation===Number((row.predicted-row.actual).toFixed(2)))).toBe(true)
   expect(result.folds.map(fold=>fold.metrics.mae)).toEqual([100,75,50,25])
   expect(result.folds[0]).toMatchObject({origin:'2026-10-12',trainingFrom:'2026-09-15',from:'2026-10-13',through:'2026-10-19'})
   expect(result.comparison).toMatchObject({days:28,lowerError:'baseline',baseline:{mae:25,wape:12.5}})
@@ -136,7 +138,7 @@ describe('retrospective sales forecast checks',()=>{
  })
  it('keeps explicit zero days and leaves WAPE undefined for zero totals',()=>{
   const result=buildForecastValidation({metric:'sales',through:'2026-11-09',transactions:replaySales.map(row=>({...row,total:0}))})
-  expect(result.status).toBe('replay_available');expect(result.metrics).toEqual({days:28,mae:0,wape:null})
+  expect(result.status).toBe('replay_available');expect(result.metrics).toEqual({days:28,mae:0,bias:0,wape:null})
   expect(result.comparison.lowerError).toBe('tie')
  })
  it('withholds all scores for sparse history, without claiming perfect accuracy',()=>{

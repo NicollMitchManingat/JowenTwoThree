@@ -1,7 +1,10 @@
 import { describe, it, expect } from 'vitest'
-import { formatStock, inventoryTotal, formatInventoryMoney, formatUnitPrice, compareStock, subtractStock, addStock, isLowStock } from '../utils/formatStock'
+import { formatStock, inventoryTotal, formatInventoryMoney, formatUnitPrice, compareStock, subtractStock, addStock, isLowStock, stockStatusLabel } from '../utils/formatStock'
 
 describe('formatStock', () => {
+  it.each([['good', 'In Stock'], ['Good', 'In Stock'], ['low', 'Low Stock'], ['out', 'Out of Stock']])('labels %s without changing its internal status code', (code, label) => {
+    expect(stockStatusLabel(code)).toBe(label)
+  })
   it.each([
     [0, '0'], [12, '12'], ['12.00', '12'],
     [0.25, '0.25'], ['8.50', '8.5'], [7.125, '7.125'],

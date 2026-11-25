@@ -8,6 +8,7 @@
 import { manilaDay } from './analyticsTime';
 import { reportDateRange, reportFilename } from './reportDateRange';
 import { addReportSheet, REPORT_DECIMAL } from './reportWorkbook';
+import { stockStatusLabel } from './formatStock';
 
 export const DETAIL_COLUMNS = [
   { header: 'Date', key: 'date', width: 12 },
@@ -345,9 +346,9 @@ export function buildConsolidatedWorkbook(
 
   const field = (header, key, width = 22, extra = {}) => ({ header, key, width, ...extra });
   addReportSheet(wb, { name: 'Inventory Balances', range,
-    note: 'Current quantities and prices, not balances at the historical period end. Watch quantity is a quantity threshold, not an expiry-date assessment. Missing prices are explicitly marked.',
+    note: 'Current quantities and prices, not balances at the historical period end. Stock status describes quantity availability, not expiry. Missing prices are explicitly marked.',
     columns: [field('Ingredient', 'name', 29), field('Category', 'category', 21), field('Quantity', 'quantity', 24, { decimal: true, format: REPORT_DECIMAL }), field('Unit', 'unit', 13), field('Price per unit (PHP)', 'price', 24, { decimal: true, format: REPORT_DECIMAL }), field('Total amount (PHP)', 'amount', 24, { decimal: true, format: MONEY_FMT }), field('Low-stock threshold', 'threshold', 24, { decimal: true, format: REPORT_DECIMAL }), field('Quantity status', 'status', 23)],
-    rows: inventorySummary.map(row => ({ name: row.name, category: row.category || 'Uncategorized', quantity: row.inStock ?? row.stock_quantity, unit: row.unit, price: row.unit_price, amount: row.total_amount, threshold: row.low_stock_threshold, status: row.status === 'NearingExpiration' ? 'Watch quantity' : row.status })) });
+    rows: inventorySummary.map(row => ({ name: row.name, category: row.category || 'Uncategorized', quantity: row.inStock ?? row.stock_quantity, unit: row.unit, price: row.unit_price, amount: row.total_amount, threshold: row.low_stock_threshold, status: stockStatusLabel(row.status) })) });
   const usage = inventoryAnalytics;
   addReportSheet(wb, { name: 'Estimated Ingredient Usage', range,
     note: usage ? `Usage data: ${usage.usageWindow.from} to ${usage.usageWindow.through}; ${usage.usageWindow.recordedSalesDays} recorded sales days. Current linked recipes only, not actual past deductions; missing product recipes can understate usage.` : 'Ingredient usage data was not supplied with this report.',

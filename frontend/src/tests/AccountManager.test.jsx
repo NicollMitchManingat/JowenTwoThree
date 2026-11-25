@@ -11,6 +11,7 @@ it('loads accounts using the authenticated admin session and replaces email with
  render(<AccountManager currentUser={admin}/>);expect(await screen.findByTestId('account-row-s')).toHaveTextContent('stockman')
  expect(screen.getByText('Access Level')).toBeInTheDocument();expect(screen.queryByText('Email')).not.toBeInTheDocument()
  expect(authAPI.listUsers).toHaveBeenCalledWith();expect(screen.queryByTestId('account-unlock-password')).not.toBeInTheDocument()
+ expect(screen.getByTestId('account-row-a')).toHaveTextContent('Owner')
 })
 it('edits names and module grants without sending email or existing passwords',async()=>{
  const u=userEvent.setup();render(<AccountManager currentUser={admin}/>);await screen.findByTestId('account-row-s');await u.click(screen.getByTestId('account-edit-s'))

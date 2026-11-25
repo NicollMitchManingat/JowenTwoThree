@@ -656,14 +656,14 @@ export default function MainPOS({ user, resumeOrderId, onResumeHandled }) {
     if (orderWriteBusy.current) return;
     orderWriteBusy.current = true;
     try {
-      const { transaction: txn, quote, shorted = [] } = await db.checkoutOrder({ ...orderInput(), approvalId, paymentMethod, cashReceived, allowShortage });
+      const { transaction: txn, quote } = await db.checkoutOrder({ ...orderInput(), approvalId, paymentMethod, cashReceived, allowShortage });
       void refreshSavedOrderCount();
       setReceipt({ transaction: txn, items: quote.cart.map(item => ({ ...item, subtotal: item.price * item.qty })),
         subtotal: quote.subtotal, discountAmount: quote.discount, discountType, discountLabel: quote.discountLabel,
         total: quote.total, paymentMethod: txn.payment_method, cashReceived: Number(txn.cash_received),
         changeAmount: Number(txn.change_amount), customerCount: txn.customer_count,
         maleCount: txn.male_count, femaleCount: txn.female_count, unspecifiedCount: txn.unspecified_count,
-        timestamp: txn.created_at, orderType: txn.order_type || orderType, stockShortfall: shorted.map(s => s.name) });
+        timestamp: txn.created_at, orderType: txn.order_type || orderType });
       setShowReceipt(true); setShortfall(null); resetOrder();
     } catch (err) {
       if (err.code === 'INSUFFICIENT_STOCK') setShortfall({ items: err.shortfalls || [] });
@@ -1163,9 +1163,6 @@ export default function MainPOS({ user, resumeOrderId, onResumeHandled }) {
                     <div className="receipt-total-row"><span>Cash received</span><span>₱{Number(receipt.cashReceived ?? receipt.total).toFixed(2)}</span></div>
                     <div className="receipt-total-row"><span>Change</span><span>₱{Number(receipt.changeAmount ?? 0).toFixed(2)}</span></div>
                   </>
-                )}
-                {(receipt.stockShortfall || []).length > 0 && (
-                  <div className="receipt-total-row discount"><span>Low stock</span><span>{receipt.stockShortfall.join(', ')}</span></div>
                 )}
               </div>
               <div className="receipt-divider"></div>

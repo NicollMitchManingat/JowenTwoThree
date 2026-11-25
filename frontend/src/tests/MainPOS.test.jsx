@@ -547,8 +547,10 @@ describe('MainPOS', () => {
     expect(screen.getByTitle('Edit special instructions')).toBeInTheDocument()
   })
 
-  it('should show per-item notes on the receipt and persist them', async () => {
+  it('preserves receipt notes and printing without including checkout stock alerts', async () => {
     const user = userEvent.setup()
+    const checkout = db.checkoutOrder.getMockImplementation()
+    db.checkoutOrder.mockImplementationOnce(async input => ({ ...await checkout(input), shorted: [{ name: 'Internal ingredient shortage' }] }))
     render(<MainPOS user={mockUser} />)
 
     await waitFor(() => {
@@ -566,6 +568,14 @@ describe('MainPOS', () => {
     })
     expect(screen.getByText('1 x ₱150.00 — Extra hot')).toBeInTheDocument()
     expect(db.checkoutOrder).toHaveBeenCalledWith(expect.objectContaining({cart: expect.arrayContaining([expect.objectContaining({note: 'Extra hot'})])}))
+    const receipt = screen.getByTestId('receipt')
+    expect(receipt).not.toHaveTextContent(/Low stock|Internal ingredient shortage/i)
+    expect(receipt).toHaveTextContent('Paid')
+    const print = vi.spyOn(window, 'print').mockImplementation(() => {})
+    try {
+      await user.click(screen.getByRole('button', { name: 'Print Receipt' }))
+      expect(print).toHaveBeenCalledOnce()
+    } finally { print.mockRestore() }
   })
 
   it('should display current order section', async () => {
